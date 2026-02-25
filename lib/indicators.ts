@@ -240,8 +240,6 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
 
     // Calculate VCP criteria (match screener logic)
     const highs = data.slice(0, i + 1).map(d => d.high);
-    const lows = data.slice(0, i + 1).map(d => d.low);
-    const volumes = data.slice(0, i + 1).map(d => d.volume || 0);
 
     const last30High = Math.max(...highs.slice(-30));
     const isNearHigh = data[i].close > (last30High * 0.80);
@@ -262,8 +260,8 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
     const isIceberg = (volRatio > 1.2) && (spreadRatio < 0.75);
     const isDistribution = (!isGreen && volRatio > 1.5 && accRatio < 0.5);
 
-    // Add markers for last few candles
-    if (i >= N - 5) {
+    // Add markers for last 30 candles (was only 5 - too few!)
+    if (i >= N - 30) {
       let markerObj: MarkerData | null = null;
 
       // VCP + DRY UP = Sniper Entry (highest priority)
@@ -310,18 +308,7 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
         };
         if (i === N - 1) latestSignal = '🩸 DISTRIBUSI (Waspada)';
       }
-      // DRY UP + ICEBERG
-      else if (isDryUp && isIceberg) {
-        markerObj = {
-          time: data[i].time,
-          position: 'belowBar',
-          color: '#00cec9',
-          shape: 'arrowUp',
-          text: '🧊 ICEBERG'
-        };
-        if (i === N - 1) latestSignal = '🧊 ICEBERG + DRY UP';
-      }
-      // DRY UP only
+      // DRY UP alone (professional accumulation)
       else if (isDryUp) {
         markerObj = {
           time: data[i].time,
@@ -330,9 +317,9 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
           shape: 'arrowUp',
           text: '🥷 DRY UP'
         };
-        if (i === N - 1) latestSignal = '🥷 UJI SUPPORT (Dry Up)';
+        if (i === N - 1) latestSignal = '🥷 DRY UP (Support Test)';
       }
-      // ICEBERG only
+      // ICEBERG alone (hidden buying/selling)
       else if (isIceberg) {
         markerObj = {
           time: data[i].time,
@@ -341,7 +328,7 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
           shape: 'arrowUp',
           text: '🧊 ICEBERG'
         };
-        if (i === N - 1) latestSignal = '🧊 ICEBERG';
+        if (i === N - 1) latestSignal = '🧊 ICEBERG (Hidden Activity)';
       }
 
       if (markerObj) markers.push(markerObj);
@@ -352,27 +339,35 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
 }
 
 
-// Calculate Candle Power - predicts NEXT candle movement based on current candle analysis
-// ✅ This analyzes TODAY's candle to predict TOMORROW's price action
+// Calculate Candle Power - Enhanced with MA analysis and better VSA logic
+// ✅ Analyzes current candle to predict next candle movement with improved accuracy
 //
-// HOW IT WORKS:
-// Current Candle (i) → Analyze VSA patterns → Score 0-100 → Predict Next Candle (i+1)
+// ENHANCED FEATURES:
+// - Hammer/Doji patterns near MA support
+// - Volume spread analysis relative to MA position
+// - Volatility contraction vs dump distinction
+// - Professional VSA interpretation
 //
 // SCORE MEANING:
-// 90+  = Extreme strength → Next candle likely to move UP significantly
-// 85+  = Very strong     → Next candle likely to move UP
-// 70+  = Strong          → Next candle probably moves UP
-// 50-60= Neutral         → Next candle could go either way
-// 25-40= Weak/Bearish   → Next candle likely to move DOWN
-// <25  = Very weak      → Next candle likely DOWN or trapped
+// 95+ = Extreme markup likely (Hammer at MA + Volume confirmation)
+// 85+ = Strong markup (Dry Up / Iceberg confirmed)
+// 70+ = Good markup chance (Volume/Price alignment)
+// 50-60 = Neutral/Uncertain
+// 25-40 = Bearish / Distribution
+// <25 = Very bearish / Trap/Dump
 export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]; analysis: string } {
   const markers: MarkerData[] = [];
   const N = data.length;
   let latestPower = 50;
   let latestAnalysis = '';
 
+  // Calculate MA values for positioning analysis
+  const ma20Values = calculateMA(data, 20);
+  const ma50Values = calculateMA(data, 50);
+
   for (let i = 40; i < N; i++) {
-    // Analyze CURRENT candle (at index i) to predict what NEXT candle (at index i+1) will do
+    // Skip if we don't have enough MA data
+    if (i >= ma20Values.length || i >= ma50Values.length) continue;
 
     // Calculate 20-period averages (baseline for comparison)
     let volSum = 0;
@@ -391,6 +386,10 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
     const spreadRatio = spread / (spreadAvg || 1);
     const isGreen = current.close >= current.open;
 
+    // Get MA values for current candle
+    const ma20 = ma20Values[i]?.value || current.close;
+    const ma50 = ma50Values[i]?.value || current.close;
+
     // Calculate buy/sell pressure (accumulation/distribution)
     let buyVol = 0;
     let sellVol = 0;
@@ -400,84 +399,309 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
     }
     const accRatio = buyVol / (sellVol || 1);
 
-    // Predict NEXT candle strength (0-100)
+    // ENHANCED CANDLE ANALYSIS dengan fokus pada pola hammer di MA20
+
+    // 1. Calculate candle components relative to MA dengan lebih detail
+    const upperWick = current.high - Math.max(current.open, current.close);
+    const lowerWick = Math.min(current.open, current.close) - current.low;
+    const bodyPosition = spread > 0 ? (current.close - current.low) / spread : 0.5;
+    const bodySize = Math.abs(current.close - current.open);
+    const wickRatio = spread > 0 ? lowerWick / spread : 0;
+
+    // 2. MA positioning analysis yang lebih presisi
+    const closeAboveMA20 = current.close > ma20;
+    const closeAboveMA50 = current.close > ma50;
+    const openAboveMA20 = current.open > ma20;
+    const bodyAboveMA20 = Math.min(current.open, current.close) > ma20;
+    const bodyAboveMA50 = Math.min(current.open, current.close) > ma50;
+
+    // CRITICAL: Deteksi tail menyentuh MA20 tapi body di atas
+    const tailTouchesMA20 = current.low <= ma20 * 1.005 && current.low >= ma20 * 0.995; // 0.5% tolerance
+    const tailBelowMA20 = current.low < ma20;
+    const tailBelowMA50 = current.low < ma50;
+
+    // 3. Enhanced pattern detection dengan fokus pada reversal patterns
+    const isHammer = (lowerWick > bodySize * 1.2) && (upperWick < bodySize * 0.6) && (wickRatio > 0.5);
+    const isInvertedHammer = (upperWick > bodySize * 1.5) && (lowerWick < bodySize * 0.5);
+    const isDoji = bodySize < spread * 0.2; // Lebih liberal untuk doji detection
+    const isShootingStar = (upperWick > bodySize * 2) && (lowerWick < bodySize * 0.3) && (bodyPosition < 0.4);
+
+    // Additional pattern for red candle dengan long tail (LAJU case)
+    const isRedWithLongTail = !isGreen && (lowerWick > bodySize * 1.0) && (wickRatio > 0.4);
+
+    // 4. Volume analysis context yang lebih detail
+    const highVolume = volRatio > 1.3;
+    const veryHighVolume = volRatio > 2.0;
+    const lowVolume = volRatio < 0.7;
+    const normalVolume = volRatio >= 0.7 && volRatio <= 1.3;
+
+    // 5. Volatility analysis - distinguish cooldown vs dump
+    const isLowSpread = spreadRatio < 0.8;
+    const isHighSpread = spreadRatio > 1.2;
+
+    // Calculate 5-period volatility trend
+    let recentSpreadSum = 0;
+    let prevSpreadSum = 0;
+    for (let j = 0; j < 5; j++) {
+      if (i - j >= 0) recentSpreadSum += (data[i - j].high - data[i - j].low);
+      if (i - j - 5 >= 0) prevSpreadSum += (data[i - j - 5].high - data[i - j - 5].low);
+    }
+    const volatilityDecreasing = (recentSpreadSum / 5) < (prevSpreadSum / 5);
+
+    // START WYCKOFF-BASED CANDLE POWER CALCULATION
     let power = 50;
     let reason = 'Neutral';
 
-    // VSA Pattern Detection - determines NEXT candle prediction
-    const isDryUp = (!isGreen || body < spread * 0.2) && (volRatio <= 0.45) && (accRatio > 1.2);
-    const isIceberg = (volRatio > 1.5) && (spreadRatio < 0.6);
-    const isSilentAccumulation = (volRatio < 0.6) && isGreen && (accRatio > 1.0);
-    const isWeakBody = body < spread * 0.3;
-    const isFakeShape = (spreadRatio < 0.6 && volRatio < 0.8 && accRatio < 0.8);
+    // WYCKOFF PRINCIPLE 1: EFFORT vs RESULT ANALYSIS
+    // High volume (effort) + small range (result) = Abnormal (absorption or distribution)
+    // High volume (effort) + wide range (result) = Normal (trending)
+    // Low volume (effort) + small range (result) = Normal (no interest)
+    // Low volume (effort) + wide range (result) = Abnormal (professional activity)
 
-    // Score Assignment - what to expect for NEXT candle
-    if (isFakeShape) {
-      // Trap setup = Next candle likely fails
-      power = 35;
-      reason = 'Fake Shape';
-    } else if (isDryUp) {
-      // Dry Up = Professional support test = Next candle likely UP
-      power = 85;
-      reason = 'Dry Up';
-    } else if (isIceberg && isGreen) {
-      // Iceberg = Hidden buying = Next candle likely STRONG UP
-      power = 90;
-      reason = 'Iceberg Buy';
-    } else if (isSilentAccumulation && isWeakBody) {
-      // Silent buying with weak body = Accumulation phase = Next candle likely UP
-      power = 80;
-      reason = 'Silent Acc';
-    } else if (volRatio > 1.5 && isGreen && body > spread * 0.6) {
-      // High volume green with strong body = Next candle likely UP
-      power = 75;
-      reason = 'High Vol';
-    } else if (isGreen && accRatio > 1.2 && volRatio > 0.8) {
-      // Green with strong buying = Next candle probably UP
-      power = 70;
-      reason = 'Strong Buy';
-    } else if (isGreen && volRatio > 1.0 && spreadRatio > 0.8) {
-      // Green with normal conditions = Next candle slightly UP
-      power = 65;
-      reason = 'Bullish';
-    } else if (isGreen && body > spread * 0.5) {
-      // Weak green = Next candle uncertain
-      power = 55;
-      reason = 'Slight Bull';
-    } else if (!isGreen && volRatio > 1.5 && accRatio < 0.5) {
-      // Distribution = Professional selling = Next candle likely DOWN
-      power = 25;
-      reason = 'Distribution';
-    } else if (!isGreen) {
-      // Red day = Next candle probably DOWN
-      power = 40;
-      reason = 'Bearish';
+    const isHighEffort = volRatio > 1.3; // High volume = effort
+    const isWideResult = spreadRatio > 1.2; // Wide spread = result
+    const isLowEffort = volRatio < 0.7; // Low volume
+    const isNarrowResult = spreadRatio < 0.8; // Narrow spread
+
+    // WYCKOFF PRINCIPLE 2: SUPPLY & DEMAND BALANCE
+    // More buying volume = demand > supply (bullish)
+    // More selling volume = supply > demand (bearish)
+    const strongDemand = accRatio > 1.5;
+    const moderateDemand = accRatio > 1.1;
+    const strongSupply = accRatio < 0.6;
+    const moderateSupply = accRatio < 0.9;
+
+    // WYCKOFF PRINCIPLE 3: BACKGROUND vs TREND IDENTIFICATION
+    // Location in trend context (using MA position)
+    const inUptrend = (current.close > ma20 && current.close > ma50 && ma20 > ma50);
+    const inDowntrend = (current.close < ma20 && current.close < ma50 && ma20 < ma50);
+    const inAccumulation = !inUptrend && !inDowntrend && (current.close > ma20 * 0.95);
+
+    // PRIORITY 0: WYCKOFF TEST OF SUPPORT/RESISTANCE
+    const nearMA20 = (current.low <= ma20 * 1.03) && (current.low >= ma20 * 0.97);
+    const hasLowerWick = lowerWick > 0 && (lowerWick >= bodySize * 0.5);
+
+    if (nearMA20 && hasLowerWick) {
+      // WYCKOFF ANALYSIS: Test of support with volume characteristics
+      if (isLowEffort && strongDemand) {
+        // Low volume test + strong demand = No selling pressure (very bullish)
+        power = 95;
+        reason = '🏛️ Wyckoff No Supply Test';
+      } else if (isHighEffort && strongDemand && isNarrowResult) {
+        // High volume + narrow spread + demand = Volume absorption (very bullish)
+        power = 98;
+        reason = '🏛️ Wyckoff Volume Absorption';
+      } else if (isHighEffort && strongDemand && isWideResult) {
+        // High volume + wide spread + demand = Sign of Strength
+        power = 92;
+        reason = '💪 Wyckoff Sign of Strength';
+      } else if (moderateDemand) {
+        power = 80;
+        reason = '🎯 Support Test + Demand';
+      } else {
+        power = 65;
+        reason = '🎯 Support Test (Weak)';
+      }
     }
 
+    // PRIORITY 1: WYCKOFF UPTHRUST ANALYSIS (Distribution)
+    else if (inUptrend && isHighEffort && isWideResult && strongSupply) {
+      // High volume + wide spread + lots of selling in uptrend = Upthrust/Distribution
+      if (upperWick > bodySize * 1.5 && !isGreen) {
+        power = 10; // Very bearish - professional distribution
+        reason = '⚡ Wyckoff Upthrust';
+      } else {
+        power = 20;
+        reason = '📉 Wyckoff Distribution';
+      }
+    }
+
+    // PRIORITY 2: WYCKOFF SPRING ANALYSIS (Accumulation)
+    else if (inAccumulation && (current.low < ma50) && isLowEffort && moderateDemand && isGreen) {
+      // Spring: Brief move below support on low volume, then recover
+      power = 88;
+      reason = '🌱 Wyckoff Spring';
+    }
+
+    // PRIORITY 3: WYCKOFF SIGN OF STRENGTH (SOS)
+    else if (isHighEffort && isWideResult && strongDemand && isGreen) {
+      if (inUptrend) {
+        // High volume, wide spread, strong buying in uptrend = Sign of Strength
+        power = 92;
+        reason = '💪 Wyckoff Sign of Strength';
+      } else if (inAccumulation) {
+        // Same pattern in accumulation area = potential breakout
+        power = 85;
+        reason = '💪 Wyckoff SOS (Accumulation)';
+      } else {
+        power = 78;
+        reason = '💪 Strong Buying Effort';
+      }
+    }
+
+    // PRIORITY 4: WYCKOFF SIGN OF WEAKNESS (SOW)
+    else if (isHighEffort && isWideResult && strongSupply && !isGreen) {
+      if (inUptrend) {
+        // High volume, wide spread, heavy selling in uptrend = Sign of Weakness
+        power = 15;
+        reason = '⚠️ Wyckoff Sign of Weakness';
+      } else {
+        power = 25;
+        reason = '📉 Heavy Selling Effort';
+      }
+    }
+
+    // PRIORITY 5: WYCKOFF STOPPING VOLUME
+    else if (isHighEffort && isNarrowResult) {
+      if (strongDemand && (inDowntrend || current.close < ma20)) {
+        // High volume + narrow spread + buying in downtrend = Stopping volume
+        power = 85;
+        reason = '🛑 Wyckoff Stopping Volume';
+      } else if (strongSupply && inUptrend) {
+        // High volume + narrow spread + selling in uptrend = Distribution
+        power = 20;
+        reason = '🛑 Wyckoff Stopping (Selling)';
+      } else if (strongDemand) {
+        power = 75;
+        reason = '🛑 Volume Absorption';
+      } else {
+        power = 45;
+        reason = '🛑 High Volume (Unclear)';
+      }
+    }
+
+    // PRIORITY 6: WYCKOFF NO DEMAND/NO SUPPLY
+    else if (isLowEffort && isNarrowResult) {
+      if (inUptrend && moderateSupply) {
+        // Low volume + narrow spread in uptrend with some selling = No Demand
+        power = 30;
+        reason = '😴 Wyckoff No Demand';
+      } else if (inDowntrend && moderateDemand) {
+        // Low volume + narrow spread in downtrend with some buying = No Supply
+        power = 75;
+        reason = '🥷 Wyckoff No Supply';
+      } else {
+        power = 50;
+        reason = '😴 No Interest';
+      }
+    }
+
+    // PRIORITY 7: WYCKOFF EFFORT WITHOUT RESULT (Absorption)
+    else if (isLowEffort && isWideResult) {
+      if (isGreen && moderateDemand) {
+        // Low volume + wide spread up = Professional accumulation (very bullish)
+        power = 90;
+        reason = '🏛️ Wyckoff Effortless Advance';
+      } else if (!isGreen && moderateSupply) {
+        // Low volume + wide spread down = No support (bearish)
+        power = 25;
+        reason = '📉 Wyckoff No Support';
+      } else {
+        power = 55;
+        reason = '📊 Wide Range (Low Volume)';
+      }
+    }
+
+    // PRIORITY 8: STANDARD PATTERNS WITH WYCKOFF CONTEXT
+    else if (isGreen) {
+      if (inUptrend) {
+        if (isHighEffort && moderateDemand) {
+          power = 78;
+          reason = '📈 Uptrend + Volume';
+        } else if (isLowEffort && moderateDemand) {
+          power = 82; // Effortless advance is bullish
+          reason = '📈 Effortless Advance';
+        } else {
+          power = 58;
+          reason = '📈 Weak Uptrend';
+        }
+      } else {
+        if (strongDemand) {
+          power = 70;
+          reason = '🟢 Strong Demand';
+        } else if (moderateDemand) {
+          power = 60;
+          reason = '🟢 Moderate Demand';
+        } else {
+          power = 45;
+          reason = '🟢 Weak Green';
+        }
+      }
+    }
+
+    // PRIORITY 9: WYCKOFF MARKDOWN PATTERNS
+    else if (!isGreen) {
+      if (inDowntrend) {
+        if (isHighEffort && strongSupply) {
+          power = 18;
+          reason = '📉 Strong Markdown';
+        } else if (isLowEffort && moderateSupply) {
+          power = 35;
+          reason = '📉 Weak Markdown';
+        } else {
+          power = 40;
+          reason = '📉 Downtrend';
+        }
+      } else {
+        if (strongSupply) {
+          power = 25;
+          reason = '🔴 Strong Supply';
+        } else if (moderateSupply) {
+          power = 40;
+          reason = '🔴 Moderate Supply';
+        } else {
+          power = 52;
+          reason = '🔴 Weak Red';
+        }
+      }
+    }
+
+    // WYCKOFF CONTEXT ADJUSTMENTS
+
+    // Trend alignment bonus/penalty
+    if (inUptrend && power > 50) power += 3; // Bullish in uptrend
+    else if (inDowntrend && power < 50) power -= 5; // Bearish in downtrend
+    else if (inAccumulation && power > 70) power += 5; // Good accumulation area
+
+    // Volume extremes (professional activity indicators)
+    if (volRatio > 3.0 && strongDemand) {
+      power += 5; // Exceptional buying volume
+      if (power > 95) reason += ' (Professional)';
+    } else if (volRatio > 3.0 && strongSupply) {
+      power -= 8; // Exceptional selling volume
+      if (power < 25) reason += ' (Professional)';
+    }
+
+    // Ensure bounds
     power = Math.max(0, Math.min(100, Math.round(power)));
+
     latestPower = power;
     latestAnalysis = reason;
 
-    // Color and shape based on strength
+    // Enhanced color coding based on Wyckoff principles
     let color = '#808080';
-    if (power >= 85) {
-      color = '#00b894';
+    if (power >= 95) {
+      color = '#00b894'; // Dark green - Wyckoff professional buying
+    } else if (power >= 85) {
+      color = '#55efc4'; // Light green - strong bullish
     } else if (power >= 70) {
-      color = '#55efc4';
+      color = '#a4de6c'; // Yellow-green - good
     } else if (power >= 60) {
-      color = '#a4de6c';
+      color = '#ffd700'; // Gold - bullish bias
     } else if (power >= 50) {
-      color = '#ffd700';
+      color = '#ffb347'; // Orange - neutral
     } else if (power >= 40) {
-      color = '#ff8c00';
+      color = '#ff8c00'; // Dark orange - weak
     } else if (power >= 25) {
-      color = '#d63031';
+      color = '#d63031'; // Red - bearish
+    } else if (power >= 15) {
+      color = '#8b0000'; // Dark red - very bearish
     } else {
-      color = '#8b0000';
+      color = '#4a0000'; // Very dark red - Wyckoff professional selling
     }
 
-    // Only add markers for recent candles (last 30) to avoid clutter
-    if (i >= N - 30) {
+    // Only add markers for recent candles to avoid clutter
+    if (i >= N - 50) {
       markers.push({
         time: current.time,
         position: 'aboveBar',
@@ -485,6 +709,21 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
         shape: 'circle',
         text: power.toString()
       });
+    }
+
+    // Force markers for the last 3 candles to ensure they always appear
+    if (i >= N - 3) {
+      // Check if marker already exists for this time, if not add it
+      const existingMarker = markers.find(m => m.time === current.time);
+      if (!existingMarker) {
+        markers.push({
+          time: current.time,
+          position: 'aboveBar',
+          color: color,
+          shape: 'circle',
+          text: power.toString()
+        });
+      }
     }
   }
 

@@ -58,21 +58,21 @@ export default function ScreenerPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <nav className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Stock Screener - Indonesian Stocks</h1>
+      <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+          <h1 className="text-xl md:text-2xl font-bold">Stock Screener - Indonesian Stocks</h1>
           <Link
             href="/"
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded"
+            className="bg-blue-600 hover:bg-blue-700 px-3 md:px-4 py-2 rounded text-xs md:text-sm text-center"
           >
             Back to Chart
           </Link>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto p-6">
+      <div className="max-w-7xl mx-auto p-3 md:p-6">
         {/* Filter Buttons */}
-        <div className="mb-6 flex gap-2">
+        <div className="mb-4 md:mb-6 grid grid-cols-2 lg:flex gap-2">
           {[
             { value: 'all', label: 'All Stocks' },
             { value: 'gainers', label: 'Top Gainers' },
@@ -82,7 +82,7 @@ export default function ScreenerPage() {
             <button
               key={f.value}
               onClick={() => setFilter(f.value)}
-              className={`px-4 py-2 rounded ${
+              className={`px-3 md:px-4 py-2 rounded text-xs md:text-sm text-center ${
                 filter === f.value
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -111,34 +111,34 @@ export default function ScreenerPage() {
         {!loading && !error && (
           <div className="bg-gray-800 rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full text-xs md:text-sm">
                 <thead className="bg-gray-700">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                       Symbol
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider hidden lg:table-cell">
                       Name
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
                       Price
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
                       Change
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
                       Change %
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider hidden sm:table-cell">
                       Volume
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider hidden lg:table-cell">
                       Market Cap
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider hidden lg:table-cell">
                       P/E
                     </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-2 md:px-6 py-2 md:py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">
                       Action
                     </th>
                   </tr>
@@ -146,22 +146,22 @@ export default function ScreenerPage() {
                 <tbody className="divide-y divide-gray-700">
                   {stocks.map((stock) => (
                     <tr key={stock.symbol} className="hover:bg-gray-750">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-white">
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap">
+                        <div className="text-xs md:text-sm font-medium text-white">
                           {stock.symbol}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-300">{stock.name}</div>
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap hidden lg:table-cell">
+                        <div className="text-xs md:text-sm text-gray-300">{stock.name}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm text-white">
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap text-right">
+                        <div className="text-xs md:text-sm text-white">
                           {formatNumber(stock.price)}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap text-right">
                         <div
-                          className={`text-sm font-medium ${
+                          className={`text-xs md:text-sm font-medium ${
                             stock.change >= 0 ? 'text-green-500' : 'text-red-500'
                           }`}
                         >
@@ -169,9 +169,9 @@ export default function ScreenerPage() {
                           {formatNumber(stock.change)}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap text-right">
                         <div
-                          className={`text-sm font-medium ${
+                          className={`text-xs md:text-sm font-medium ${
                             stock.changePercent >= 0
                               ? 'text-green-500'
                               : 'text-red-500'
@@ -181,29 +181,29 @@ export default function ScreenerPage() {
                           {formatNumber(stock.changePercent, 2)}%
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm text-gray-300">
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap text-right hidden sm:table-cell">
+                        <div className="text-xs md:text-sm text-gray-300">
                           {formatLargeNumber(stock.volume)}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm text-gray-300">
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap text-right hidden lg:table-cell">
+                        <div className="text-xs md:text-sm text-gray-300">
                           {stock.marketCap
                             ? formatLargeNumber(stock.marketCap)
                             : '-'}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm text-gray-300">
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap text-right hidden lg:table-cell">
+                        <div className="text-xs md:text-sm text-gray-300">
                           {stock.pe ? formatNumber(stock.pe, 2) : '-'}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <td className="px-2 md:px-6 py-2 md:py-4 whitespace-nowrap text-center">
                         <Link
                           href={`/?symbol=${stock.symbol}`}
-                          className="text-blue-500 hover:text-blue-400 text-sm"
+                          className="text-blue-500 hover:text-blue-400 text-xs md:text-sm bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded transition"
                         >
-                          View Chart
+                          View
                         </Link>
                       </td>
                     </tr>

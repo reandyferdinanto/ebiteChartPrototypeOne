@@ -66,24 +66,24 @@ export default function ManualScreener() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <nav className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
+        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 lg:gap-0">
           <div>
-            <h1 className="text-2xl font-bold">🔬 Manual Stock Analyzer</h1>
-            <p className="text-sm text-gray-400">
+            <h1 className="text-xl md:text-2xl font-bold">🔬 Manual Stock Analyzer</h1>
+            <p className="text-xs md:text-sm text-gray-400">
               Test individual stocks to verify screening logic
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
             <Link
               href="/vcp-screener"
-              className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded transition"
+              className="bg-gray-700 hover:bg-gray-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
             >
               ← Back to Screener
             </Link>
             <Link
               href="/"
-              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded transition"
+              className="bg-blue-600 hover:bg-blue-700 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
             >
               ← Back to Chart
             </Link>
@@ -91,26 +91,26 @@ export default function ManualScreener() {
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <div className="max-w-6xl mx-auto p-3 md:p-6 space-y-4 md:space-y-6">
         {/* Input Section */}
-        <div className="bg-gray-800 border border-gray-700 rounded p-6 space-y-4">
+        <div className="bg-gray-800 border border-gray-700 rounded p-3 md:p-6 space-y-3 md:space-y-4">
           <div className="space-y-2">
-            <label className="block text-sm font-semibold text-gray-300">
+            <label className="block text-xs md:text-sm font-semibold text-gray-300">
               Stock Symbol (e.g., BBCA, BBRI, ASII)
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Enter stock symbol"
-                className="flex-1 bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 md:px-4 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none text-sm md:text-base"
               />
               <button
                 onClick={analyzeStock}
                 disabled={loading || !symbol}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 px-6 py-2 rounded transition font-semibold"
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 px-4 md:px-6 py-2 rounded transition font-semibold text-sm md:text-base"
               >
                 {loading ? '🔄 Analyzing...' : '🔍 Analyze'}
               </button>

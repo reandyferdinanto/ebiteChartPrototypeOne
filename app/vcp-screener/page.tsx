@@ -110,17 +110,17 @@ export default function VCPScreener() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs md:text-sm">
               <thead>
                 <tr className="border-b border-gray-700">
-                  <th className="text-left py-3 px-3 text-gray-400">Ticker</th>
-                  <th className="text-right py-3 px-3 text-gray-400">Price</th>
-                  <th className="text-right py-3 px-3 text-gray-400">Change</th>
-                  <th className="text-right py-3 px-3 text-gray-400">Volume</th>
-                  <th className="text-center py-3 px-3 text-gray-400">Score</th>
-                  <th className="text-left py-3 px-3 text-gray-400">Pattern</th>
-                  <th className="text-left py-3 px-3 text-gray-400">Action</th>
-                  <th className="text-center py-3 px-3 text-gray-400">Chart</th>
+                  <th className="text-left py-2 md:py-3 px-2 md:px-3 text-gray-400">Ticker</th>
+                  <th className="text-right py-2 md:py-3 px-2 md:px-3 text-gray-400">Price</th>
+                  <th className="text-right py-2 md:py-3 px-2 md:px-3 text-gray-400">Change</th>
+                  <th className="text-right py-2 md:py-3 px-2 md:px-3 text-gray-400 hidden sm:table-cell">Volume</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-3 text-gray-400">Score</th>
+                  <th className="text-left py-2 md:py-3 px-2 md:px-3 text-gray-400 hidden lg:table-cell">Pattern</th>
+                  <th className="text-left py-2 md:py-3 px-2 md:px-3 text-gray-400 hidden lg:table-cell">Action</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-3 text-gray-400">Chart</th>
                 </tr>
               </thead>
               <tbody>
@@ -129,15 +129,17 @@ export default function VCPScreener() {
                     key={idx}
                     className="border-b border-gray-800 hover:bg-gray-800/50 transition"
                   >
-                    <td className="py-3 px-3 font-semibold text-white">
+                    <td className="py-2 md:py-3 px-2 md:px-3 font-semibold text-white">
                       {candidate.symbol}
                     </td>
-                    <td className="py-3 px-3 text-right text-white">
-                      Rp {candidate.price.toLocaleString('id-ID', { maximumFractionDigits: 0 })}
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-right text-white">
+                      <div className="text-xs md:text-sm">
+                        Rp {candidate.price.toLocaleString('id-ID', { maximumFractionDigits: 0 })}
+                      </div>
                     </td>
-                    <td className="py-3 px-3 text-right">
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-right">
                       <span
-                        className={`${
+                        className={`text-xs md:text-sm ${
                           candidate.change >= 0 ? 'text-green-400' : 'text-red-400'
                         }`}
                       >
@@ -145,12 +147,14 @@ export default function VCPScreener() {
                         {candidate.changePercent.toFixed(2)}%
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-right text-gray-300">
-                      {(candidate.volume / 1000000).toFixed(1)}M
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-right text-gray-300 hidden sm:table-cell">
+                      <div className="text-xs md:text-sm">
+                        {(candidate.volume / 1000000).toFixed(1)}M
+                      </div>
                     </td>
-                    <td className="py-3 px-3 text-center">
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-center">
                       <span
-                        className={`px-3 py-1 rounded font-bold ${
+                        className={`px-2 md:px-3 py-1 rounded font-bold text-xs md:text-sm ${
                           candidate.vpcScore >= 90
                             ? 'bg-green-900 text-green-200'
                             : candidate.vpcScore >= 80
@@ -163,10 +167,10 @@ export default function VCPScreener() {
                         {candidate.vpcScore}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-sm text-gray-300">
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-xs md:text-sm text-gray-300 hidden lg:table-cell">
                       {candidate.pattern}
                     </td>
-                    <td className="py-3 px-3 text-sm">
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-xs md:text-sm hidden lg:table-cell">
                       <span
                         className={`${
                           candidate.recommendation.includes('STRONG')
@@ -181,10 +185,10 @@ export default function VCPScreener() {
                         {candidate.recommendation}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-center">
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-center">
                       <Link
                         href={`/?symbol=${candidate.symbol}`}
-                        className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs transition"
+                        className="bg-blue-600 hover:bg-blue-700 px-2 md:px-3 py-1 rounded text-xs transition"
                       >
                         View
                       </Link>
@@ -201,24 +205,24 @@ export default function VCPScreener() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <nav className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
+        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 lg:gap-0">
           <div>
-            <h1 className="text-2xl font-bold">🎯 VCP Screener</h1>
-            <p className="text-sm text-gray-400">
+            <h1 className="text-xl md:text-2xl font-bold">🎯 VCP Screener</h1>
+            <p className="text-xs md:text-sm text-gray-400">
               Scan all IDX stocks for VCP Base & Sniper Entry patterns
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
             <Link
               href="/manual-screener"
-              className="bg-yellow-700 hover:bg-yellow-600 px-4 py-2 rounded transition text-sm"
+              className="bg-yellow-700 hover:bg-yellow-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
             >
               🔬 Manual Test
             </Link>
             <Link
               href="/"
-              className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded transition"
+              className="bg-gray-700 hover:bg-gray-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
             >
               ← Back to Chart
             </Link>
@@ -226,28 +230,28 @@ export default function VCPScreener() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-4 md:space-y-6">
         {/* Summary Cards */}
         {results && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-gradient-to-br from-red-900 to-red-800 rounded p-4 border border-red-700">
-              <div className="text-sm text-gray-300 mb-1">🎯 Sniper Entry</div>
-              <div className="text-3xl font-bold">{results.sniperCount}</div>
-              <div className="text-xs text-gray-400 mt-2">VCP + Dry Up combined</div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+            <div className="bg-gradient-to-br from-red-900 to-red-800 rounded p-3 md:p-4 border border-red-700">
+              <div className="text-xs md:text-sm text-gray-300 mb-1">🎯 Sniper Entry</div>
+              <div className="text-2xl md:text-3xl font-bold">{results.sniperCount}</div>
+              <div className="text-xs text-gray-400 mt-1 md:mt-2">VCP + Dry Up combined</div>
             </div>
-            <div className="bg-gradient-to-br from-blue-900 to-blue-800 rounded p-4 border border-blue-700">
-              <div className="text-sm text-gray-300 mb-1">📉 VCP Base</div>
-              <div className="text-3xl font-bold">{results.vcpCount}</div>
-              <div className="text-xs text-gray-400 mt-2">Ready for breakout</div>
+            <div className="bg-gradient-to-br from-blue-900 to-blue-800 rounded p-3 md:p-4 border border-blue-700">
+              <div className="text-xs md:text-sm text-gray-300 mb-1">📉 VCP Base</div>
+              <div className="text-2xl md:text-3xl font-bold">{results.vcpCount}</div>
+              <div className="text-xs text-gray-400 mt-1 md:mt-2">Ready for breakout</div>
             </div>
-            <div className="bg-gradient-to-br from-yellow-900 to-yellow-800 rounded p-4 border border-yellow-700">
-              <div className="text-sm text-gray-300 mb-1">🥷 Dry Up</div>
-              <div className="text-3xl font-bold">{results.dryUpCount}</div>
-              <div className="text-xs text-gray-400 mt-2">Support accumulation</div>
+            <div className="bg-gradient-to-br from-yellow-900 to-yellow-800 rounded p-3 md:p-4 border border-yellow-700">
+              <div className="text-xs md:text-sm text-gray-300 mb-1">🥷 Dry Up</div>
+              <div className="text-2xl md:text-3xl font-bold">{results.dryUpCount}</div>
+              <div className="text-xs text-gray-400 mt-1 md:mt-2">Support accumulation</div>
             </div>
-            <div className="bg-gradient-to-br from-green-900 to-green-800 rounded p-4 border border-green-700">
-              <div className="text-sm text-gray-300 mb-1">📊 Total Scanned</div>
-              <div className="text-3xl font-bold">{results.total}</div>
+            <div className="bg-gradient-to-br from-green-900 to-green-800 rounded p-3 md:p-4 border border-green-700">
+              <div className="text-xs md:text-sm text-gray-300 mb-1">📊 Total Scanned</div>
+              <div className="text-2xl md:text-3xl font-bold">{results.total}</div>
               <div className="text-xs text-gray-400 mt-2">
                 {new Date(results.timestamp).toLocaleTimeString()}
               </div>
@@ -256,21 +260,21 @@ export default function VCPScreener() {
         )}
 
         {/* Controls */}
-        <div className="bg-gray-800 border border-gray-700 rounded p-4 space-y-4">
-          <div className="flex gap-4 items-center flex-wrap">
-            <label className="text-sm text-gray-300">
+        <div className="bg-gray-800 border border-gray-700 rounded p-3 md:p-4 space-y-3 md:space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 items-end">
+            <label className="text-xs md:text-sm text-gray-300">
               Filter:
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value as 'all' | 'liquid')}
-                className="ml-2 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white"
+                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
               >
                 <option value="liquid">💧 Liquid Stocks (200+ stocks) - Faster</option>
                 <option value="all">📊 All IDX Stocks (800+) - Comprehensive</option>
               </select>
             </label>
 
-            <label className="text-sm text-gray-300">
+            <label className="text-xs md:text-sm text-gray-300">
               Results Limit:
               <input
                 type="number"
@@ -279,11 +283,11 @@ export default function VCPScreener() {
                 min="10"
                 max="500"
                 step="10"
-                className="ml-2 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white w-20"
+                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
               />
             </label>
 
-            <label className="text-sm text-gray-300">
+            <label className="text-xs md:text-sm text-gray-300">
               Minimum Score:
               <input
                 type="number"
@@ -292,14 +296,14 @@ export default function VCPScreener() {
                 min="50"
                 max="100"
                 step="5"
-                className="ml-2 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white w-20"
+                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
               />
             </label>
 
             <button
               onClick={scanStocks}
               disabled={loading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 px-6 py-2 rounded transition font-semibold"
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 px-4 md:px-6 py-2 rounded transition font-semibold text-sm md:text-base"
             >
               {loading ? '🔄 Scanning...' : '🔍 Scan Stocks'}
             </button>
@@ -322,10 +326,10 @@ export default function VCPScreener() {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-2 flex-wrap">
+        <div className="grid grid-cols-2 lg:flex lg:gap-2 gap-2">
           <button
             onClick={() => setActiveTab('sniper')}
-            className={`px-4 py-2 rounded font-semibold transition ${
+            className={`px-3 md:px-4 py-2 rounded font-semibold transition text-xs md:text-sm ${
               activeTab === 'sniper'
                 ? 'bg-red-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -335,7 +339,7 @@ export default function VCPScreener() {
           </button>
           <button
             onClick={() => setActiveTab('vcp')}
-            className={`px-4 py-2 rounded font-semibold transition ${
+            className={`px-3 md:px-4 py-2 rounded font-semibold transition text-xs md:text-sm ${
               activeTab === 'vcp'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -345,7 +349,7 @@ export default function VCPScreener() {
           </button>
           <button
             onClick={() => setActiveTab('dryup')}
-            className={`px-4 py-2 rounded font-semibold transition ${
+            className={`px-3 md:px-4 py-2 rounded font-semibold transition text-xs md:text-sm ${
               activeTab === 'dryup'
                 ? 'bg-yellow-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -355,7 +359,7 @@ export default function VCPScreener() {
           </button>
           <button
             onClick={() => setActiveTab('all')}
-            className={`px-4 py-2 rounded font-semibold transition ${
+            className={`px-3 md:px-4 py-2 rounded font-semibold transition text-xs md:text-sm ${
               activeTab === 'all'
                 ? 'bg-purple-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -381,9 +385,9 @@ export default function VCPScreener() {
         )}
 
         {/* Legend */}
-        <div className="bg-gray-800 border border-gray-700 rounded p-4">
-          <h3 className="font-semibold mb-3">📖 Pattern Guide</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <div className="bg-gray-800 border border-gray-700 rounded p-3 md:p-4">
+          <h3 className="font-semibold mb-3 text-sm md:text-base">📖 Pattern Guide</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs md:text-sm">
             <div>
               <span className="font-semibold text-red-300">🎯 Sniper Entry</span>
               <p className="text-gray-400">VCP base + dry up = Perfect sniper entry point</p>

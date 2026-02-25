@@ -36,55 +36,60 @@ export default function StockChart({ data }: StockChartProps) {
   });
   const [indicators, setIndicators] = useState<IndicatorResult | null>(null);
 
-  // Helper function to handle button clicks without page scroll
-  const handleIndicatorChange = (key: keyof typeof showIndicators) => {
-    // Prevent default scroll behavior
-    window.scrollY; // Keep current scroll position
-    setShowIndicators(prev => ({ ...prev, [key]: !prev[key] }));
-    // Maintain scroll position after state update
-    const scrollPos = window.scrollY;
-    setTimeout(() => window.scrollTo(0, scrollPos), 0);
-  };
 
-  // Quick preset modes
-  const setCleanMode = () => {
-    setShowIndicators({
-      ma: true,       // Only MA20 for trend
-      momentum: false,
-      ao: false,
-      fibonacci: false,
-      squeeze: false,
-      vsa: true,      // Only VSA patterns
-      vcp: false,
-      candlePower: false,
-      signals: true
-    });
-  };
-
+  // Quick preset modes - Reorganized for better UX
   const setSqueezeMode = () => {
     setShowIndicators({
-      ma: true,
-      momentum: false,
+      ma: true,        // Show MA for context
+      momentum: true,  // Show momentum for squeeze
       ao: false,
       fibonacci: false,
-      squeeze: true,   // Focus on squeeze strategy
-      vsa: false,
+      squeeze: true,   // Main squeeze detection
+      vsa: false,      // Focus only on squeeze
       vcp: false,
       candlePower: false,
       signals: true
     });
   };
 
-  const setVcpVsaMode = () => {
+  const setMAMode = () => {
     setShowIndicators({
-      ma: true,
+      ma: true,        // Show all MA lines (5, 20, 50, 200)
       momentum: false,
       ao: false,
       fibonacci: false,
       squeeze: false,
-      vsa: true,       // Focus on VCP/VSA strategy
-      vcp: true,
-      candlePower: true,
+      vsa: false,      // Clean chart with only MA lines
+      vcp: false,
+      candlePower: false,
+      signals: true
+    });
+  };
+
+  const setVSAMode = () => {
+    setShowIndicators({
+      ma: true,        // Show MA for context
+      momentum: false,
+      ao: false,
+      fibonacci: false,
+      squeeze: false,
+      vsa: true,       // Focus on VSA patterns (iceberg, dry up, VCP base)
+      vcp: true,       // Include VCP detection
+      candlePower: false,
+      signals: true
+    });
+  };
+
+  const setCandlePowerMode = () => {
+    setShowIndicators({
+      ma: true,        // Show MA for context
+      momentum: false,
+      ao: false,
+      fibonacci: false,
+      squeeze: false,
+      vsa: false,
+      vcp: false,
+      candlePower: true, // Focus on candle power analysis
       signals: true
     });
   };
@@ -103,30 +108,36 @@ export default function StockChart({ data }: StockChartProps) {
     });
   };
 
-  const setMinimalMode = () => {
-    setShowIndicators({
-      ma: false,       // No indicators
-      momentum: false,
-      ao: false,
-      fibonacci: false,
-      squeeze: false,
-      vsa: true,       // Only patterns
-      vcp: false,
-      candlePower: false,
-      signals: true
-    });
-  };
-
   useEffect(() => {
     if (!chartContainerRef.current || data.length === 0) return;
+
+    // Clean up previous chart instance before creating a new one
+    if (chartRef.current) {
+      try {
+        chartRef.current.remove();
+      } catch (e) {
+        console.warn('Error removing previous chart:', e);
+      }
+      chartRef.current = null;
+    }
 
     // Calculate indicators
     const calculatedIndicators = calculateAllIndicators(data);
     setIndicators(calculatedIndicators);
 
-    // Create chart
+    // Create chart with better mobile dimensions
     const isMobile = window.innerWidth < 768;
-    const chartHeight = isMobile ? 300 : 500;
+    const isTablet = window.innerWidth >= 768 && window.innerWidth < 1024;
+
+    // Significantly larger chart heights for better mobile experience
+    let chartHeight;
+    if (isMobile) {
+      chartHeight = 450; // Increased from 300 to 450 for much better mobile experience
+    } else if (isTablet) {
+      chartHeight = 550; // Good size for tablets
+    } else {
+      chartHeight = 600; // Larger even for desktop for better analysis
+    }
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
@@ -142,25 +153,72 @@ export default function StockChart({ data }: StockChartProps) {
       timeScale: {
         timeVisible: true,
         secondsVisible: false,
+        // Better mobile time scale options
+        borderVisible: true,
+        borderColor: '#2a2a2a',
+        rightOffset: isMobile ? 5 : 12, // Less right padding on mobile
+        barSpacing: isMobile ? 8 : 6, // Wider bar spacing on mobile for better touch interaction
+        minBarSpacing: isMobile ? 4 : 2, // Minimum spacing to prevent candles from being too close
       },
       rightPriceScale: {
         borderColor: '#2a2a2a',
+        // Better price scale for mobile
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
+        },
+        borderVisible: true,
       },
       crosshair: {
-        mode: 1,
+        mode: 1, // Magnet mode for easier mobile interaction
+        vertLine: {
+          color: '#758494',
+          width: isMobile ? 2 : 1, // Thicker crosshair lines on mobile
+          style: 2,
+        },
+        horzLine: {
+          color: '#758494',
+          width: isMobile ? 2 : 1,
+          style: 2,
+        },
+      },
+      // Enhanced interaction for proper zoom functionality
+      handleScroll: {
+        mouseWheel: true, // Enable mouse wheel zoom on desktop
+        pressedMouseMove: true, // Enable drag to pan
+        horzTouchDrag: true, // Enable horizontal touch drag (pan left/right)
+        vertTouchDrag: true, // Enable vertical touch drag (zoom in/out on mobile)
+      },
+      handleScale: {
+        axisPressedMouseMove: {
+          time: true, // Enable time axis scaling via mouse drag
+          price: true, // Enable price axis scaling via mouse drag
+        },
+        mouseWheel: true, // Enable mouse wheel zooming
+        pinch: true, // Enable pinch-to-zoom on touch devices
+        axisDoubleClickReset: {
+          time: true, // Double-click time axis to reset zoom
+          price: true, // Double-click price axis to reset zoom
+        },
       },
     });
 
     chartRef.current = chart;
 
-    // Add main price series
+    // Add main price series with mobile-optimized settings
     if (chartType === 'candlestick') {
       const candlestickSeries = chart.addCandlestickSeries({
         upColor: '#26a69a',
         downColor: '#ef5350',
-        borderVisible: false,
+        borderVisible: true, // Make borders visible for better candle definition
         wickUpColor: '#26a69a',
         wickDownColor: '#ef5350',
+        borderUpColor: '#1e8a7a', // Darker border for up candles
+        borderDownColor: '#d32f2f', // Darker border for down candles
+        wickVisible: true,
+        // Better mobile candle appearance
+        priceLineVisible: false,
+        lastValueVisible: true,
       });
       candlestickSeries.setData(data as any);
 
@@ -168,95 +226,129 @@ export default function StockChart({ data }: StockChartProps) {
       if (showIndicators.signals || showIndicators.squeeze || showIndicators.vsa || showIndicators.vcp || showIndicators.candlePower) {
         const allMarkers: typeof calculatedIndicators.vsaMarkers = [];
 
-        if (showIndicators.squeeze) {
-          allMarkers.push(...calculatedIndicators.squeezeMarkers);
-        }
-
-        if (showIndicators.vsa || showIndicators.vcp) {
-          allMarkers.push(...calculatedIndicators.vsaMarkers);
-        }
-
-        if (showIndicators.candlePower) {
+        // Prioritize candle power markers when in Candle Power mode
+        if (showIndicators.candlePower && !showIndicators.squeeze && !showIndicators.vsa && !showIndicators.vcp) {
+          // In pure Candle Power mode, show only candle power markers
           allMarkers.push(...calculatedIndicators.candlePowerMarkers);
-        }
+        } else {
+          // In mixed mode, add other markers first, then candle power to prioritize them
 
-        if (showIndicators.signals) {
-          allMarkers.push(
-            ...calculatedIndicators.vsaMarkers,
-            ...calculatedIndicators.squeezeMarkers,
-            ...calculatedIndicators.candlePowerMarkers
-          );
+          // Add squeeze markers
+          if (showIndicators.squeeze || showIndicators.signals) {
+            allMarkers.push(...calculatedIndicators.squeezeMarkers);
+          }
+
+          // Add VSA/VCP markers
+          if (showIndicators.vsa || showIndicators.vcp || showIndicators.signals) {
+            allMarkers.push(...calculatedIndicators.vsaMarkers);
+          }
+
+          // Add candle power markers LAST to prioritize them in deduplication
+          if (showIndicators.candlePower || showIndicators.signals) {
+            allMarkers.push(...calculatedIndicators.candlePowerMarkers);
+          }
         }
 
         if (allMarkers.length > 0) {
-          const uniqueMarkers = Array.from(
-            new Map(allMarkers.map(m => [m.time + m.text, m])).values()
-          ).sort((a, b) => a.time - b.time);
+          // Special handling for last 3 candles - ensure candle power always shows
+          const lastThreeTimes = data.slice(-3).map(d => d.time);
+          const candlePowerMarkers = calculatedIndicators.candlePowerMarkers;
 
+          // Remove duplicates but prioritize candle power markers for last 3 candles
+          const markerMap = new Map();
+
+          // Add all markers first
+          allMarkers.forEach(marker => {
+            const key = marker.time.toString();
+            if (!markerMap.has(key)) {
+              markerMap.set(key, marker);
+            }
+          });
+
+          // Override with candle power markers for last 3 candles
+          candlePowerMarkers.forEach(marker => {
+            if (lastThreeTimes.includes(marker.time)) {
+              markerMap.set(marker.time.toString(), marker);
+            }
+          });
+
+          const uniqueMarkers = Array.from(markerMap.values()).sort((a, b) => a.time - b.time);
           candlestickSeries.setMarkers(uniqueMarkers as any);
         }
       }
     } else {
       const lineSeries = chart.addLineSeries({
         color: '#2962FF',
-        lineWidth: 2,
+        lineWidth: isMobile ? 3 : 2, // Thicker line on mobile for better visibility
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: isMobile ? 6 : 4, // Larger crosshair marker on mobile
       });
       const lineData = data.map((d) => ({ time: d.time, value: d.close }));
       lineSeries.setData(lineData as any);
     }
 
-    // Add Moving Averages (simplified for cleaner chart)
+    // Add Moving Averages with proper logic for different modes
     if (showIndicators.ma) {
-      // In Clean/Minimal modes, show only MA20 and MA50
-      const isCleanMode = !showIndicators.momentum && !showIndicators.ao && !showIndicators.fibonacci;
+      // Determine if we're in a clean mode (only MA without other complex indicators)
+      const isMAOnlyMode = !showIndicators.momentum && !showIndicators.ao && !showIndicators.fibonacci &&
+                          !showIndicators.squeeze && !showIndicators.vsa && !showIndicators.vcp && !showIndicators.candlePower;
 
-      if (!isCleanMode && calculatedIndicators.ma5.length > 0) {
-        const ma5Series = chart.addLineSeries({
-          color: '#2962FF',
-          lineWidth: 1,
-          priceLineVisible: false,
-          lastValueVisible: false
-        });
-        ma5Series.setData(calculatedIndicators.ma5 as any);
+      // Always show MA5 in MA-only mode, or when in full analysis mode
+      if (isMAOnlyMode || (showIndicators.momentum || showIndicators.ao || showIndicators.fibonacci)) {
+        if (calculatedIndicators.ma5.length > 0) {
+          const ma5Series = chart.addLineSeries({
+            color: '#2962FF',
+            lineWidth: isMobile ? 2 : 1, // Thicker on mobile
+            priceLineVisible: false,
+            lastValueVisible: false
+          });
+          ma5Series.setData(calculatedIndicators.ma5 as any);
+        }
       }
 
+      // Always show MA20
       if (calculatedIndicators.ma20.length > 0) {
         const ma20Series = chart.addLineSeries({
           color: '#f1c40f',
-          lineWidth: 2,  // Thicker for better visibility
+          lineWidth: isMobile ? 3 : 2, // Much thicker for better mobile visibility
           priceLineVisible: false,
           lastValueVisible: false
         });
         ma20Series.setData(calculatedIndicators.ma20 as any);
       }
 
+      // Always show MA50
       if (calculatedIndicators.ma50.length > 0) {
         const ma50Series = chart.addLineSeries({
           color: '#e67e22',
-          lineWidth: 2,  // Thicker for better visibility
+          lineWidth: isMobile ? 3 : 2, // Much thicker for better mobile visibility
           priceLineVisible: false,
           lastValueVisible: false
         });
         ma50Series.setData(calculatedIndicators.ma50 as any);
       }
 
-      // Only show MA200 in Full Analysis mode
-      if (!isCleanMode && calculatedIndicators.ma200.length > 0) {
-        const ma200Series = chart.addLineSeries({
-          color: '#9b59b6',
-          lineWidth: 1,
-          priceLineVisible: false,
-          lastValueVisible: false
-        });
-        ma200Series.setData(calculatedIndicators.ma200 as any);
+      // Show MA200 in MA-only mode or full analysis mode
+      if (isMAOnlyMode || (showIndicators.momentum || showIndicators.ao || showIndicators.fibonacci)) {
+        if (calculatedIndicators.ma200.length > 0) {
+          const ma200Series = chart.addLineSeries({
+            color: '#9b59b6',
+            lineWidth: isMobile ? 2 : 1, // Thicker on mobile
+            priceLineVisible: false,
+            lastValueVisible: false
+          });
+          ma200Series.setData(calculatedIndicators.ma200 as any);
+        }
       }
     }
 
-    // Add Fibonacci levels
+    // Add Fibonacci levels with better mobile visibility
     if (showIndicators.fibonacci) {
       const fib382Series = chart.addLineSeries({
         color: '#3498db',
-        lineWidth: 1,
+        lineWidth: isMobile ? 2 : 1, // Thicker on mobile
         lineStyle: 2,
         priceLineVisible: false
       });
@@ -264,7 +356,7 @@ export default function StockChart({ data }: StockChartProps) {
 
       const fib500Series = chart.addLineSeries({
         color: '#e74c3c',
-        lineWidth: 1,
+        lineWidth: isMobile ? 2 : 1, // Thicker on mobile
         lineStyle: 2,
         priceLineVisible: false
       });
@@ -272,7 +364,7 @@ export default function StockChart({ data }: StockChartProps) {
 
       const fib618Series = chart.addLineSeries({
         color: '#00b894',
-        lineWidth: 1,
+        lineWidth: isMobile ? 2 : 1, // Thicker on mobile
         lineStyle: 2,
         priceLineVisible: false
       });
@@ -289,9 +381,10 @@ export default function StockChart({ data }: StockChartProps) {
         priceScaleId: '',
       });
 
+      // Better volume chart margins for mobile
       chart.priceScale('').applyOptions({
         scaleMargins: {
-          top: 0.8,
+          top: isMobile ? 0.75 : 0.8, // Slightly more space for price chart on mobile
           bottom: 0,
         },
       });
@@ -305,78 +398,130 @@ export default function StockChart({ data }: StockChartProps) {
       volumeSeries.setData(volumeData as any);
     }
 
+    // Auto-fit content with mobile-specific behavior
+    const timeoutId = setTimeout(() => {
+      if (chartRef.current) {
+        try {
+          chart.timeScale().fitContent();
+          // On mobile, ensure proper initial zoom level
+          if (isMobile && data.length > 50) {
+            chart.timeScale().setVisibleRange({
+              from: data[Math.max(0, data.length - 30)].time as any,
+              to: data[data.length - 1].time as any,
+            });
+          }
+        } catch (e) {
+          console.warn('Error setting chart content:', e);
+        }
+      }
+    }, 100);
 
-    // Auto-fit content
-    chart.timeScale().fitContent();
-
-    // Handle resize
+    // Handle resize with improved error handling
     const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
+      try {
+        if (chartContainerRef.current && chartRef.current) {
+          chartRef.current.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+          });
+        }
+      } catch (e) {
+        console.warn('Error resizing chart:', e);
       }
     };
+
+    // Use a reference to track if component is mounted
+    let isMounted = true;
 
     window.addEventListener('resize', handleResize);
 
     return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
       window.removeEventListener('resize', handleResize);
+
+      // Improved cleanup with error handling
       if (chartRef.current) {
-        chartRef.current.remove();
+        try {
+          chartRef.current.remove();
+        } catch (e) {
+          console.warn('Error disposing chart:', e);
+        } finally {
+          chartRef.current = null;
+        }
       }
     };
   }, [data, chartType, showIndicators]);
+
+  // Additional cleanup effect for component unmounting
+  useEffect(() => {
+    return () => {
+      // Ensure chart is properly disposed when component unmounts
+      if (chartRef.current) {
+        try {
+          chartRef.current.remove();
+        } catch (e) {
+          console.warn('Error disposing chart on unmount:', e);
+        } finally {
+          chartRef.current = null;
+        }
+      }
+    };
+  }, []);
 
   return (
     <div className="w-full">
       {/* Sticky Controls - Mobile Responsive */}
       <div className="sticky top-0 z-50 bg-gray-900 border-b border-gray-700 shadow-lg">
         {/* Mobile Toggle Button */}
-        <div className="md:hidden flex items-center justify-between p-2 border-b border-gray-700">
-          <span className="text-xs font-semibold text-gray-300">Controls</span>
+        <div className="md:hidden flex items-center justify-between p-3 border-b border-gray-700">
+          <span className="text-sm font-semibold text-gray-300">Chart Controls</span>
           <button
             onClick={() => setShowControls(!showControls)}
-            className="text-gray-400 hover:text-white text-lg"
+            className="text-gray-400 hover:text-white text-xl p-1 rounded"
           >
-            {showControls ? '▼' : '▶'}
+            {showControls ? '▼ Hide' : '▶ Show'}
           </button>
         </div>
 
         {/* Controls - Collapsible on Mobile */}
         {showControls && (
-          <div className="p-2 md:p-4 space-y-2 max-h-96 md:max-h-none overflow-y-auto md:overflow-y-visible">
+          <div className="p-3 md:p-4 space-y-3 max-h-[70vh] md:max-h-none overflow-y-auto md:overflow-y-visible">{/* ...existing controls... */}
 
             {/* Quick Mode Presets */}
             <div className="flex gap-1 md:gap-2 flex-wrap mb-3 p-2 bg-gray-800 rounded">
               <span className="text-xs text-gray-400 py-1">⚡ Quick Modes:</span>
               <button
-                onClick={setCleanMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-green-700 hover:bg-green-600 text-white"
-              >
-                🧹 Clean
-              </button>
-              <button
-                onClick={setMinimalMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-blue-700 hover:bg-blue-600 text-white"
-              >
-                📊 Minimal
-              </button>
-              <button
                 onClick={setSqueezeMode}
                 className="px-2 md:px-3 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
+                title="TTM Squeeze + Momentum + SQZ/XD patterns"
               >
                 🔮 Squeeze
               </button>
               <button
-                onClick={setVcpVsaMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-orange-700 hover:bg-orange-600 text-white"
+                onClick={setMAMode}
+                className="px-2 md:px-3 py-1 rounded text-xs bg-yellow-700 hover:bg-yellow-600 text-white"
+                title="Moving Averages: MA5, MA20, MA50, MA200"
               >
-                🎯 VCP/VSA
+                📈 MA Lines
+              </button>
+              <button
+                onClick={setVSAMode}
+                className="px-2 md:px-3 py-1 rounded text-xs bg-orange-700 hover:bg-orange-600 text-white"
+                title="VSA Patterns: Iceberg, Dry Up, VCP Base"
+              >
+                🎯 VSA Patterns
+              </button>
+              <button
+                onClick={setCandlePowerMode}
+                className="px-2 md:px-3 py-1 rounded text-xs bg-red-700 hover:bg-red-600 text-white"
+                title="Candle Power Score & Analysis"
+              >
+                🔥 Candle Power
               </button>
               <button
                 onClick={setAnalysisMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-red-700 hover:bg-red-600 text-white"
+                className="px-2 md:px-3 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600 text-white"
+                title="All Indicators & Analysis"
               >
                 🔬 Full Analysis
               </button>
@@ -406,130 +551,117 @@ export default function StockChart({ data }: StockChartProps) {
               </button>
             </div>
 
-            {/* Indicator Toggles - Organized by Strategy */}
-            <div className="space-y-1 md:space-y-2">
-              {/* Price Indicators */}
-              <div className="flex gap-1 md:gap-2 flex-wrap">
-                <span className="text-xs text-gray-400 py-1 px-1 md:px-2 bg-gray-800 rounded">📊 Price:</span>
-                <button
-                  onClick={() => handleIndicatorChange('ma')}
-                  className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm ${
-                    showIndicators.ma
-                      ? 'bg-yellow-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
-                >
-                  {showIndicators.ma ? '✓' : ''} MA
-                </button>
-                <button
-                  onClick={() => handleIndicatorChange('fibonacci')}
-                  className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm ${
-                    showIndicators.fibonacci
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
-                >
-                  {showIndicators.fibonacci ? '✓' : ''} Fib
-                </button>
-              </div>
 
-              {/* Squeeze Strategy */}
-              <div className="bg-purple-900/20 p-2 rounded border border-purple-700/30">
-                <div className="flex gap-1 md:gap-2 flex-wrap mb-2">
-                  <span className="text-xs text-purple-300 py-1 px-1 md:px-2 bg-purple-800 rounded font-semibold">🔮 Squeeze Strategy</span>
-                </div>
-                <div className="flex gap-1 md:gap-2 flex-wrap">
-                  <button
-                    onClick={() => handleIndicatorChange('squeeze')}
-                    className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm ${
-                      showIndicators.squeeze
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    {showIndicators.squeeze ? '✓' : ''} TTM Squeeze
-                  </button>
-                  <button
-                    onClick={() => handleIndicatorChange('momentum')}
-                    className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm ${
-                      showIndicators.momentum
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    {showIndicators.momentum ? '✓' : ''} Momentum
-                  </button>
-                </div>
-              </div>
-
-              {/* VCP/VSA Strategy */}
-              <div className="bg-orange-900/20 p-2 rounded border border-orange-700/30">
-                <div className="flex gap-1 md:gap-2 flex-wrap mb-2">
-                  <span className="text-xs text-orange-300 py-1 px-1 md:px-2 bg-orange-800 rounded font-semibold">🎯 VCP/VSA Strategy</span>
-                </div>
-                <div className="flex gap-1 md:gap-2 flex-wrap">
-                  <button
-                    onClick={() => handleIndicatorChange('vsa')}
-                    className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm ${
-                      showIndicators.vsa
-                        ? 'bg-orange-600 text-white'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    {showIndicators.vsa ? '✓' : ''} VSA Patterns
-                  </button>
-                  <button
-                    onClick={() => handleIndicatorChange('vcp')}
-                    className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm ${
-                      showIndicators.vcp
-                        ? 'bg-red-600 text-white'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    {showIndicators.vcp ? '✓' : ''} VCP Detection
-                  </button>
-                  <button
-                    onClick={() => handleIndicatorChange('candlePower')}
-                    className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm ${
-                      showIndicators.candlePower
-                        ? 'bg-yellow-600 text-white'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    {showIndicators.candlePower ? '✓' : ''} Candle Power
-                  </button>
-                </div>
-              </div>
-
-              {/* General Controls */}
-              <div className="flex gap-1 md:gap-2 flex-wrap">
-                <span className="text-xs text-gray-400 py-1 px-1 md:px-2 bg-gray-800 rounded">💡 General:</span>
-                <button
-                  onClick={() => handleIndicatorChange('signals')}
-                  className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm ${
-                    showIndicators.signals
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
-                >
-                  {showIndicators.signals ? '✓' : ''} Signals Panel
-                </button>
-              </div>
+            {/* Zoom Controls */}
+            <div className="flex gap-1 md:gap-2 flex-wrap items-center">
+              <span className="text-xs text-gray-400 py-1 px-1 md:px-2 bg-gray-800 rounded">🔍 Zoom:</span>
+              <button
+                onClick={() => {
+                  if (chartRef.current) {
+                    try {
+                      const timeScale = chartRef.current.timeScale();
+                      const visibleRange = timeScale.getVisibleRange();
+                      if (visibleRange) {
+                        const duration = visibleRange.to - visibleRange.from;
+                        const center = (visibleRange.from + visibleRange.to) / 2;
+                        const newDuration = duration * 0.7; // Zoom in by 30%
+                        timeScale.setVisibleRange({
+                          from: (center - newDuration / 2) as any,
+                          to: (center + newDuration / 2) as any,
+                        });
+                      }
+                    } catch (e) {
+                      console.warn('Error zooming in:', e);
+                    }
+                  }
+                }}
+                className="px-2 md:px-3 py-1 rounded text-xs md:text-sm bg-green-700 hover:bg-green-600 text-white font-semibold"
+                title="Zoom In"
+              >
+                🔍+ In
+              </button>
+              <button
+                onClick={() => {
+                  if (chartRef.current) {
+                    try {
+                      const timeScale = chartRef.current.timeScale();
+                      const visibleRange = timeScale.getVisibleRange();
+                      if (visibleRange) {
+                        const duration = visibleRange.to - visibleRange.from;
+                        const center = (visibleRange.from + visibleRange.to) / 2;
+                        const newDuration = duration * 1.4; // Zoom out by 40%
+                        timeScale.setVisibleRange({
+                          from: (center - newDuration / 2) as any,
+                          to: (center + newDuration / 2) as any,
+                        });
+                      }
+                    } catch (e) {
+                      console.warn('Error zooming out:', e);
+                    }
+                  }
+                }}
+                className="px-2 md:px-3 py-1 rounded text-xs md:text-sm bg-red-700 hover:bg-red-600 text-white font-semibold"
+                title="Zoom Out"
+              >
+                🔍- Out
+              </button>
+              <button
+                onClick={() => {
+                  if (chartRef.current) {
+                    try {
+                      chartRef.current.timeScale().fitContent();
+                    } catch (e) {
+                      console.warn('Error fitting content:', e);
+                    }
+                  }
+                }}
+                className="px-2 md:px-3 py-1 rounded text-xs md:text-sm bg-blue-700 hover:bg-blue-600 text-white font-semibold"
+                title="Fit to Screen"
+              >
+                📐 Fit
+              </button>
+              <button
+                onClick={() => {
+                  if (chartRef.current && data.length > 50) {
+                    try {
+                      const timeScale = chartRef.current.timeScale();
+                      timeScale.setVisibleRange({
+                        from: data[Math.max(0, data.length - 50)].time as any,
+                        to: data[data.length - 1].time as any,
+                      });
+                    } catch (e) {
+                      console.warn('Error setting 50-day view:', e);
+                    }
+                  }
+                }}
+                className="px-2 md:px-3 py-1 rounded text-xs md:text-sm bg-purple-700 hover:bg-purple-600 text-white font-semibold"
+                title="Show Last 50 Candles"
+              >
+                📊 50D
+              </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Chart Container - Mobile Responsive */}
-      <div className="p-2 md:p-4 overflow-x-auto">
-        {/* Trading Signals */}
-        {indicators && showIndicators.signals && (
-          <div className="bg-gray-800 border border-gray-700 rounded p-2 md:p-4 space-y-2 mb-4">
-            <h3 className="text-xs md:text-sm font-semibold text-gray-400 mb-2">📊 Trading Signals</h3>
+      {/* Sticky Trading Signals Panel - Below Controls */}
+      {indicators && showIndicators.signals && (
+        <div className="sticky top-0 z-30 bg-gray-900 border-b border-gray-700 shadow-lg">
+          <div className="bg-gray-800 border border-gray-700 rounded-b p-3 md:p-4 space-y-2">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs md:text-sm font-semibold text-gray-400">📊 Trading Signals</h3>
+              <button
+                onClick={() => setShowIndicators(prev => ({ ...prev, signals: false }))}
+                className="text-gray-400 hover:text-red-400 text-sm px-1"
+                title="Hide Signals"
+              >
+                ✕
+              </button>
+            </div>
 
             <div className="space-y-1 text-xs md:text-sm">
               {/* Main Signal - Always shown */}
-              <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-800 rounded">
+              <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-900 rounded">
                 <span className="text-gray-400 md:min-w-[80px] font-semibold">📍 Signal:</span>
                 <span className="text-white break-words font-semibold">{indicators.signals.bandar}</span>
               </div>
@@ -537,13 +669,13 @@ export default function StockChart({ data }: StockChartProps) {
               {/* Detailed analysis - Only in Full Analysis mode */}
               {(showIndicators.candlePower || showIndicators.momentum || showIndicators.ao) && (
                 <>
-                  <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2">
-                    <span className="text-gray-400 md:min-w-[80px]">Candle Power:</span>
+                  <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-900 rounded">
+                    <span className="text-gray-400 md:min-w-[80px]">🔥 Candle Power:</span>
                     <span className="text-white break-words">{indicators.candlePowerAnalysis}</span>
                   </div>
 
-                  <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2">
-                    <span className="text-gray-400 md:min-w-[80px]">Base:</span>
+                  <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-900 rounded">
+                    <span className="text-gray-400 md:min-w-[80px]">🏗️ Base:</span>
                     <span className="text-white break-words">{indicators.signals.base}</span>
                   </div>
                 </>
@@ -556,15 +688,15 @@ export default function StockChart({ data }: StockChartProps) {
               </p>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
+      {/* Chart Container - Mobile Responsive */}
+      <div className="p-1 md:p-4 overflow-x-auto">
         {/* Chart Container */}
-        <div ref={chartContainerRef} className="w-full min-h-96 md:min-h-[500px]" />
+        <div ref={chartContainerRef} className="w-full min-h-[450px] md:min-h-[550px] lg:min-h-[600px]" />
       </div>
     </div>
   );
 }
-
-
-
 

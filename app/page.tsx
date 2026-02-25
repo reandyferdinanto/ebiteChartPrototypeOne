@@ -40,8 +40,7 @@ export default function Home() {
   const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   const popularStocks = [
-    'BBCA.JK', 'BBRI.JK', 'BMRI.JK', 'TLKM.JK', 'ASII.JK',
-    'UNVR.JK', 'ICBP.JK', 'GGRM.JK', 'KLBF.JK', 'INDF.JK'
+    'FIRE.JK', 'ELIT.JK', 'UVCR.JK', 'LAND.JK', 'KOTA.JK',
   ];
 
   // Helper function to ensure .JK suffix
@@ -142,19 +141,19 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <nav className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Ebite Chart</h1>
-          <div className="flex gap-4">
+      <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+          <h1 className="text-xl md:text-2xl font-bold">Ebite Chart</h1>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Link
               href="/vcp-screener"
-              className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded font-semibold transition"
+              className="bg-red-600 hover:bg-red-700 px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition text-center"
             >
               🎯 VCP Screener
             </Link>
             <Link
               href="/screener"
-              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded transition"
+              className="bg-blue-600 hover:bg-blue-700 px-3 md:px-4 py-2 rounded text-sm md:text-base transition text-center"
             >
               Stock Screener
             </Link>
@@ -162,21 +161,21 @@ export default function Home() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto p-6">
+      <div className="max-w-7xl mx-auto p-3 md:p-6">
         {/* Search Bar */}
-        <div className="mb-6">
-          <form onSubmit={handleSearch} className="flex gap-2 mb-4">
+        <div className="mb-4 md:mb-6">
+          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2 mb-4">
             <input
               type="text"
               value={inputSymbol}
               onChange={(e) => setInputSymbol(e.target.value.toUpperCase())}
               placeholder="Enter stock ticker (e.g., BBCA, TLKM, BBRI)"
-              className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder:text-gray-500"
+              className="flex-1 px-3 md:px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder:text-gray-500 text-sm md:text-base"
             />
             <button
               type="submit"
               disabled={!inputSymbol.trim() || loading}
-              className={`px-6 py-2 rounded font-semibold transition ${
+              className={`px-4 md:px-6 py-2 rounded font-semibold transition text-sm md:text-base ${
                 !inputSymbol.trim() || loading
                   ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 text-white'
@@ -186,12 +185,12 @@ export default function Home() {
             </button>
           </form>
 
-          <p className="text-sm text-gray-400 mb-3">
+          <p className="text-xs md:text-sm text-gray-400 mb-3">
             💡 Tip: Just type the ticker symbol (e.g., BBCA). The .JK suffix is added automatically for Indonesian stocks.
           </p>
 
           {/* Popular Stocks */}
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:flex lg:flex-wrap gap-2">
             {popularStocks.map((stock) => (
               <button
                 key={stock}
@@ -199,7 +198,7 @@ export default function Home() {
                   setSymbol(stock);
                   setInputSymbol(stock.replace('.JK', '')); // Show without .JK in input
                 }}
-                className={`px-3 py-1 rounded ${
+                className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm text-center ${
                   symbol === stock
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -212,12 +211,12 @@ export default function Home() {
         </div>
 
         {/* Interval Selector */}
-        <div className="mb-6 flex gap-2">
+        <div className="mb-4 md:mb-6 flex flex-wrap gap-2">
           {['1d', '1wk', '1mo'].map((int) => (
             <button
               key={int}
               onClick={() => setInterval(int)}
-              className={`px-4 py-2 rounded ${
+              className={`px-3 md:px-4 py-2 rounded text-sm md:text-base ${
                 interval === int
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -254,7 +253,7 @@ export default function Home() {
           <>
             <StockInfo {...stockQuote} />
             {chartData.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-6">
+              <div className="bg-gray-800 rounded-lg p-2 md:p-6">
                 <StockChart symbol={symbol} data={chartData} />
               </div>
             )}
