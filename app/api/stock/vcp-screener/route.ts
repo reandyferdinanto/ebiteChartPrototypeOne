@@ -114,6 +114,7 @@ interface VCPCandidate {
   isVCP: boolean;
   isDryUp: boolean;
   isIceberg: boolean;
+  isSniperEntry: boolean;
   pattern: string;
   recommendation: string;
 }
@@ -168,20 +169,59 @@ async function analyzeStockVCP(symbol: string): Promise<VCPCandidate | null> {
     const spreadRatio = spread / (spreadAvg || 1);
     const isGreen = current.close >= current.open;
 
-    // Calculate VCP criteria (relaxed for better detection)
-    const last30High = Math.max(...highs.slice(-30));
-    const isNearHigh = current.close > (last30High * 0.80);
+    // Calculate MA for trend confirmation
+    let ma20 = 0;
+    let ma50 = 0;
+    for (let i = N - 20; i < N; i++) {
+      ma20 += closes[i];
+    }
+    ma20 /= 20;
 
-    // Calculate 5-period spread and volume
+    if (N >= 50) {
+      for (let i = N - 50; i < N; i++) {
+        ma50 += closes[i];
+      }
+      ma50 /= 50;
+    } else {
+      ma50 = ma20; // Fallback if not enough data
+    }
+
+    const aboveMA20 = current.close > ma20;
+    const aboveMA50 = current.close > ma50;
+    const maUptrend = ma20 > ma50;
+
+    // VCP DETECTION - More lenient for screening (match chart logic)
+    const last30High = Math.max(...highs.slice(-30));
+    const last52WeekHigh = Math.max(...highs.slice(-250)); // ~1 year
+    const isNearRecentHigh = current.close > (last30High * 0.85); // Within 15% of 30-day high
+
+    // Calculate volatility contraction
     let spread5Sum = 0;
     let vol5Sum = 0;
+    let spread20Sum = 0;
+    let vol20Sum = 0;
+
     for (let i = N - 5; i < N; i++) {
       spread5Sum += highs[i] - lows[i];
       vol5Sum += volumes[i];
     }
-    const isLowSpread = (spread5Sum / 5) < (spreadAvg * 0.75);
-    const isLowVolume = (vol5Sum / 5) < (volAvg * 0.85);
-    const isVCP = isNearHigh && isLowSpread && isLowVolume;
+    for (let i = N - 20; i < N; i++) {
+      spread20Sum += highs[i] - lows[i];
+      vol20Sum += volumes[i];
+    }
+
+    const spread5Avg = spread5Sum / 5;
+    const spread20Avg = spread20Sum / 20;
+    const vol5Avg = vol5Sum / 5;
+    const vol20Avg = vol20Sum / 20;
+
+    // Basic VCP = Near highs + contraction (LENIENT for screening)
+    const isVolatilityContraction = spread5Avg < (spread20Avg * 0.75); // < 75%
+    const isVolumeContraction = vol5Avg < (vol20Avg * 0.80); // < 80%
+
+    const isVCP = isNearRecentHigh &&
+                  isVolatilityContraction &&
+                  isVolumeContraction;
 
     // Buying/selling pressure
     let buyVol = 0;
@@ -192,92 +232,104 @@ async function analyzeStockVCP(symbol: string): Promise<VCPCandidate | null> {
     }
     const accRatio = buyVol / (sellVol || 1);
 
-    // Dry Up detection (relaxed)
-    const isDryUp = (!isGreen || body < spread * 0.3) && (volRatio <= 0.60) && (accRatio > 0.8);
-    const isIceberg = (volRatio > 1.2) && (spreadRatio < 0.75);
+    // DRY UP DETECTION - More lenient for screening
+    const isDryUp = (volRatio < 0.65) && // < 65% volume (lenient)
+                    (body < spread * 0.5) && // Small body (lenient)
+                    (accRatio > 0.85); // Buying > selling (lenient)
 
-    // DEBUG: Log criteria for first few stocks
-    if (Math.random() < 0.1) { // Log ~10% of stocks for debugging
-      console.log(`${symbol}: Green=${isGreen} DryUp=${isDryUp} Iceberg=${isIceberg} Vol=${volRatio.toFixed(2)} AccRatio=${accRatio.toFixed(2)}`);
+    // ICEBERG DETECTION - More lenient for screening
+    const isIceberg = (volRatio > 1.2) && // > 1.2x volume (lenient)
+                      (spreadRatio < 0.75) && // Tight spread
+                      (accRatio > 1.1); // Some buying pressure (lenient)
+
+    // SNIPER ENTRY - VERY STRICT (only perfect setups)
+    const isNearAllTimeHigh = current.close > (last52WeekHigh * 0.90); // 90% of 52-week
+    const hasSupport = (current.low <= ma20 * 1.02) && (current.close > ma20 * 0.98);
+
+    let priceRangeSum = 0;
+    for (let i = N - 5; i < N; i++) {
+      priceRangeSum += Math.abs(highs[i] - lows[i]) / closes[i];
+    }
+    const avgPriceRange = priceRangeSum / 5;
+    const isTightPrice = avgPriceRange < 0.03; // < 3% daily range
+
+    const isSignificantVCContraction = spread5Avg < (spread20Avg * 0.65); // < 65% (tight)
+    const isStrictVolumeContraction = vol5Avg < (vol20Avg * 0.75); // < 75%
+
+    // SNIPER = Perfect VCP + Perfect DRY UP + Perfect trend
+    const isSniperEntry = isNearAllTimeHigh && // 90% of 52-week high
+                          aboveMA20 &&
+                          aboveMA50 &&
+                          maUptrend &&
+                          isSignificantVCContraction &&
+                          isStrictVolumeContraction &&
+                          isTightPrice &&
+                          (volRatio < 0.50) && // Very low volume
+                          (accRatio > 1.2) && // Strong buying
+                          hasSupport;
+
+    // DEBUG: Log criteria for monitoring
+    if (Math.random() < 0.05) { // Log ~5% of stocks
+      console.log(`${symbol}: Sniper=${isSniperEntry} VCP=${isVCP} DryUp=${isDryUp} Ice=${isIceberg} Vol=${volRatio.toFixed(2)} Acc=${accRatio.toFixed(2)} MA20=${aboveMA20} MA50=${aboveMA50}`);
     }
 
-    // VCP Score calculation (VERY generous to ensure stocks qualify)
-    let vpcScore = 55; // Start higher (55 instead of 50)
+    // VCP Score calculation - Reflect actual pattern quality
+    let vpcScore = 50; // Base score
 
-    // Base scores for patterns (very generous)
-    if (isVCP) vpcScore += 30;
-    if (isDryUp) vpcScore += 25;
-    if (isIceberg) vpcScore += 20;
-    if (volRatio < 0.7) vpcScore += 12;
-
-    // Trend quality bonuses (generous)
-    if (isGreen) vpcScore += 10;
-    if (body > spread * 0.3) vpcScore += 8;
-    if (body > spread * 0.5) vpcScore += 8;
-
-    // Volume confirmation
-    if (volRatio > 0.6 && volRatio < 1.6) vpcScore += 8;
-    if (volRatio > 0.9 && volRatio < 1.2) vpcScore += 5;
-
-    // Accumulation bonus (generous)
-    if (accRatio > 0.9) vpcScore += 10;
-    if (accRatio > 1.1) vpcScore += 8;
-    if (accRatio > 1.3) vpcScore += 8;
-
-    // Near high indicator (bullish)
-    if (current.close > (last30High * 0.95)) vpcScore += 5;
-    if (current.close > (last30High * 0.90)) vpcScore += 3;
-
-    // Premium patterns (best setups)
-    if (isVCP && isDryUp) {
-      vpcScore = 95;
+    // Premium patterns (highest scores)
+    if (isSniperEntry) {
+      vpcScore = 95; // SNIPER ENTRY = highest quality
+    } else if (isVCP && isDryUp) {
+      vpcScore = 92; // VCP + DRY UP (very close to sniper)
     } else if (isVCP && isIceberg) {
-      vpcScore = 92;
-    } else if (isVCP && volRatio < 0.7) {
-      vpcScore = 88;
+      vpcScore = 88; // VCP + ICEBERG
+    } else if (isVCP) {
+      vpcScore = 82; // VCP BASE alone
     } else if (isDryUp && accRatio > 1.5) {
-      vpcScore = Math.max(vpcScore, 85);
-    } else if (isDryUp && accRatio > 1.2) {
-      vpcScore = Math.max(vpcScore, 82);
+      vpcScore = 78; // Strong DRY UP
     } else if (isDryUp) {
-      vpcScore = Math.max(vpcScore, 75);
-    } else if (isIceberg && accRatio > 1.2) {
-      vpcScore = Math.max(vpcScore, 82);
+      vpcScore = 72; // Regular DRY UP
+    } else if (isIceberg && accRatio > 1.5) {
+      vpcScore = 75; // Strong ICEBERG
     } else if (isIceberg) {
-      vpcScore = Math.max(vpcScore, 72);
-    } else if (isGreen && accRatio > 1.2 && volRatio > 0.8) {
-      vpcScore = Math.max(vpcScore, 70);
-    } else if (isGreen && accRatio > 1.0 && volRatio < 1.0) {
-      vpcScore = Math.max(vpcScore, 65);
+      vpcScore = 68; // Regular ICEBERG
+    } else if (aboveMA20 && aboveMA50 && maUptrend && isGreen) {
+      vpcScore = 60; // Good uptrend but no specific pattern
     }
+
+    // Bonus adjustments
+    if (accRatio > 1.5) vpcScore += 3;
+    if (isTightPrice) vpcScore += 2;
+    if (volRatio < 0.5) vpcScore += 2;
 
     // Ensure score is within bounds
-    vpcScore = Math.max(55, Math.min(100, vpcScore));
+    vpcScore = Math.max(50, Math.min(100, vpcScore));
 
     let pattern = '⬜ Netral';
     let recommendation = 'Wait';
 
-    if (isVCP && isDryUp) {
-      pattern = '🎯 VCP DRY-UP (Sniper Entry)';
-      recommendation = '⚡ STRONG BUY - Entry Point!';
+    // Pattern classification matching chart logic
+    if (isSniperEntry) {
+      pattern = '🎯 SNIPER ENTRY';
+      recommendation = '⚡ STRONG BUY - Perfect setup!';
+    } else if (isVCP && isDryUp) {
+      pattern = '🎯 VCP DRY-UP (Near Sniper)';
+      recommendation = '🚀 BUY - High probability!';
     } else if (isVCP && isIceberg) {
       pattern = '🧊 VCP ICEBERG';
-      recommendation = '🚀 BUY - Accumulation!';
-    } else if (isVCP && volRatio < 0.5) {
+      recommendation = '🚀 BUY - Strong accumulation!';
+    } else if (isVCP) {
       pattern = '📉 VCP BASE';
-      recommendation = '⏳ HOLD - Waiting for breakout';
-    } else if (isDryUp && accRatio > 1.5) {
-      pattern = '🥷 DRY UP (Strong Support)';
-      recommendation = '📍 ENTRY - Strong setup';
+      recommendation = '⏳ WATCH - Wait for dry up or breakout';
     } else if (isDryUp) {
-      pattern = '🥷 DRY UP (Support Test)';
-      recommendation = '📍 ENTRY - Next breakout candle';
+      pattern = '🥷 DRY UP';
+      recommendation = '📍 ENTRY - Support test';
     } else if (isIceberg) {
-      pattern = '🧊 ICEBERG (Hidden Buying)';
-      recommendation = '👀 WATCH - Potential breakout';
-    } else if (vpcScore > 60) {
+      pattern = '🧊 ICEBERG';
+      recommendation = '👀 WATCH - Hidden accumulation';
+    } else if (vpcScore > 55) {
       pattern = '📈 BUILDING SETUP';
-      recommendation = '⏳ MONITOR - Potential entry';
+      recommendation = '⏳ MONITOR - Developing pattern';
     }
 
     return {
@@ -290,6 +342,7 @@ async function analyzeStockVCP(symbol: string): Promise<VCPCandidate | null> {
       isVCP,
       isDryUp,
       isIceberg,
+      isSniperEntry,
       pattern,
       recommendation
     };

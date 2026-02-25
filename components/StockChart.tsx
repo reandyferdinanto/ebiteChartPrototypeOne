@@ -29,9 +29,9 @@ export default function StockChart({ data }: StockChartProps) {
     ao: false,
     fibonacci: false,
     squeeze: false,
-    vsa: true,      // Essential for pattern detection
-    vcp: false,     // Can be toggled when needed
-    candlePower: false, // Reduce clutter, can be toggled
+    vsa: false,     // Disabled by default
+    vcp: false,     // Disabled by default
+    candlePower: false, // User must explicitly enable
     signals: true   // Always show signals panel
   });
   const [indicators, setIndicators] = useState<IndicatorResult | null>(null);
@@ -87,9 +87,9 @@ export default function StockChart({ data }: StockChartProps) {
       ao: false,
       fibonacci: false,
       squeeze: false,
-      vsa: false,
-      vcp: false,
-      candlePower: true, // Focus on candle power analysis
+      vsa: false,      // DISABLE VSA patterns
+      vcp: false,      // DISABLE VCP patterns
+      candlePower: true, // ONLY show candle power scores
       signals: true
     });
   };
@@ -222,42 +222,35 @@ export default function StockChart({ data }: StockChartProps) {
       });
       candlestickSeries.setData(data as any);
 
-      // Add markers based on selected patterns
+      // Add markers based on selected patterns - PROPERLY SEPARATED
       if (showIndicators.signals || showIndicators.squeeze || showIndicators.vsa || showIndicators.vcp || showIndicators.candlePower) {
         const allMarkers: typeof calculatedIndicators.vsaMarkers = [];
 
-        // Prioritize candle power markers when in Candle Power mode
-        if (showIndicators.candlePower && !showIndicators.squeeze && !showIndicators.vsa && !showIndicators.vcp) {
-          // In pure Candle Power mode, show only candle power markers
+        // CANDLE POWER MODE: Show ONLY candle power markers (colored dots with scores)
+        if (showIndicators.candlePower) {
+          // Pure Candle Power mode - show ONLY colored score dots
           allMarkers.push(...calculatedIndicators.candlePowerMarkers);
-        } else {
-          // In mixed mode, add other markers first, then candle power to prioritize them
-
-          // Add squeeze markers
-          if (showIndicators.squeeze || showIndicators.signals) {
-            allMarkers.push(...calculatedIndicators.squeezeMarkers);
-          }
-
-          // Add VSA/VCP markers
-          if (showIndicators.vsa || showIndicators.vcp || showIndicators.signals) {
-            allMarkers.push(...calculatedIndicators.vsaMarkers);
-          }
-
-          // Add candle power markers LAST to prioritize them in deduplication
-          if (showIndicators.candlePower || showIndicators.signals) {
-            allMarkers.push(...calculatedIndicators.candlePowerMarkers);
-          }
+        }
+        // SQUEEZE MODE: Show ONLY squeeze markers (🟢 SQZ, 🚀 BREAK, etc.)
+        else if (showIndicators.squeeze) {
+          // Pure Squeeze mode - show ONLY squeeze-related markers
+          allMarkers.push(...calculatedIndicators.squeezeMarkers);
+        }
+        // VSA/VCP MODE: Show ONLY VSA patterns (🎯 SNIPER, 🧊 ICEBERG, 🥷 DRY UP, etc.)
+        else if (showIndicators.vsa || showIndicators.vcp) {
+          // Pure VSA mode - show ONLY VSA pattern markers
+          allMarkers.push(...calculatedIndicators.vsaMarkers);
+        }
+        // SIGNALS MODE (default): Show VSA patterns (not squeeze)
+        else if (showIndicators.signals) {
+          // In signals-only mode, show VSA patterns by default
+          allMarkers.push(...calculatedIndicators.vsaMarkers);
         }
 
+
         if (allMarkers.length > 0) {
-          // Special handling for last 3 candles - ensure candle power always shows
-          const lastThreeTimes = data.slice(-3).map(d => d.time);
-          const candlePowerMarkers = calculatedIndicators.candlePowerMarkers;
-
-          // Remove duplicates but prioritize candle power markers for last 3 candles
+          // Remove duplicates - keep first occurrence
           const markerMap = new Map();
-
-          // Add all markers first
           allMarkers.forEach(marker => {
             const key = marker.time.toString();
             if (!markerMap.has(key)) {
@@ -265,12 +258,6 @@ export default function StockChart({ data }: StockChartProps) {
             }
           });
 
-          // Override with candle power markers for last 3 candles
-          candlePowerMarkers.forEach(marker => {
-            if (lastThreeTimes.includes(marker.time)) {
-              markerMap.set(marker.time.toString(), marker);
-            }
-          });
 
           const uniqueMarkers = Array.from(markerMap.values()).sort((a, b) => a.time - b.time);
           candlestickSeries.setMarkers(uniqueMarkers as any);
@@ -492,38 +479,58 @@ export default function StockChart({ data }: StockChartProps) {
               <span className="text-xs text-gray-400 py-1">⚡ Quick Modes:</span>
               <button
                 onClick={setSqueezeMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
+                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                  showIndicators.squeeze 
+                    ? 'bg-purple-600 text-white shadow-lg' 
+                    : 'bg-gray-700 hover:bg-purple-700 text-gray-300'
+                }`}
                 title="TTM Squeeze + Momentum + SQZ/XD patterns"
               >
-                🔮 Squeeze
+                {showIndicators.squeeze ? '✓ ' : ''}🔮 Squeeze
               </button>
               <button
                 onClick={setMAMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-yellow-700 hover:bg-yellow-600 text-white"
+                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                  showIndicators.ma && !showIndicators.momentum && !showIndicators.squeeze && !showIndicators.vsa && !showIndicators.candlePower
+                    ? 'bg-yellow-600 text-white shadow-lg' 
+                    : 'bg-gray-700 hover:bg-yellow-700 text-gray-300'
+                }`}
                 title="Moving Averages: MA5, MA20, MA50, MA200"
               >
-                📈 MA Lines
+                {showIndicators.ma && !showIndicators.momentum && !showIndicators.squeeze && !showIndicators.vsa && !showIndicators.candlePower ? '✓ ' : ''}📈 MA Lines
               </button>
               <button
                 onClick={setVSAMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-orange-700 hover:bg-orange-600 text-white"
+                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                  showIndicators.vsa || showIndicators.vcp
+                    ? 'bg-orange-600 text-white shadow-lg' 
+                    : 'bg-gray-700 hover:bg-orange-700 text-gray-300'
+                }`}
                 title="VSA Patterns: Iceberg, Dry Up, VCP Base"
               >
-                🎯 VSA Patterns
+                {showIndicators.vsa || showIndicators.vcp ? '✓ ' : ''}🎯 VSA Patterns
               </button>
               <button
                 onClick={setCandlePowerMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-red-700 hover:bg-red-600 text-white"
-                title="Candle Power Score & Analysis"
+                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                  showIndicators.candlePower
+                    ? 'bg-green-600 text-white shadow-lg ring-2 ring-green-400' 
+                    : 'bg-gray-700 hover:bg-green-700 text-gray-300'
+                }`}
+                title="Candle Power Score & Wyckoff Analysis - Shows colored dots with scores"
               >
-                🔥 Candle Power
+                {showIndicators.candlePower ? '✓ ' : ''}🔥 Candle Power
               </button>
               <button
                 onClick={setAnalysisMode}
-                className="px-2 md:px-3 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600 text-white"
+                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                  showIndicators.momentum || showIndicators.ao
+                    ? 'bg-blue-600 text-white shadow-lg' 
+                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}
                 title="All Indicators & Analysis"
               >
-                🔬 Full Analysis
+                {showIndicators.momentum || showIndicators.ao ? '✓ ' : ''}🔬 Full Analysis
               </button>
             </div>
 
@@ -549,6 +556,37 @@ export default function StockChart({ data }: StockChartProps) {
               >
                 Line
               </button>
+            </div>
+
+            {/* Candle Power Toggle - Prominent button */}
+            <div className="flex gap-1 md:gap-2 flex-wrap items-center p-2 bg-gray-800 rounded border border-gray-700">
+              <span className="text-xs text-gray-400">🔥 Indicator:</span>
+              <button
+                onClick={() => setShowIndicators(prev => ({
+                  ...prev,
+                  candlePower: !prev.candlePower,
+                  // Disable other patterns when enabling candle power
+                  vsa: prev.candlePower ? prev.vsa : false,
+                  vcp: prev.candlePower ? prev.vcp : false,
+                  squeeze: prev.candlePower ? prev.squeeze : false
+                }))}
+                className={`px-3 md:px-4 py-1.5 md:py-2 rounded text-xs md:text-sm font-bold transition-all ${
+                  showIndicators.candlePower
+                    ? 'bg-green-600 text-white shadow-lg ring-2 ring-green-400 animate-pulse' 
+                    : 'bg-gray-700 text-gray-400 hover:bg-gray-600 hover:text-white'
+                }`}
+                title={showIndicators.candlePower
+                  ? "Candle Power ON - Showing colored score dots on candles"
+                  : "Candle Power OFF - Click to show Wyckoff analysis scores"
+                }
+              >
+                {showIndicators.candlePower ? '✓ ON' : 'OFF'} Candle Power
+              </button>
+              {showIndicators.candlePower && (
+                <span className="text-xs text-green-400 animate-pulse">
+                  ● Active
+                </span>
+              )}
             </div>
 
 

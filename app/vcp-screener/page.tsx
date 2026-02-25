@@ -13,6 +13,7 @@ interface VCPCandidate {
   isVCP: boolean;
   isDryUp: boolean;
   isIceberg: boolean;
+  isSniperEntry: boolean;
   pattern: string;
   recommendation: string;
 }

@@ -206,11 +206,15 @@ export function detectSqueeze(data: ChartData[], period: number = 20): { isSquee
   return { isSqueezed, squeezeCount };
 }
 
-// Detect VSA (Volume Spread Analysis) patterns
+// Detect VSA (Volume Spread Analysis) patterns with enhanced accuracy
 export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: string } {
   const markers: MarkerData[] = [];
   const N = data.length;
   let latestSignal = '⬜ Netral';
+
+  // Calculate MA for trend context
+  const ma20Values = calculateMA(data, 20);
+  const ma50Values = calculateMA(data, 50);
 
   for (let i = 40; i < N; i++) {
     // Calculate 20-period volume average
@@ -229,7 +233,20 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
     const body = Math.abs(data[i].close - data[i].open);
     const isGreen = data[i].close >= data[i].open;
 
-    // Calculate buying/selling pressure
+    // Get MA values for trend context
+    const ma20Index = i - 19;
+    const ma50Index = i - 49;
+    let ma20 = data[i].close;
+    let ma50 = data[i].close;
+
+    if (ma20Index >= 0 && ma20Index < ma20Values.length) {
+      ma20 = ma20Values[ma20Index].value;
+    }
+    if (ma50Index >= 0 && ma50Index < ma50Values.length) {
+      ma50 = ma50Values[ma50Index].value;
+    }
+
+    // Calculate buying/selling pressure over 10 periods
     let buyVol = 0;
     let sellVol = 0;
     for (let k = i - 9; k <= i; k++) {
@@ -238,34 +255,103 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
     }
     const accRatio = buyVol / (sellVol || 1);
 
-    // Calculate VCP criteria (match screener logic)
+    // Get highs and trend info
     const highs = data.slice(0, i + 1).map(d => d.high);
 
-    const last30High = Math.max(...highs.slice(-30));
-    const isNearHigh = data[i].close > (last30High * 0.80);
+    // MA positioning (for context)
+    const aboveMA20 = data[i].close > ma20;
+    const aboveMA50 = data[i].close > ma50;
+    const maUptrend = ma20 > ma50;
 
-    // Calculate 5-period spread and volume
+    // VCP DETECTION - More lenient for visibility
+    // Just check if near recent highs and contracting
+    const last30High = Math.max(...highs.slice(-30));
+    const last52WeekHigh = Math.max(...highs.slice(-250)); // ~1 year of data
+    const isNearRecentHigh = data[i].close > (last30High * 0.85); // Within 15% of 30-day high
+
+    // Calculate volatility contraction
     let spread5Sum = 0;
     let vol5Sum = 0;
+    let spread20Sum = 0;
+    let vol20Sum = 0;
+
     for (let j = Math.max(0, i - 4); j <= i; j++) {
       spread5Sum += (data[j].high - data[j].low);
       vol5Sum += (data[j].volume || 0);
     }
-    const isLowSpread = (spread5Sum / 5) < (spreadAvg * 0.75);
-    const isLowVolume = (vol5Sum / 5) < (volAvg * 0.85);
-    const isVCP = isNearHigh && isLowSpread && isLowVolume;
+    for (let j = i - 19; j <= i; j++) {
+      spread20Sum += (data[j].high - data[j].low);
+      vol20Sum += (data[j].volume || 0);
+    }
 
-    // Detect patterns (UPDATED to match screener criteria)
-    const isDryUp = (!isGreen || body < spread * 0.3) && (volRatio <= 0.60) && (accRatio > 0.8);
-    const isIceberg = (volRatio > 1.2) && (spreadRatio < 0.75);
+    const spread5Avg = spread5Sum / 5;
+    const spread20Avg = spread20Sum / 20;
+    const vol5Avg = vol5Sum / 5;
+    const vol20Avg = vol20Sum / 20;
+
+    // Volatility contracting (more lenient)
+    const isVolatilityContraction = spread5Avg < (spread20Avg * 0.75); // < 75% (not 65%)
+    const isVolumeContraction = vol5Avg < (vol20Avg * 0.80); // < 80% (not 75%)
+
+    // Basic VCP = Near highs + contraction (LENIENT for visibility)
+    const isVCP = isNearRecentHigh &&
+                  isVolatilityContraction &&
+                  isVolumeContraction;
+
+    // DRY UP DETECTION - More lenient (should show frequently)
+    // Low volume support test
+    const lowerWick = Math.min(data[i].open, data[i].close) - data[i].low;
+    const isDryUp = (volRatio < 0.65) && // < 65% volume (more lenient)
+                    (body < spread * 0.5) && // Small body (more lenient)
+                    (accRatio > 0.85); // Buying > selling (more lenient)
+
+    // ICEBERG DETECTION - More lenient (should show frequently)
+    // High volume but tight spread
+    const isIceberg = (volRatio > 1.2) && // > 1.2x volume (more lenient)
+                      (spreadRatio < 0.75) && // Tight spread
+                      (accRatio > 1.1); // Some buying pressure (more lenient)
+
+    // DISTRIBUTION DETECTION - Keep this one strict
     const isDistribution = (!isGreen && volRatio > 1.5 && accRatio < 0.5);
 
-    // Add markers for last 30 candles (was only 5 - too few!)
-    if (i >= N - 30) {
+    // SNIPER ENTRY - VERY STRICT (only best setups)
+    // Must meet ALL these criteria
+    const isNearAllTimeHigh = data[i].close > (last52WeekHigh * 0.90); // 90% of 52-week
+    const hasSupport = (data[i].low <= ma20 * 1.02) && (data[i].close > ma20 * 0.98);
+
+    let priceRangeSum = 0;
+    for (let j = i - 4; j <= i; j++) {
+      priceRangeSum += Math.abs(data[j].high - data[j].low) / data[j].close;
+    }
+    const avgPriceRange = priceRangeSum / 5;
+    const isTightPrice = avgPriceRange < 0.03; // < 3% daily range
+
+    const isSignificantVCContraction = spread5Avg < (spread20Avg * 0.65); // < 65% (tight)
+    const isStrictVolumeContraction = vol5Avg < (vol20Avg * 0.75); // < 75%
+
+    // SNIPER = Perfect VCP + Perfect DRY UP + Perfect trend
+    const isSniperEntry = isNearAllTimeHigh && // 90% of 52-week high
+                          aboveMA20 &&
+                          aboveMA50 &&
+                          maUptrend &&
+                          isSignificantVCContraction &&
+                          isStrictVolumeContraction &&
+                          isTightPrice &&
+                          (volRatio < 0.50) && // Very low volume
+                          (accRatio > 1.2) && // Strong buying
+                          hasSupport;
+
+    // Add markers for last 100 candles (increased from 30 for better visibility)
+    if (i >= N - 100) {
       let markerObj: MarkerData | null = null;
 
-      // VCP + DRY UP = Sniper Entry (highest priority)
-      if (isVCP && isDryUp) {
+      // Debug logging for last 10 candles
+      if (i >= N - 10) {
+        console.log(`Candle ${i}: VCP=${isVCP} DryUp=${isDryUp} Iceberg=${isIceberg} Sniper=${isSniperEntry} Vol=${volRatio.toFixed(2)} Acc=${accRatio.toFixed(2)}`);
+      }
+
+      // SNIPER ENTRY = Perfect setup (MOST RESTRICTIVE)
+      if (isSniperEntry) {
         markerObj = {
           time: data[i].time,
           position: 'belowBar',
@@ -273,9 +359,9 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
           shape: 'arrowUp',
           text: '🎯 SNIPER'
         };
-        if (i === N - 1) latestSignal = '🎯 VCP DRY-UP (Sniper Entry)';
+        if (i === N - 1) latestSignal = '🎯 SNIPER ENTRY';
       }
-      // VCP + ICEBERG
+      // VCP + ICEBERG (Strong accumulation in base)
       else if (isVCP && isIceberg) {
         markerObj = {
           time: data[i].time,
@@ -286,7 +372,7 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
         };
         if (i === N - 1) latestSignal = '🧊 VCP ICEBERG';
       }
-      // VCP BASE
+      // VCP BASE (Building base, wait for breakout)
       else if (isVCP) {
         markerObj = {
           time: data[i].time,
@@ -297,7 +383,7 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
         };
         if (i === N - 1) latestSignal = '📉 VCP BASE';
       }
-      // DISTRIBUTION (selling)
+      // DISTRIBUTION (Danger - selling detected)
       else if (isDistribution) {
         markerObj = {
           time: data[i].time,
@@ -308,7 +394,7 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
         };
         if (i === N - 1) latestSignal = '🩸 DISTRIBUSI (Waspada)';
       }
-      // DRY UP alone (professional accumulation)
+      // DRY UP alone (Low volume support test anywhere)
       else if (isDryUp) {
         markerObj = {
           time: data[i].time,
@@ -319,7 +405,7 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
         };
         if (i === N - 1) latestSignal = '🥷 DRY UP (Support Test)';
       }
-      // ICEBERG alone (hidden buying/selling)
+      // ICEBERG alone (Hidden accumulation)
       else if (isIceberg) {
         markerObj = {
           time: data[i].time,
@@ -366,9 +452,6 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
   const ma50Values = calculateMA(data, 50);
 
   for (let i = 40; i < N; i++) {
-    // Skip if we don't have enough MA data
-    if (i >= ma20Values.length || i >= ma50Values.length) continue;
-
     // Calculate 20-period averages (baseline for comparison)
     let volSum = 0;
     let spreadSum = 0;
@@ -386,9 +469,20 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
     const spreadRatio = spread / (spreadAvg || 1);
     const isGreen = current.close >= current.open;
 
-    // Get MA values for current candle
-    const ma20 = ma20Values[i]?.value || current.close;
-    const ma50 = ma50Values[i]?.value || current.close;
+    // Get MA values for current candle - handle array bounds properly
+    let ma20 = current.close;
+    let ma50 = current.close;
+
+    // Find the correct MA index (MA arrays start from period-1)
+    const ma20Index = i - 19; // MA20 starts from index 19
+    const ma50Index = i - 49; // MA50 starts from index 49
+
+    if (ma20Index >= 0 && ma20Index < ma20Values.length) {
+      ma20 = ma20Values[ma20Index].value;
+    }
+    if (ma50Index >= 0 && ma50Index < ma50Values.length) {
+      ma50 = ma50Values[ma50Index].value;
+    }
 
     // Calculate buy/sell pressure (accumulation/distribution)
     let buyVol = 0;
@@ -448,228 +542,390 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
     }
     const volatilityDecreasing = (recentSpreadSum / 5) < (prevSpreadSum / 5);
 
-    // START WYCKOFF-BASED CANDLE POWER CALCULATION
+    // =========================================================================
+    // WYCKOFF + VSA + VCP INTEGRATED CANDLE POWER CALCULATION
+    // Based on Wyckoff Method principles combined with Volume Spread Analysis
+    // =========================================================================
     let power = 50;
     let reason = 'Neutral';
 
     // WYCKOFF PRINCIPLE 1: EFFORT vs RESULT ANALYSIS
-    // High volume (effort) + small range (result) = Abnormal (absorption or distribution)
-    // High volume (effort) + wide range (result) = Normal (trending)
-    // Low volume (effort) + small range (result) = Normal (no interest)
-    // Low volume (effort) + wide range (result) = Abnormal (professional activity)
-
+    // The relationship between volume (effort) and price range (result) reveals market intent
     const isHighEffort = volRatio > 1.3; // High volume = effort
     const isWideResult = spreadRatio > 1.2; // Wide spread = result
     const isLowEffort = volRatio < 0.7; // Low volume
     const isNarrowResult = spreadRatio < 0.8; // Narrow spread
 
-    // WYCKOFF PRINCIPLE 2: SUPPLY & DEMAND BALANCE
-    // More buying volume = demand > supply (bullish)
-    // More selling volume = supply > demand (bearish)
-    const strongDemand = accRatio > 1.5;
+    // WYCKOFF PRINCIPLE 2: SUPPLY & DEMAND BALANCE (VSA Integration)
+    const strongDemand = accRatio > 1.5; // Buying dominates
     const moderateDemand = accRatio > 1.1;
-    const strongSupply = accRatio < 0.6;
+    const strongSupply = accRatio < 0.6; // Selling dominates
     const moderateSupply = accRatio < 0.9;
 
-    // WYCKOFF PRINCIPLE 3: BACKGROUND vs TREND IDENTIFICATION
-    // Location in trend context (using MA position)
+    // WYCKOFF PRINCIPLE 3: MARKET PHASE IDENTIFICATION
     const inUptrend = (current.close > ma20 && current.close > ma50 && ma20 > ma50);
     const inDowntrend = (current.close < ma20 && current.close < ma50 && ma20 < ma50);
     const inAccumulation = !inUptrend && !inDowntrend && (current.close > ma20 * 0.95);
+    const inDistribution = !inUptrend && !inDowntrend && (current.close < ma20 * 0.95);
 
-    // PRIORITY 0: WYCKOFF TEST OF SUPPORT/RESISTANCE
+    // VCP CONTEXT: Check if stock is in volatility contraction
+    const isInVCP = volatilityDecreasing && (current.close > ma20 * 0.95);
+
+    // =========================================================================
+    // WYCKOFF ACCUMULATION PHASE PATTERNS (Phase A-E)
+    // =========================================================================
+
+    // PRIORITY 0A: WYCKOFF PRELIMINARY SUPPORT (PS) - Buying appears after decline
     const nearMA20 = (current.low <= ma20 * 1.03) && (current.low >= ma20 * 0.97);
     const hasLowerWick = lowerWick > 0 && (lowerWick >= bodySize * 0.5);
 
     if (nearMA20 && hasLowerWick) {
-      // WYCKOFF ANALYSIS: Test of support with volume characteristics
+      // Test of support at MA20 - Critical Wyckoff moment
       if (isLowEffort && strongDemand) {
-        // Low volume test + strong demand = No selling pressure (very bullish)
-        power = 95;
-        reason = '🏛️ Wyckoff No Supply Test';
-      } else if (isHighEffort && strongDemand && isNarrowResult) {
-        // High volume + narrow spread + demand = Volume absorption (very bullish)
+        // NO SUPPLY (Phase C): Low volume test + strong demand = sellers exhausted
+        power = 96;
+        reason = '🏛️ Wyckoff NO SUPPLY (Phase C)';
+      } else if (isLowEffort && moderateDemand && isInVCP) {
+        // NO SUPPLY in VCP = highest probability setup
         power = 98;
-        reason = '🏛️ Wyckoff Volume Absorption';
+        reason = '🎯 VCP + NO SUPPLY (Sniper)';
+      } else if (isHighEffort && strongDemand && isNarrowResult) {
+        // SPRING (Phase C): High volume absorption at support
+        power = 93;
+        reason = '🌱 Wyckoff SPRING (Phase C)';
       } else if (isHighEffort && strongDemand && isWideResult) {
-        // High volume + wide spread + demand = Sign of Strength
+        // SIGN OF STRENGTH (Phase D): High volume + wide spread + buying
         power = 92;
-        reason = '💪 Wyckoff Sign of Strength';
+        reason = '💪 Wyckoff SOS (Phase D)';
       } else if (moderateDemand) {
-        power = 80;
-        reason = '🎯 Support Test + Demand';
+        // TEST (Phase C): Support test with decent buying
+        power = 82;
+        reason = '🎯 TEST Support (Phase C)';
+      } else if (strongSupply) {
+        // Failed test = weakness
+        power = 35;
+        reason = '⚠️ Failed Support Test';
       } else {
         power = 65;
-        reason = '🎯 Support Test (Weak)';
+        reason = '🎯 Support Test (Neutral)';
       }
     }
 
-    // PRIORITY 1: WYCKOFF UPTHRUST ANALYSIS (Distribution)
-    else if (inUptrend && isHighEffort && isWideResult && strongSupply) {
-      // High volume + wide spread + lots of selling in uptrend = Upthrust/Distribution
-      if (upperWick > bodySize * 1.5 && !isGreen) {
-        power = 10; // Very bearish - professional distribution
-        reason = '⚡ Wyckoff Upthrust';
+    // PRIORITY 0B: WYCKOFF SELLING CLIMAX (SC) / AUTOMATIC RALLY (AR)
+    else if (!isGreen && isHighEffort && isWideResult && (current.low < ma50) && strongSupply) {
+      // Selling Climax: High volume panic selling (Phase A)
+      if (i < N - 3) {
+        // Not the latest candle, wait for confirmation
+        power = 25;
+        reason = '📉 Potential Selling Climax';
       } else {
-        power = 20;
-        reason = '📉 Wyckoff Distribution';
+        power = 88; // If followed by green = reversal potential
+        reason = '🔄 Selling Climax (Watch AR)';
       }
     }
 
-    // PRIORITY 2: WYCKOFF SPRING ANALYSIS (Accumulation)
-    else if (inAccumulation && (current.low < ma50) && isLowEffort && moderateDemand && isGreen) {
-      // Spring: Brief move below support on low volume, then recover
-      power = 88;
-      reason = '🌱 Wyckoff Spring';
+    // =========================================================================
+    // WYCKOFF DISTRIBUTION PHASE PATTERNS
+    // =========================================================================
+
+    // PRIORITY 1: UPTHRUST (UT) - False breakout at top (Phase B-C)
+    else if (inUptrend && isHighEffort && isWideResult && strongSupply) {
+      if (upperWick > bodySize * 1.5 && !isGreen) {
+        power = 8; // Extreme bearish - professional distribution
+        reason = '⚡ Wyckoff UPTHRUST (Phase C)';
+      } else {
+        power = 18;
+        reason = '🩸 Wyckoff Distribution (Phase B)';
+      }
     }
 
-    // PRIORITY 3: WYCKOFF SIGN OF STRENGTH (SOS)
+    // PRIORITY 2: UPTHRUST AFTER DISTRIBUTION (UTAD)
+    else if (inUptrend && upperWick > bodySize * 2 && isHighEffort && strongSupply) {
+      power = 5;
+      reason = '☠️ Wyckoff UTAD (Phase D)';
+    }
+
+    // =========================================================================
+    // WYCKOFF MARKUP PHASE (Phase E - Trending Up)
+    // =========================================================================
+
+    // PRIORITY 3: SIGN OF STRENGTH (SOS) in Markup
     else if (isHighEffort && isWideResult && strongDemand && isGreen) {
-      if (inUptrend) {
-        // High volume, wide spread, strong buying in uptrend = Sign of Strength
-        power = 92;
-        reason = '💪 Wyckoff Sign of Strength';
-      } else if (inAccumulation) {
-        // Same pattern in accumulation area = potential breakout
-        power = 85;
-        reason = '💪 Wyckoff SOS (Accumulation)';
+      if (inUptrend && (current.close > ma20 * 1.05)) {
+        // Strong SOS in established uptrend (Phase E)
+        power = 90;
+        reason = '💪 Wyckoff SOS (Markup)';
+      } else if (inAccumulation || (current.close > ma20 * 0.98 && current.close < ma20 * 1.02)) {
+        // SOS at breakout point (Phase D->E transition)
+        power = 93;
+        reason = '🚀 Wyckoff BREAKOUT (SOS)';
       } else {
         power = 78;
-        reason = '💪 Strong Buying Effort';
+        reason = '💪 Strong Buying';
       }
     }
 
-    // PRIORITY 4: WYCKOFF SIGN OF WEAKNESS (SOW)
-    else if (isHighEffort && isWideResult && strongSupply && !isGreen) {
-      if (inUptrend) {
-        // High volume, wide spread, heavy selling in uptrend = Sign of Weakness
-        power = 15;
-        reason = '⚠️ Wyckoff Sign of Weakness';
-      } else {
-        power = 25;
-        reason = '📉 Heavy Selling Effort';
-      }
+    // PRIORITY 4: LAST POINT OF SUPPORT (LPS) - Retest after breakout
+    else if (inUptrend && (current.low <= ma20 * 1.02) && isLowEffort && moderateDemand) {
+      // LPS: Low volume pullback to support in uptrend (Phase E)
+      power = 87;
+      reason = '🎯 Wyckoff LPS (Last Support)';
     }
 
-    // PRIORITY 5: WYCKOFF STOPPING VOLUME
+    // =========================================================================
+    // WYCKOFF STOPPING VOLUME PATTERNS
+    // =========================================================================
+
+    // PRIORITY 5: STOPPING VOLUME (Phase A)
     else if (isHighEffort && isNarrowResult) {
       if (strongDemand && (inDowntrend || current.close < ma20)) {
-        // High volume + narrow spread + buying in downtrend = Stopping volume
-        power = 85;
-        reason = '🛑 Wyckoff Stopping Volume';
+        // High vol + narrow spread + buying in downtrend = Stopping Volume
+        power = 87;
+        reason = '🛑 Wyckoff STOPPING VOL (Phase A)';
       } else if (strongSupply && inUptrend) {
-        // High volume + narrow spread + selling in uptrend = Distribution
-        power = 20;
-        reason = '🛑 Wyckoff Stopping (Selling)';
+        // High vol + narrow spread + selling in uptrend = Distribution
+        power = 22;
+        reason = '🛑 Distribution (Stopping Buying)';
       } else if (strongDemand) {
-        power = 75;
+        power = 78;
         reason = '🛑 Volume Absorption';
       } else {
         power = 45;
-        reason = '🛑 High Volume (Unclear)';
+        reason = '🛑 High Vol (Unclear Intent)';
       }
     }
 
-    // PRIORITY 6: WYCKOFF NO DEMAND/NO SUPPLY
+    // =========================================================================
+    // WYCKOFF NO DEMAND / NO SUPPLY PATTERNS
+    // =========================================================================
+
+    // PRIORITY 6: NO DEMAND (Phase D of Distribution)
     else if (isLowEffort && isNarrowResult) {
       if (inUptrend && moderateSupply) {
-        // Low volume + narrow spread in uptrend with some selling = No Demand
-        power = 30;
-        reason = '😴 Wyckoff No Demand';
+        // No Demand: Low volume + narrow spread in uptrend = weak buying
+        power = 28;
+        reason = '😴 Wyckoff NO DEMAND';
       } else if (inDowntrend && moderateDemand) {
-        // Low volume + narrow spread in downtrend with some buying = No Supply
-        power = 75;
-        reason = '🥷 Wyckoff No Supply';
+        // No Supply: Low volume + narrow spread in downtrend = weak selling
+        power = 77;
+        reason = '🥷 Wyckoff NO SUPPLY';
+      } else if (inAccumulation && strongDemand) {
+        // Quiet accumulation = professional activity
+        power = 85;
+        reason = '🤫 Quiet Accumulation';
       } else {
         power = 50;
         reason = '😴 No Interest';
       }
     }
 
-    // PRIORITY 7: WYCKOFF EFFORT WITHOUT RESULT (Absorption)
+    // =========================================================================
+    // WYCKOFF EFFORTLESS ADVANCE/DECLINE (Professional Activity)
+    // =========================================================================
+
+    // PRIORITY 7: EFFORTLESS MOVEMENT (Low volume + wide spread)
     else if (isLowEffort && isWideResult) {
-      if (isGreen && moderateDemand) {
-        // Low volume + wide spread up = Professional accumulation (very bullish)
-        power = 90;
-        reason = '🏛️ Wyckoff Effortless Advance';
-      } else if (!isGreen && moderateSupply) {
-        // Low volume + wide spread down = No support (bearish)
-        power = 25;
-        reason = '📉 Wyckoff No Support';
+      if (isGreen && moderateDemand && inUptrend) {
+        // Effortless advance = professional support (Phase E)
+        power = 92;
+        reason = '🏛️ Wyckoff EFFORTLESS ADVANCE';
+      } else if (isGreen && strongDemand) {
+        // Strong demand with low volume = absorption phase ending
+        power = 88;
+        reason = '🏛️ Professional Accumulation';
+      } else if (!isGreen && moderateSupply && inDowntrend) {
+        // Effortless decline = no support
+        power = 23;
+        reason = '📉 Wyckoff NO SUPPORT';
       } else {
         power = 55;
-        reason = '📊 Wide Range (Low Volume)';
+        reason = '📊 Wide Range (Low Vol)';
       }
     }
 
-    // PRIORITY 8: STANDARD PATTERNS WITH WYCKOFF CONTEXT
-    else if (isGreen) {
-      if (inUptrend) {
-        if (isHighEffort && moderateDemand) {
-          power = 78;
-          reason = '📈 Uptrend + Volume';
-        } else if (isLowEffort && moderateDemand) {
-          power = 82; // Effortless advance is bullish
-          reason = '📈 Effortless Advance';
-        } else {
-          power = 58;
-          reason = '📈 Weak Uptrend';
-        }
+    // =========================================================================
+    // VSA INTEGRATION: Classic VSA Patterns with Wyckoff Context
+    // =========================================================================
+
+    // PRIORITY 8: VSA + VCP COMBINATION PATTERNS
+    else if (isInVCP) {
+      // Stock is in VCP base - evaluate with Wyckoff lens
+      if (isLowEffort && !isGreen && moderateDemand) {
+        // VCP Dry Up = No Supply in base (Phase C)
+        power = 95;
+        reason = '🎯 VCP DRY UP (NO SUPPLY)';
+      } else if (isHighEffort && isNarrowResult && strongDemand) {
+        // VCP Iceberg = Volume absorption in base
+        power = 94;
+        reason = '🧊 VCP ICEBERG (Absorption)';
+      } else if (isLowEffort && isNarrowResult) {
+        // VCP tightening = calm before breakout
+        power = 82;
+        reason = '📉 VCP BASE (Phase C)';
+      } else if (isHighEffort && isWideResult && strongDemand) {
+        // VCP breakout with volume = Jump Across Creek (JAC)
+        power = 95;
+        reason = '🚀 VCP BREAKOUT (JAC)';
       } else {
-        if (strongDemand) {
-          power = 70;
-          reason = '🟢 Strong Demand';
-        } else if (moderateDemand) {
-          power = 60;
-          reason = '🟢 Moderate Demand';
-        } else {
-          power = 45;
-          reason = '🟢 Weak Green';
-        }
+        power = 72;
+        reason = '📉 VCP Formation';
       }
     }
 
-    // PRIORITY 9: WYCKOFF MARKDOWN PATTERNS
-    else if (!isGreen) {
-      if (inDowntrend) {
-        if (isHighEffort && strongSupply) {
-          power = 18;
-          reason = '📉 Strong Markdown';
-        } else if (isLowEffort && moderateSupply) {
-          power = 35;
-          reason = '📉 Weak Markdown';
-        } else {
-          power = 40;
-          reason = '📉 Downtrend';
-        }
+    // PRIORITY 9: VSA DRY UP (Independent of VCP)
+    else if (isLowEffort && !isGreen && moderateDemand && (current.close > ma20 * 0.97)) {
+      // Dry Up near support = No Supply
+      power = 88;
+      reason = '🥷 DRY UP (NO SUPPLY)';
+    }
+
+    // PRIORITY 10: VSA ICEBERG (Hidden activity)
+    else if (isHighEffort && isNarrowResult && strongDemand) {
+      // Iceberg = Smart money quietly accumulating
+      power = 86;
+      reason = '🧊 ICEBERG (Hidden Buy)';
+    }
+
+    // =========================================================================
+    // STANDARD PATTERNS WITH INTEGRATED ANALYSIS
+    // =========================================================================
+
+    // PRIORITY 11: STRONG BULLISH PATTERNS
+    else if (isGreen && (current.close > ma20)) {
+      if (isHighEffort && strongDemand && isWideResult) {
+        // Classic bullish: High volume + wide spread + demand
+        power = 85;
+        reason = '🚀 Strong Bullish (SOS)';
+      } else if (isLowEffort && moderateDemand && isWideResult) {
+        // Effortless rise = professional support
+        power = 83;
+        reason = '📈 Effortless Rise';
+      } else if (isHighEffort && moderateDemand) {
+        power = 75;
+        reason = '📈 Good Bullish';
+      } else if (isLowEffort) {
+        power = 68;
+        reason = '📈 Weak Volume Bull';
       } else {
-        if (strongSupply) {
-          power = 25;
-          reason = '🔴 Strong Supply';
-        } else if (moderateSupply) {
-          power = 40;
-          reason = '🔴 Moderate Supply';
+        power = 60;
+        reason = '📈 Neutral Bull';
+      }
+    }
+
+    // PRIORITY 12: BULLISH REVERSAL ATTEMPTS (Below MA)
+    else if (isGreen && (current.close < ma20)) {
+      if (isHighEffort && strongDemand) {
+        // High volume buying below MA = potential reversal
+        power = 72;
+        reason = '🔄 Strong Reversal Try';
+      } else if (isLowEffort && moderateDemand) {
+        // Low volume rise = weak or early accumulation
+        power = 58;
+        reason = '🔄 Weak Reversal';
+      } else {
+        power = 48;
+        reason = '📈 Weak Green';
+      }
+    }
+
+    // PRIORITY 13: BEARISH PATTERNS
+    else if (!isGreen && (current.close < ma20)) {
+      if (isHighEffort && strongSupply && isWideResult) {
+        // Heavy selling with volume = strong markdown
+        power = 15;
+        reason = '📉 Strong Markdown (SOW)';
+      } else if (isHighEffort && strongSupply) {
+        power = 25;
+        reason = '📉 Heavy Selling';
+      } else if (isLowEffort && moderateSupply) {
+        // Low volume decline = weak hands selling
+        power = 38;
+        reason = '📉 Weak Selling';
+      } else {
+        power = 32;
+        reason = '📉 Bearish';
+      }
+    }
+
+    // PRIORITY 14: DISTRIBUTION PATTERNS (Red candle above MA)
+    else if (!isGreen && (current.close > ma20)) {
+      if (isHighEffort && strongSupply) {
+        // High volume selling above support = distribution
+        power = 30;
+        reason = '🩸 Distribution (Phase B)';
+      } else if (isLowEffort && strongSupply) {
+        // No Demand: Low volume with selling
+        power = 35;
+        reason = '😴 NO DEMAND';
+      } else {
+        power = 45;
+        reason = '📉 Weak Red';
+      }
+    }
+
+    // =========================================================================
+    // SPECIAL WYCKOFF + VSA PATTERNS
+    // =========================================================================
+
+    // Check for shake-out patterns (Spring variant)
+    if ((lowerWick > bodySize * 2) && (current.low < ma20) && (current.close > ma20) && strongDemand) {
+      // Shake-out and recovery = Spring
+      power = Math.max(power, 91);
+      reason = '🌱 Wyckoff SHAKE-OUT (Spring)';
+    }
+
+    // Check for end of rising (climax)
+    if (inUptrend && isGreen && (upperWick > bodySize * 1.8) && isHighEffort) {
+      // Buying climax = potential top
+      power = Math.min(power, 40);
+      reason = '⚠️ Buying Climax (Top?)';
+    }
+
+    // =========================================================================
+    // CONTEXT-AWARE ADJUSTMENTS (Wyckoff Background Analysis)
+    // =========================================================================
+
+    // VCP enhancement: Reward tight action near support
+    if (isInVCP && (current.close > ma20 * 0.98)) {
+      if (power > 70) power += 5; // VCP in good position
+      if (power > 95 && isLowEffort) {
+        reason += ' + VCP';
+      }
+    }
+
+    // Trend alignment (Wyckoff Principle: Trade with the trend)
+    if (inUptrend && power > 50) {
+      power += 3; // Bullish in uptrend (Phase E)
+    } else if (inDowntrend && power < 50) {
+      power -= 5; // Bearish in downtrend (Phase E Markdown)
+    } else if (inAccumulation && power > 75) {
+      power += 4; // Strong accumulation signals (Phase C-D)
+    }
+
+    // Extreme volume adjustments (Climactic activity)
+    if (volRatio > 3.0) {
+      if (strongDemand && isGreen) {
+        power += 4; // Climactic buying (if at top = warning, if at bottom = reversal)
+        if (inUptrend && current.close > ma20 * 1.1) {
+          power -= 10; // Buying climax at top = danger
+          reason = '⚠️ ' + reason + ' (Climax?)';
+        }
+      } else if (strongSupply && !isGreen) {
+        if (inDowntrend) {
+          power -= 8; // Panic selling continues
         } else {
-          power = 52;
-          reason = '🔴 Weak Red';
+          power = Math.max(power, 85); // Climactic selling at support = potential reversal
+          reason = '🔄 Panic Selling (Reversal?)';
         }
       }
     }
 
-    // WYCKOFF CONTEXT ADJUSTMENTS
-
-    // Trend alignment bonus/penalty
-    if (inUptrend && power > 50) power += 3; // Bullish in uptrend
-    else if (inDowntrend && power < 50) power -= 5; // Bearish in downtrend
-    else if (inAccumulation && power > 70) power += 5; // Good accumulation area
-
-    // Volume extremes (professional activity indicators)
-    if (volRatio > 3.0 && strongDemand) {
-      power += 5; // Exceptional buying volume
-      if (power > 95) reason += ' (Professional)';
-    } else if (volRatio > 3.0 && strongSupply) {
-      power -= 8; // Exceptional selling volume
-      if (power < 25) reason += ' (Professional)';
+    // Volatility contraction bonus (VCP + Wyckoff Cause)
+    if (volatilityDecreasing && (current.close > ma20) && power > 65) {
+      power += 3; // Building cause for next move
+      if (power > 90 && isLowEffort) {
+        reason += ' + Tight';
+      }
     }
 
     // Ensure bounds
@@ -700,8 +956,9 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
       color = '#4a0000'; // Very dark red - Wyckoff professional selling
     }
 
-    // Only add markers for recent candles to avoid clutter
-    if (i >= N - 50) {
+    // Only add markers for the LAST 5 CANDLES (most recent data)
+    // This keeps the chart clean and focuses on current market condition
+    if (i >= N - 5) {
       markers.push({
         time: current.time,
         position: 'aboveBar',
@@ -709,21 +966,6 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
         shape: 'circle',
         text: power.toString()
       });
-    }
-
-    // Force markers for the last 3 candles to ensure they always appear
-    if (i >= N - 3) {
-      // Check if marker already exists for this time, if not add it
-      const existingMarker = markers.find(m => m.time === current.time);
-      if (!existingMarker) {
-        markers.push({
-          time: current.time,
-          position: 'aboveBar',
-          color: color,
-          shape: 'circle',
-          text: power.toString()
-        });
-      }
     }
   }
 
@@ -744,25 +986,100 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
   const { isSqueezed, squeezeCount } = detectSqueeze(data, 20);
   const squeezeMarkers: MarkerData[] = [];
 
-  // Add squeeze markers
+  // Calculate MA for trend context in squeeze
+  const squeezeMA20 = ma20; // Use already calculated MA20
+  const squeezeMA50 = ma50; // Use already calculated MA50
+
+  // Enhanced squeeze markers with trend and momentum context
   for (let i = 20; i < data.length; i++) {
+    // Get MA values for trend determination
+    const ma20Index = i - 19;
+    const ma50Index = i - 49;
+    let currentMA20 = data[i].close;
+    let currentMA50 = data[i].close;
+
+    if (ma20Index >= 0 && ma20Index < squeezeMA20.length) {
+      currentMA20 = squeezeMA20[ma20Index].value;
+    }
+    if (ma50Index >= 0 && ma50Index < squeezeMA50.length) {
+      currentMA50 = squeezeMA50[ma50Index].value;
+    }
+
+    const priceAboveMA20 = data[i].close > currentMA20;
+    const priceAboveMA50 = data[i].close > currentMA50;
+    const maUptrend = currentMA20 > currentMA50;
+
     if (isSqueezed[i]) {
+      const days = squeezeCount[i];
+      let text = `SQZ ${days}D`;
+      let color = '#9b59b6'; // Default purple
+
+      // Add trend context to squeeze markers
+      if (priceAboveMA20 && priceAboveMA50 && maUptrend) {
+        // Bullish squeeze - likely to break up
+        color = '#27ae60'; // Green
+        text = `🟢 SQZ ${days}D`;
+      } else if (!priceAboveMA20 && !priceAboveMA50 && !maUptrend) {
+        // Bearish squeeze - likely to break down
+        color = '#e74c3c'; // Red
+        text = `🔴 SQZ ${days}D`;
+      } else {
+        // Neutral squeeze
+        color = '#f39c12'; // Orange
+        text = `🟡 SQZ ${days}D`;
+      }
+
+      // Show warning for extended squeezes (high probability of breakout soon)
+      if (days >= 10) {
+        text = `⚡ ${text} (READY!)`;
+      } else if (days >= 15) {
+        text = `🔥 ${text} (CRITICAL!)`;
+      }
+
       squeezeMarkers.push({
         time: data[i].time,
         position: 'aboveBar',
-        color: '#9b59b6',
+        color: color,
         shape: 'arrowDown',
-        text: `SQZ ${squeezeCount[i]}D`
+        text: text
       });
     } else if (!isSqueezed[i] && isSqueezed[i - 1]) {
       const totalBase = squeezeCount[i - 1];
       if (totalBase > 0) {
+        // Determine breakout direction
+        const isBreakoutUp = data[i].close > data[i - 1].close;
+        const breakoutVolume = (data[i].volume || 0) / ((data[i - 1].volume || 0) || 1);
+        const highVolume = breakoutVolume > 1.5;
+
+        let text = `💥 ${totalBase}D`;
+        let color = '#e67e22'; // Default orange
+
+        // Bullish breakout with volume
+        if (isBreakoutUp && highVolume && priceAboveMA20) {
+          color = '#00b894'; // Dark green
+          text = `🚀 BREAK ${totalBase}D (UP!)`;
+        }
+        // Bullish breakout but low volume (weak)
+        else if (isBreakoutUp && !highVolume) {
+          color = '#55efc4'; // Light green
+          text = `📈 BREAK ${totalBase}D`;
+        }
+        // Bearish breakout
+        else if (!isBreakoutUp && highVolume) {
+          color = '#d63031'; // Red
+          text = `📉 BREAK ${totalBase}D (DOWN!)`;
+        }
+        // Default breakout
+        else {
+          text = `💥 BREAK ${totalBase}D`;
+        }
+
         squeezeMarkers.push({
           time: data[i].time,
           position: 'aboveBar',
-          color: '#e67e22',
+          color: color,
           shape: 'arrowDown',
-          text: `💥 ${totalBase}D MAX`
+          text: text
         });
       }
     }
