@@ -1,65 +1,266 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect } from 'react';
+import StockChart from '@/components/StockChart';
+import StockInfo from '@/components/StockInfo';
+import Link from 'next/link';
+
+interface ChartData {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+}
+
+interface StockQuote {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  marketCap?: number;
+  high: number;
+  low: number;
+  open: number;
+  previousClose: number;
+  currency?: string;
+}
 
 export default function Home() {
+  const [symbol, setSymbol] = useState('BBCA.JK');
+  const [inputSymbol, setInputSymbol] = useState('BBCA'); // Display without .JK
+  const [chartData, setChartData] = useState<ChartData[]>([]);
+  const [stockQuote, setStockQuote] = useState<StockQuote | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [interval, setInterval] = useState('1d');
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+
+  const popularStocks = [
+    'BBCA.JK', 'BBRI.JK', 'BMRI.JK', 'TLKM.JK', 'ASII.JK',
+    'UNVR.JK', 'ICBP.JK', 'GGRM.JK', 'KLBF.JK', 'INDF.JK'
+  ];
+
+  // Helper function to ensure .JK suffix
+  const ensureJKSuffix = (ticker: string): string => {
+    const trimmed = ticker.trim().toUpperCase();
+    if (trimmed.endsWith('.JK')) {
+      return trimmed;
+    }
+    return `${trimmed}.JK`;
+  };
+
+  useEffect(() => {
+    // Check for symbol in URL params (from screener view button)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlSymbol = urlParams.get('symbol');
+
+    if (urlSymbol) {
+      const fullSymbol = ensureJKSuffix(urlSymbol);
+      setSymbol(fullSymbol);
+      setInputSymbol(urlSymbol); // Update input field to show ticker without .JK
+      // Fetch data immediately for URL symbol
+      fetchStockData(fullSymbol, interval);
+      setInitialLoadDone(true);
+    } else {
+      // No URL symbol, fetch default symbol
+      fetchStockData(symbol, interval);
+      setInitialLoadDone(true);
+    }
+  }, []); // Run once on component mount
+
+  useEffect(() => {
+    // Only run for subsequent changes after initial load
+    // Skip if this is the initial load or if we just loaded from URL
+    if (initialLoadDone) {
+      console.log('useEffect triggered for symbol change:', symbol); // Debug log
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSymbol = urlParams.get('symbol');
+
+      // Only fetch if the symbol change wasn't from URL parameter
+      // or if the URL symbol is different from current symbol
+      if (!urlSymbol || ensureJKSuffix(urlSymbol) !== symbol) {
+        console.log('Fetching data for symbol change:', symbol); // Debug log
+        fetchStockData(symbol, interval);
+      } else {
+        console.log('Skipping fetch - symbol change was from URL parameter'); // Debug log
+      }
+    }
+  }, [symbol, interval, initialLoadDone]);
+
+  const fetchStockData = async (sym: string, int: string) => {
+    console.log('fetchStockData called with symbol:', sym, 'interval:', int); // Debug log
+    setLoading(true);
+    setError('');
+
+    try {
+      // Fetch quote
+      const quoteRes = await fetch(`/api/stock/quote?symbol=${sym}`);
+      if (!quoteRes.ok) throw new Error('Failed to fetch quote');
+      const quoteData = await quoteRes.json();
+      setStockQuote(quoteData);
+
+      // Fetch historical data
+      const historicalRes = await fetch(
+        `/api/stock/historical?symbol=${sym}&interval=${int}`
+      );
+      if (!historicalRes.ok) throw new Error('Failed to fetch historical data');
+      const historicalData = await historicalRes.json();
+      setChartData(historicalData.data);
+
+      console.log('Successfully fetched data for:', sym); // Debug log
+    } catch (err: any) {
+      console.error('Error fetching data for', sym, ':', err); // Debug log
+      setError(err.message || 'Failed to fetch data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputSymbol.trim()) {
+      // Clear any previous errors
+      setError('');
+
+      // Automatically add .JK suffix
+      const fullSymbol = ensureJKSuffix(inputSymbol);
+      console.log('Search triggered for symbol:', fullSymbol); // Debug log
+
+      // Update symbol state - this will trigger the useEffect to fetch data
+      setSymbol(fullSymbol);
+
+      // Update URL without page reload for better UX
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('symbol'); // Remove any existing symbol param for manual searches
+      window.history.replaceState({}, '', newUrl.pathname);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen bg-gray-900 text-white">
+      <nav className="bg-gray-800 border-b border-gray-700 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Ebite Chart</h1>
+          <div className="flex gap-4">
+            <Link
+              href="/vcp-screener"
+              className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded font-semibold transition"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              🎯 VCP Screener
+            </Link>
+            <Link
+              href="/screener"
+              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded transition"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              Stock Screener
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+      </nav>
+
+      <div className="max-w-7xl mx-auto p-6">
+        {/* Search Bar */}
+        <div className="mb-6">
+          <form onSubmit={handleSearch} className="flex gap-2 mb-4">
+            <input
+              type="text"
+              value={inputSymbol}
+              onChange={(e) => setInputSymbol(e.target.value.toUpperCase())}
+              placeholder="Enter stock ticker (e.g., BBCA, TLKM, BBRI)"
+              className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder:text-gray-500"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <button
+              type="submit"
+              disabled={!inputSymbol.trim() || loading}
+              className={`px-6 py-2 rounded font-semibold transition ${
+                !inputSymbol.trim() || loading
+                  ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              {loading ? '⏳ Loading...' : '🔍 Search'}
+            </button>
+          </form>
+
+          <p className="text-sm text-gray-400 mb-3">
+            💡 Tip: Just type the ticker symbol (e.g., BBCA). The .JK suffix is added automatically for Indonesian stocks.
+          </p>
+
+          {/* Popular Stocks */}
+          <div className="flex flex-wrap gap-2">
+            {popularStocks.map((stock) => (
+              <button
+                key={stock}
+                onClick={() => {
+                  setSymbol(stock);
+                  setInputSymbol(stock.replace('.JK', '')); // Show without .JK in input
+                }}
+                className={`px-3 py-1 rounded ${
+                  symbol === stock
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                {stock.replace('.JK', '')}
+              </button>
+            ))}
+          </div>
         </div>
-      </main>
+
+        {/* Interval Selector */}
+        <div className="mb-6 flex gap-2">
+          {['1d', '1wk', '1mo'].map((int) => (
+            <button
+              key={int}
+              onClick={() => setInterval(int)}
+              className={`px-4 py-2 rounded ${
+                interval === int
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {int === '1d' ? 'Daily' : int === '1wk' ? 'Weekly' : 'Monthly'}
+            </button>
+          ))}
+        </div>
+
+        {loading && (
+          <div className="text-center py-12">
+            <div className="inline-block">
+              <div className="animate-spin mb-4 text-3xl">🔄</div>
+              <div className="text-xl mb-2">
+                Loading {inputSymbol || symbol.replace('.JK', '')} chart...
+              </div>
+              {window.location.search && (
+                <p className="text-sm text-gray-400">
+                  Loading stock from screener analysis...
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-900 border border-red-700 text-red-100 px-4 py-3 rounded mb-6">
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && stockQuote && (
+          <>
+            <StockInfo {...stockQuote} />
+            {chartData.length > 0 && (
+              <div className="bg-gray-800 rounded-lg p-6">
+                <StockChart symbol={symbol} data={chartData} />
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
