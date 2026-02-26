@@ -58,9 +58,7 @@ export interface IndicatorResult {
   candlePowerMarkers: MarkerData[];
   candlePowerAnalysis: string;
   vsaMarkers: MarkerData[];
-  squeezeMarkers: MarkerData[];
   signals: {
-    base: string;
     bandar: string;
   };
 }
@@ -174,50 +172,6 @@ export function calculateFibonacci(data: ChartData[], lookback: number = 100): F
   return { f382: f382Data, f500: f500Data, f618: f618Data };
 }
 
-// Detect Squeeze (Bollinger Band inside Keltner Channel)
-export function detectSqueeze(data: ChartData[], period: number = 20): { isSqueezed: boolean[]; squeezeCount: number[] } {
-  const N = data.length;
-  const isSqueezed: boolean[] = new Array(N).fill(false);
-  const squeezeCount: number[] = new Array(N).fill(0);
-  let currentCount = 0;
-
-  for (let i = period; i < N; i++) {
-    const closes = data.slice(i - period + 1, i + 1).map(d => d.close);
-    const sma = closes.reduce((a, b) => a + b) / period;
-
-    // Standard Deviation
-    const variance = closes.map(x => Math.pow(x - sma, 2)).reduce((a, b) => a + b) / period;
-    const stdDev = Math.sqrt(variance);
-
-    // True Range sum
-    let trSum = 0;
-    for (let j = i - period + 1; j <= i; j++) {
-      const tr = Math.max(
-        data[j].high - data[j].low,
-        Math.abs(data[j].high - data[j - 1].close),
-        Math.abs(data[j].low - data[j - 1].close)
-      );
-      trSum += tr;
-    }
-
-    const atr = trSum / period;
-    const bbUpper = sma + (2 * stdDev);
-    const bbLower = sma - (2 * stdDev);
-    const kcUpper = sma + (1.5 * atr);
-    const kcLower = sma - (1.5 * atr);
-
-    isSqueezed[i] = (bbUpper < kcUpper) && (bbLower > kcLower);
-
-    if (isSqueezed[i]) {
-      currentCount++;
-    } else {
-      currentCount = 0;
-    }
-    squeezeCount[i] = currentCount;
-  }
-
-  return { isSqueezed, squeezeCount };
-}
 
 // Detect VSA (Volume Spread Analysis) patterns with enhanced accuracy
 export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: string } {
@@ -1013,117 +967,9 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
   const awesomeOscillator = calculateAO(data);
   const fibonacci = calculateFibonacci(data, 100);
 
-  const { isSqueezed, squeezeCount } = detectSqueeze(data, 20);
-  const squeezeMarkers: MarkerData[] = [];
-
-  // Calculate MA for trend context in squeeze
-  const squeezeMA20 = ma20; // Use already calculated MA20
-  const squeezeMA50 = ma50; // Use already calculated MA50
-
-  // Enhanced squeeze markers with trend and momentum context
-  for (let i = 20; i < data.length; i++) {
-    // Get MA values for trend determination
-    const ma20Index = i - 19;
-    const ma50Index = i - 49;
-    let currentMA20 = data[i].close;
-    let currentMA50 = data[i].close;
-
-    if (ma20Index >= 0 && ma20Index < squeezeMA20.length) {
-      currentMA20 = squeezeMA20[ma20Index].value;
-    }
-    if (ma50Index >= 0 && ma50Index < squeezeMA50.length) {
-      currentMA50 = squeezeMA50[ma50Index].value;
-    }
-
-    const priceAboveMA20 = data[i].close > currentMA20;
-    const priceAboveMA50 = data[i].close > currentMA50;
-    const maUptrend = currentMA20 > currentMA50;
-
-    if (isSqueezed[i]) {
-      const days = squeezeCount[i];
-      let text = `SQZ ${days}D`;
-      let color = '#9b59b6'; // Default purple
-
-      // Add trend context to squeeze markers
-      if (priceAboveMA20 && priceAboveMA50 && maUptrend) {
-        // Bullish squeeze - likely to break up
-        color = '#27ae60'; // Green
-        text = `🟢 SQZ ${days}D`;
-      } else if (!priceAboveMA20 && !priceAboveMA50 && !maUptrend) {
-        // Bearish squeeze - likely to break down
-        color = '#e74c3c'; // Red
-        text = `🔴 SQZ ${days}D`;
-      } else {
-        // Neutral squeeze
-        color = '#f39c12'; // Orange
-        text = `🟡 SQZ ${days}D`;
-      }
-
-      // Show warning for extended squeezes (high probability of breakout soon)
-      if (days >= 10) {
-        text = `⚡ ${text} (READY!)`;
-      } else if (days >= 15) {
-        text = `🔥 ${text} (CRITICAL!)`;
-      }
-
-      squeezeMarkers.push({
-        time: data[i].time,
-        position: 'aboveBar',
-        color: color,
-        shape: 'arrowDown',
-        text: text
-      });
-    } else if (!isSqueezed[i] && isSqueezed[i - 1]) {
-      const totalBase = squeezeCount[i - 1];
-      if (totalBase > 0) {
-        // Determine breakout direction
-        const isBreakoutUp = data[i].close > data[i - 1].close;
-        const breakoutVolume = (data[i].volume || 0) / ((data[i - 1].volume || 0) || 1);
-        const highVolume = breakoutVolume > 1.5;
-
-        let text = `💥 ${totalBase}D`;
-        let color = '#e67e22'; // Default orange
-
-        // Bullish breakout with volume
-        if (isBreakoutUp && highVolume && priceAboveMA20) {
-          color = '#00b894'; // Dark green
-          text = `🚀 BREAK ${totalBase}D (UP!)`;
-        }
-        // Bullish breakout but low volume (weak)
-        else if (isBreakoutUp && !highVolume) {
-          color = '#55efc4'; // Light green
-          text = `📈 BREAK ${totalBase}D`;
-        }
-        // Bearish breakout
-        else if (!isBreakoutUp && highVolume) {
-          color = '#d63031'; // Red
-          text = `📉 BREAK ${totalBase}D (DOWN!)`;
-        }
-        // Default breakout
-        else {
-          text = `💥 BREAK ${totalBase}D`;
-        }
-
-        squeezeMarkers.push({
-          time: data[i].time,
-          position: 'aboveBar',
-          color: color,
-          shape: 'arrowDown',
-          text: text
-        });
-      }
-    }
-  }
-
   const vsaResult = detectVSA(data);
   const candlePowerResult = calculateCandlePower(data);
   const supportResistance = calculateSupportResistance(data);
-
-  const baseSignal = isSqueezed[data.length - 1]
-    ? `⏳ ${squeezeCount[data.length - 1]} Hari Squeeze`
-    : (!isSqueezed[data.length - 1] && isSqueezed[data.length - 2])
-      ? `🔥 Pecah dari ${squeezeCount[data.length - 2]}`
-      : '⬜ Tidak Aktif';
 
   return {
     ma5,
@@ -1137,9 +983,7 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
     candlePowerMarkers: candlePowerResult.markers,
     candlePowerAnalysis: candlePowerResult.analysis,
     vsaMarkers: vsaResult.markers,
-    squeezeMarkers,
     signals: {
-      base: baseSignal,
       bandar: vsaResult.signal
     }
   };

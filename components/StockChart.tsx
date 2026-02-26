@@ -28,7 +28,6 @@ export default function StockChart({ data }: StockChartProps) {
     momentum: true, // MACD enabled by default
     ao: false,
     fibonacci: false,
-    squeeze: false,
     vsa: false,     // Disabled by default
     vcp: false,     // Disabled by default
     candlePower: false, // User must explicitly enable
@@ -39,28 +38,12 @@ export default function StockChart({ data }: StockChartProps) {
 
 
   // Quick preset modes - Reorganized for better UX
-  const setSqueezeMode = () => {
-    setShowIndicators({
-      ma: true,        // Show MA for context
-      momentum: true,  // Show momentum for squeeze
-      ao: false,
-      fibonacci: false,
-      squeeze: true,   // Main squeeze detection
-      vsa: false,      // Focus only on squeeze
-      vcp: false,
-      candlePower: false,
-      sr: true,        // Show S/R zones
-      signals: true
-    });
-  };
-
   const setMAMode = () => {
     setShowIndicators({
       ma: true,        // Show all MA lines (5, 20, 50, 200)
       momentum: false,
       ao: false,
       fibonacci: false,
-      squeeze: false,
       vsa: false,      // Clean chart with only MA lines
       vcp: false,
       candlePower: false,
@@ -75,7 +58,6 @@ export default function StockChart({ data }: StockChartProps) {
       momentum: false,
       ao: false,
       fibonacci: false,
-      squeeze: false,
       vsa: true,       // Focus on VSA patterns (iceberg, dry up, VCP base)
       vcp: true,       // Include VCP detection
       candlePower: false,
@@ -90,7 +72,6 @@ export default function StockChart({ data }: StockChartProps) {
       momentum: false,
       ao: false,
       fibonacci: false,
-      squeeze: false,
       vsa: false,      // DISABLE VSA patterns
       vcp: false,      // DISABLE VCP patterns
       candlePower: true, // ONLY show candle power scores
@@ -105,7 +86,6 @@ export default function StockChart({ data }: StockChartProps) {
       momentum: true,
       ao: true,
       fibonacci: true,
-      squeeze: true,
       vsa: true,
       vcp: true,
       candlePower: true,
@@ -229,7 +209,7 @@ export default function StockChart({ data }: StockChartProps) {
       candlestickSeries.setData(data as any);
 
       // Add markers based on selected patterns - PROPERLY SEPARATED
-      if (showIndicators.signals || showIndicators.squeeze || showIndicators.vsa || showIndicators.vcp || showIndicators.candlePower) {
+      if (showIndicators.signals || showIndicators.vsa || showIndicators.vcp || showIndicators.candlePower) {
         const allMarkers: typeof calculatedIndicators.vsaMarkers = [];
 
         // CANDLE POWER MODE: Show ONLY candle power markers (colored dots with scores)
@@ -237,17 +217,12 @@ export default function StockChart({ data }: StockChartProps) {
           // Pure Candle Power mode - show ONLY colored score dots
           allMarkers.push(...calculatedIndicators.candlePowerMarkers);
         }
-        // SQUEEZE MODE: Show ONLY squeeze markers (🟢 SQZ, 🚀 BREAK, etc.)
-        else if (showIndicators.squeeze) {
-          // Pure Squeeze mode - show ONLY squeeze-related markers
-          allMarkers.push(...calculatedIndicators.squeezeMarkers);
-        }
         // VSA/VCP MODE: Show ONLY VSA patterns (🎯 SNIPER, 🧊 ICEBERG, 🥷 DRY UP, etc.)
         else if (showIndicators.vsa || showIndicators.vcp) {
           // Pure VSA mode - show ONLY VSA pattern markers
           allMarkers.push(...calculatedIndicators.vsaMarkers);
         }
-        // SIGNALS MODE (default): Show VSA patterns (not squeeze)
+        // SIGNALS MODE (default): Show VSA patterns
         else if (showIndicators.signals) {
           // In signals-only mode, show VSA patterns by default
           allMarkers.push(...calculatedIndicators.vsaMarkers);
@@ -286,7 +261,7 @@ export default function StockChart({ data }: StockChartProps) {
     if (showIndicators.ma) {
       // Determine if we're in a clean mode (only MA without other complex indicators)
       const isMAOnlyMode = !showIndicators.momentum && !showIndicators.ao && !showIndicators.fibonacci &&
-                          !showIndicators.squeeze && !showIndicators.vsa && !showIndicators.vcp && !showIndicators.candlePower;
+                          !showIndicators.vsa && !showIndicators.vcp && !showIndicators.candlePower;
 
       // Always show MA5 in MA-only mode, or when in full analysis mode
       if (isMAOnlyMode || (showIndicators.momentum || showIndicators.ao || showIndicators.fibonacci)) {
@@ -582,26 +557,15 @@ export default function StockChart({ data }: StockChartProps) {
             <div className="flex gap-1 md:gap-2 flex-wrap mb-3 p-2 bg-gray-800 rounded">
               <span className="text-xs text-gray-400 py-1">⚡ Quick Modes:</span>
               <button
-                onClick={setSqueezeMode}
-                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  showIndicators.squeeze 
-                    ? 'bg-purple-600 text-white shadow-lg' 
-                    : 'bg-gray-700 hover:bg-purple-700 text-gray-300'
-                }`}
-                title="TTM Squeeze + Momentum + SQZ/XD patterns"
-              >
-                {showIndicators.squeeze ? '✓ ' : ''}🔮 Squeeze
-              </button>
-              <button
                 onClick={setMAMode}
                 className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  showIndicators.ma && !showIndicators.momentum && !showIndicators.squeeze && !showIndicators.vsa && !showIndicators.candlePower
+                  showIndicators.ma && !showIndicators.momentum && !showIndicators.vsa && !showIndicators.candlePower
                     ? 'bg-yellow-600 text-white shadow-lg' 
                     : 'bg-gray-700 hover:bg-yellow-700 text-gray-300'
                 }`}
                 title="Moving Averages: MA5, MA20, MA50, MA200"
               >
-                {showIndicators.ma && !showIndicators.momentum && !showIndicators.squeeze && !showIndicators.vsa && !showIndicators.candlePower ? '✓ ' : ''}📈 MA Lines
+                {showIndicators.ma && !showIndicators.momentum && !showIndicators.vsa && !showIndicators.candlePower ? '✓ ' : ''}📈 MA Lines
               </button>
               <button
                 onClick={setVSAMode}
@@ -610,7 +574,7 @@ export default function StockChart({ data }: StockChartProps) {
                     ? 'bg-orange-600 text-white shadow-lg' 
                     : 'bg-gray-700 hover:bg-orange-700 text-gray-300'
                 }`}
-                title="VSA Patterns: Iceberg, Dry Up, VCP Base"
+                title="VSA Patterns: Iceberg, Dry Up, VCP Base, Sniper Entry"
               >
                 {showIndicators.vsa || showIndicators.vcp ? '✓ ' : ''}🎯 VSA Patterns
               </button>
@@ -676,8 +640,7 @@ export default function StockChart({ data }: StockChartProps) {
                   candlePower: !prev.candlePower,
                   // Disable other patterns when enabling candle power
                   vsa: prev.candlePower ? prev.vsa : false,
-                  vcp: prev.candlePower ? prev.vcp : false,
-                  squeeze: prev.candlePower ? prev.squeeze : false
+                  vcp: prev.candlePower ? prev.vcp : false
                 }))}
                 className={`px-3 md:px-4 py-1.5 md:py-2 rounded text-xs md:text-sm font-bold transition-all ${
                   showIndicators.candlePower
@@ -842,23 +805,16 @@ export default function StockChart({ data }: StockChartProps) {
 
               {/* Detailed analysis - Only in Full Analysis mode */}
               {(showIndicators.candlePower || showIndicators.momentum || showIndicators.ao) && (
-                <>
-                  <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-900 rounded">
-                    <span className="text-gray-400 md:min-w-[80px]">🔥 Candle Power:</span>
-                    <span className="text-white break-words">{indicators.candlePowerAnalysis}</span>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-900 rounded">
-                    <span className="text-gray-400 md:min-w-[80px]">🏗️ Base:</span>
-                    <span className="text-white break-words">{indicators.signals.base}</span>
-                  </div>
-                </>
+                <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-900 rounded">
+                  <span className="text-gray-400 md:min-w-[80px]">🔥 Candle Power:</span>
+                  <span className="text-white break-words">{indicators.candlePowerAnalysis}</span>
+                </div>
               )}
             </div>
 
             <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-gray-700">
               <p className="text-xs text-gray-500">
-                💡 Signals based on VSA, TTM Squeeze, and Candle Power Analysis
+                💡 Signals based on VSA, VCP, and Candle Power Analysis
               </p>
             </div>
           </div>
