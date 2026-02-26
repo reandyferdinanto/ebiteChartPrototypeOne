@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 
 interface ScalpResult {
@@ -19,11 +19,38 @@ interface ScalpResult {
 }
 
 const SCALP_STOCKS = [
-  'BBCA', 'BBRI', 'BMRI', 'BBNI', 'BRIS',
-  'TLKM', 'ASII', 'UNVR', 'ICBP', 'INDF',
-  'KLBF', 'GOTO', 'EMTK', 'BUKA', 'ARTO',
-  'AMMN', 'WIFI', 'PANI', 'BREN', 'TPIA',
-  'FIRE', 'ELIT', 'UVCR', 'LAND', 'KOTA',
+  // Banks (Very Liquid)
+  'BBCA', 'BBRI', 'BMRI', 'BBNI', 'BRIS', 'BTPS', 'BDMN', 'BNGA', 'NISP', 'MEGA',
+
+  // Blue Chips (Very Liquid)
+  'TLKM', 'ASII', 'UNVR', 'ICBP', 'INDF', 'HMSP', 'GGRM', 'KLBF', 'ANTM', 'INCO',
+
+  // Infrastructure & Energy (Liquid)
+  'JSMR', 'ADRO', 'PTBA', 'PGAS', 'ITMG', 'SMGR', 'WIKA', 'WSKT', 'PTPP', 'ADHI',
+
+  // Mining & Resources (Liquid)
+  'MDKA', 'INDY', 'TINS', 'MEDC', 'ELSA', 'ESSA', 'BRMS', 'DOID', 'GEMS', 'PSAB',
+
+  // Tech & Telecom (Liquid)
+  'GOTO', 'EMTK', 'BUKA', 'WIFI', 'EXCL', 'ISAT', 'FREN', 'LINK', 'TBIG', 'MTEL',
+
+  // Consumer (Liquid)
+  'MYOR', 'CAMP', 'MLBI', 'ULTJ', 'ROTI', 'ADES', 'CLEO', 'GOOD', 'SIDO', 'KAEF',
+
+  // Property (Liquid)
+  'BSDE', 'SMRA', 'CTRA', 'PWON', 'LPKR', 'APLN', 'DUTI', 'ASRI', 'PLIN', 'BAPA',
+
+  // Finance (Liquid)
+  'BBTN', 'BJBR', 'BJTM', 'BCAP', 'PNBN', 'ADMF', 'AMMN', 'BFIN', 'DEFI', 'HADE',
+
+  // Misc Large Caps (Liquid)
+  'ARTO', 'PANI', 'BREN', 'TPIA', 'AKRA', 'UNTR', 'SRTG', 'TOWR', 'INKP', 'TKIM',
+
+  // Mid Caps (Regular Volume)
+  'FIRE', 'ELIT', 'UVCR', 'LAND', 'KOTA', 'MAPI', 'LPPF', 'ERAA', 'HEAL', 'MIKA',
+
+  // Growth Stocks (Active)
+  'AMRT', 'DNET', 'DCII', 'BOGA', 'CPRO', 'EDGE', 'FILM', 'BEER', 'BULL', 'NCKL',
 ];
 
 export default function ScalpScreener() {
@@ -40,6 +67,8 @@ export default function ScalpScreener() {
     setProgress(0);
 
     const newResults: ScalpResult[] = [];
+    let scannedCount = 0;
+    let errorCount = 0;
 
     for (let idx = 0; idx < SCALP_STOCKS.length; idx++) {
       const ticker = SCALP_STOCKS[idx];
@@ -53,19 +82,25 @@ export default function ScalpScreener() {
         );
 
         if (!histRes.ok) {
+          console.log(`❌ Failed to fetch ${ticker}: ${histRes.status}`);
+          errorCount++;
           setProgress(Math.round(((idx + 1) / SCALP_STOCKS.length) * 100));
           continue;
         }
 
         const histData = await histRes.json();
         if (!histData.data || histData.data.length < 50) {
+          console.log(`⚠️ ${ticker}: Insufficient data (${histData.data?.length || 0} candles)`);
           setProgress(Math.round(((idx + 1) / SCALP_STOCKS.length) * 100));
           continue;
         }
 
+        scannedCount++;
+
         // Fetch quote for current price
         const quoteRes = await fetch(`/api/stock/quote?symbol=${symbol}`);
         if (!quoteRes.ok) {
+          console.log(`❌ Failed to fetch quote for ${ticker}`);
           setProgress(Math.round(((idx + 1) / SCALP_STOCKS.length) * 100));
           continue;
         }
@@ -76,6 +111,7 @@ export default function ScalpScreener() {
         const analysis = analyzeScalpingOpportunity(histData.data);
 
         if (analysis.entry) {
+          console.log(`✅ ${ticker}: ${analysis.signal} (Power: ${analysis.candlePower}, Mom: ${analysis.momentum}%)`);
           newResults.push({
             symbol: ticker,
             price: quoteData.price,
@@ -101,12 +137,14 @@ export default function ScalpScreener() {
         }
 
       } catch (err) {
-        console.error('Error scanning', ticker, ':', err);
+        console.error(`❌ Error scanning ${ticker}:`, err);
+        errorCount++;
       }
 
       setProgress(Math.round(((idx + 1) / SCALP_STOCKS.length) * 100));
     }
 
+    console.log(`📊 Scan complete: ${scannedCount} stocks scanned, ${newResults.length} opportunities found, ${errorCount} errors`);
     setLoading(false);
   };
 
@@ -121,13 +159,11 @@ export default function ScalpScreener() {
     const volumes = data.map(d => d.volume || 0);
 
     // Recent 20 candles for analysis
-    const recentCloses = closes.slice(-20);
     const recentVolumes = volumes.slice(-20);
     const avgVolume = recentVolumes.reduce((a, b) => a + b, 0) / 20;
 
     // Current candle
     const current = data[N - 1];
-    const prev = data[N - 2];
     const volRatio = current.volume / (avgVolume || 1);
 
     // Calculate momentum (rate of change)
@@ -197,30 +233,35 @@ export default function ScalpScreener() {
     let signal = '';
     let reason = '';
 
-    // SNIPER ENTRY: Accumulation before markup
-    const nearMA = Math.abs(current.close - ma20) / ma20 < 0.015;
-    const tailTouchesMA = current.low < ma20 && current.close >= ma20;
-    const isDryingUp = volRatio < 0.70;
-    const momentumBuilding = momentum > -1 && momentum < 3;
-    const highPower = candlePower >= 85;
-    const strongAccumulation = accRatio > 1.1;
+    // SNIPER ENTRY: Accumulation before markup (MORE LENIENT)
+    const nearMA = Math.abs(current.close - ma20) / ma20 < 0.025; // Relaxed to 2.5%
+    const tailTouchesMA = current.low < ma20 * 1.02 && current.close >= ma20 * 0.98; // More lenient
+    const isDryingUp = volRatio < 0.80; // Relaxed to 80%
+    const momentumBuilding = momentum > -2 && momentum < 5; // Wider range
+    const highPower = candlePower >= 75; // Lowered from 85
+    const strongAccumulation = accRatio > 0.95; // Lowered from 1.1
 
-    if ((nearMA || tailTouchesMA) && isDryingUp && momentumBuilding && highPower && strongAccumulation && current.close > ma20) {
+    // SNIPER = Near MA + (Low volume OR tail) + Decent power + Above MA
+    if ((nearMA || tailTouchesMA) &&
+        (isDryingUp || highPower) &&
+        momentumBuilding &&
+        strongAccumulation &&
+        current.close > ma20 * 0.98) {
       entry = 'SNIPER';
       signal = '⚡ SCALP SNIPER';
-      reason = 'Dry up at MA20 + Strong accumulation - Enter before markup!';
+      reason = `Accumulation at MA20 (Vol: ${volRatio.toFixed(2)}x, Power: ${candlePower})`;
     }
-    // BREAKOUT ENTRY: Volume spike breaking out
-    else if (volRatio > 2.5 && isGreen && momentum > 2 && candlePower > 75 && current.close > ma20) {
+    // BREAKOUT ENTRY: Volume spike breaking out (MORE LENIENT)
+    else if (volRatio > 2.0 && isGreen && momentum > 1 && candlePower > 70 && current.close > ma20) {
       entry = 'BREAKOUT';
       signal = '🚀 SCALP BREAKOUT';
-      reason = 'High volume breakout with momentum - Quick scalp opportunity';
+      reason = `High volume breakout (Vol: ${volRatio.toFixed(2)}x, Mom: ${momentum.toFixed(1)}%)`;
     }
-    // WATCH: Potential setup forming
-    else if (candlePower > 70 && current.close > ma20 && momentum > -2) {
+    // WATCH: Potential setup forming (MORE LENIENT)
+    else if (candlePower > 65 && current.close > ma20 * 0.97 && momentum > -3) {
       entry = 'WATCH';
       signal = '👀 WATCH';
-      reason = 'Setup forming - Monitor for confirmation';
+      reason = `Setup forming (Power: ${candlePower}, Mom: ${momentum.toFixed(1)}%)`;
     }
 
     return {
