@@ -211,20 +211,67 @@ export default function Home() {
         </div>
 
         {/* Interval Selector */}
-        <div className="mb-4 md:mb-6 flex flex-wrap gap-2">
-          {['1d', '1wk', '1mo'].map((int) => (
-            <button
-              key={int}
-              onClick={() => setInterval(int)}
-              className={`px-3 md:px-4 py-2 rounded text-sm md:text-base ${
-                interval === int
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              {int === '1d' ? 'Daily' : int === '1wk' ? 'Weekly' : 'Monthly'}
-            </button>
-          ))}
+        <div className="mb-4 md:mb-6">
+          <div className="flex flex-col gap-3">
+            {/* Current Selection Display */}
+            <div className="bg-gray-800 border border-gray-700 rounded p-3">
+              <p className="text-sm text-gray-400">
+                📊 Current Timeframe: <span className="text-white font-bold">
+                  {interval === '5m' ? '5 Minutes' :
+                   interval === '15m' ? '15 Minutes' :
+                   interval === '1h' ? '1 Hour' :
+                   interval === '4h' ? '4 Hours' :
+                   interval === '1d' ? 'Daily' :
+                   interval === '1wk' ? 'Weekly' : 'Monthly'}
+                </span>
+                {(interval === '5m' || interval === '15m' || interval === '1h' || interval === '4h') && (
+                  <span className="ml-2 text-yellow-400 text-xs">⚡ Intraday</span>
+                )}
+              </p>
+            </div>
+
+            {/* Intraday Timeframes */}
+            <div>
+              <p className="text-xs text-gray-400 mb-2">⚡ Intraday (Short-term Trading)</p>
+              <div className="flex flex-wrap gap-2">
+                {['5m', '15m', '1h', '4h'].map((int) => (
+                  <button
+                    key={int}
+                    onClick={() => setInterval(int)}
+                    className={`px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition-all ${
+                      interval === int
+                        ? 'bg-green-600 text-white ring-2 ring-green-400 shadow-lg'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    {interval === int ? '✓ ' : ''}
+                    {int === '5m' ? '5 Min' : int === '15m' ? '15 Min' : int === '1h' ? '1 Hour' : '4 Hours'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Daily/Weekly/Monthly Timeframes */}
+            <div>
+              <p className="text-xs text-gray-400 mb-2">📅 Daily/Weekly/Monthly (Long-term Analysis)</p>
+              <div className="flex flex-wrap gap-2">
+                {['1d', '1wk', '1mo'].map((int) => (
+                  <button
+                    key={int}
+                    onClick={() => setInterval(int)}
+                    className={`px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition-all ${
+                      interval === int
+                        ? 'bg-blue-600 text-white ring-2 ring-blue-400 shadow-lg'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    {interval === int ? '✓ ' : ''}
+                    {int === '1d' ? 'Daily' : int === '1wk' ? 'Weekly' : 'Monthly'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         {loading && (

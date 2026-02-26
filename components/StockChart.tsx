@@ -25,7 +25,7 @@ export default function StockChart({ data }: StockChartProps) {
   const [showControls, setShowControls] = useState(true);
   const [showIndicators, setShowIndicators] = useState({
     ma: true,       // Keep MA20/50 for trend
-    momentum: false,
+    momentum: true, // MACD enabled by default
     ao: false,
     fibonacci: false,
     squeeze: false,
@@ -385,6 +385,30 @@ export default function StockChart({ data }: StockChartProps) {
       volumeSeries.setData(volumeData as any);
     }
 
+    // Add MACD Histogram (Momentum Indicator) - shown by default
+    if (showIndicators.momentum && calculatedIndicators.momentum.length > 0) {
+      const macdSeries = chart.addHistogramSeries({
+        color: '#00b894',
+        priceFormat: {
+          type: 'price',
+          precision: 2,
+          minMove: 0.01,
+        },
+        priceScaleId: 'macd', // Separate scale for MACD
+      });
+
+      // Configure MACD scale to appear below volume
+      chart.priceScale('macd').applyOptions({
+        scaleMargins: {
+          top: 0.85, // Position MACD below volume and chart
+          bottom: 0,
+        },
+      });
+
+      // Set MACD data with colors based on histogram values
+      macdSeries.setData(calculatedIndicators.momentum as any);
+    }
+
     // Auto-fit content with mobile-specific behavior
     const timeoutId = setTimeout(() => {
       if (chartRef.current) {
@@ -532,6 +556,11 @@ export default function StockChart({ data }: StockChartProps) {
               >
                 {showIndicators.momentum || showIndicators.ao ? '✓ ' : ''}🔬 Full Analysis
               </button>
+            </div>
+
+            {/* MACD Status Display */}
+            <div className="text-xs text-gray-400 px-2 py-1 bg-gray-800 rounded border border-gray-700">
+              📊 Default View: MA Lines + MACD Histogram {showIndicators.momentum ? '✓' : ''}
             </div>
 
             {/* Chart Type */}
