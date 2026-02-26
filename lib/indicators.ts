@@ -368,10 +368,13 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
     prevVolAvg /= 3;
     const volumeIncreasing = recentVolAvg > prevVolAvg * 1.1;
 
+    // Calculate close position within the candle range
+    const closePosition = spread > 0 ? (data[i].close - data[i].low) / spread : 0.5;
+
     // SCALP SNIPER = Early momentum (0.5-3%) + Volume confirm (1.2-3x) + Above MA
     const earlyMomentum = momentum > 0.5 && momentum < 3;
     const volumeConfirm = volRatio > 1.2 && volRatio < 3;
-    const priceStrength = closePosition > 0.5; // Decent close position
+    const priceStrength = closePosition > 0.5; // Decent close position (close near high)
     const buyingPressure = accRatio > 1.0;
 
     const isScalpSniper = earlyMomentum &&
