@@ -429,28 +429,41 @@ export default function ScalpScreener() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 text-white">
       {/* Header */}
-      <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-xl md:text-2xl font-bold">
-              ? Scalp Screener
-            </Link>
-            <span className="text-xs md:text-sm text-gray-400">
-              Intraday Sniper Entries
-            </span>
+      <nav className="backdrop-blur-xl bg-black/30 border-b border-white/10 px-4 py-3 sticky top-0 z-50 shadow-2xl">
+        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-lg">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
+                Scalp Screener
+              </h1>
+              <p className="text-xs text-gray-400">
+                Intraday Sniper Entries
+              </p>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
               href="/vcp-screener"
-              className="bg-red-600 hover:bg-red-700 px-3 py-2 rounded text-sm transition"
+              className="backdrop-blur-md bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 shadow-lg"
             >
-              ?? VCP
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <span>VCP</span>
             </Link>
             <Link
               href="/"
-              className="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm transition"
+              className="backdrop-blur-md bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 shadow-lg"
             >
-              ?? Chart
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              <span>Chart</span>
             </Link>
           </div>
         </div>
@@ -458,11 +471,16 @@ export default function ScalpScreener() {
 
       <div className="max-w-7xl mx-auto p-3 md:p-6">
         {/* Controls */}
-        <div className="bg-gray-800 rounded-lg p-4 mb-6">
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl p-4 mb-6 shadow-2xl">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {/* Stock Selection */}
             <div>
-              <label className="block text-sm font-semibold mb-2">?? Stocks</label>
+              <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                <span>Stocks</span>
+              </label>
               <div className="flex gap-2">
                 <button
                   onClick={() => setStockSelection('LIQUID')}
@@ -494,7 +512,12 @@ export default function ScalpScreener() {
 
             {/* Timeframe Selection */}
             <div>
-              <label className="block text-sm font-semibold mb-2">?? Timeframe</label>
+              <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Timeframe</span>
+              </label>
               <div className="flex gap-2">
                 <button
                   onClick={() => setTimeframe('5m')}
@@ -523,7 +546,12 @@ export default function ScalpScreener() {
 
             {/* Sort By */}
             <div>
-              <label className="block text-sm font-semibold mb-2">?? Sort By</label>
+              <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                </svg>
+                <span>Sort By</span>
+              </label>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
@@ -538,7 +566,12 @@ export default function ScalpScreener() {
 
             {/* Filter Entry Type */}
             <div>
-              <label className="block text-sm font-semibold mb-2">?? Filter</label>
+              <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                <span>Filter</span>
+              </label>
               <select
                 value={filterEntry}
                 onChange={(e) => setFilterEntry(e.target.value as any)}
@@ -556,15 +589,27 @@ export default function ScalpScreener() {
           <button
             onClick={scanStocks}
             disabled={loading}
-            className={`w-full mt-4 px-6 py-3 rounded font-bold text-lg transition ${
+            className={`w-full mt-4 px-6 py-3 rounded-xl font-bold text-lg transition flex items-center justify-center gap-2 shadow-lg ${
               loading
-                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                : 'bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white shadow-lg'
+                ? 'backdrop-blur-md bg-gray-500/20 text-gray-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white shadow-green-500/30'
             }`}
           >
-            {loading
-              ? `?? Scanning ${stockSelection === 'LIQUID' ? 'Liquid' : 'All'} Stocks... ${progress}%`
-              : `?? Scan ${SCALP_STOCKS.length} ${stockSelection === 'LIQUID' ? 'Liquid' : ''} Stocks`}
+            {loading ? (
+              <>
+                <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Scanning {stockSelection === 'LIQUID' ? 'Liquid' : 'All'} Stocks... {progress}%</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <span>Scan {SCALP_STOCKS.length} {stockSelection === 'LIQUID' ? 'Liquid' : ''} Stocks</span>
+              </>
+            )}
           </button>
 
           {loading && (
@@ -599,32 +644,57 @@ export default function ScalpScreener() {
                 VCP + Micro Dry Up. Volume &lt; 35%, Acc &gt; 1.2x. Perfect base building - sniper entry!
               </div>
             </div>
-            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
-              <div className="font-bold text-green-400 mb-1">? SCALP BREAKOUT</div>
+            <div className="backdrop-blur-md bg-green-500/10 border border-green-500/20 p-3 rounded-xl">
+              <div className="font-bold text-green-400 mb-1 flex items-center gap-1.5">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                SCALP BREAKOUT
+              </div>
               <div className="text-gray-300 text-xs">
                 Green candle, Vol &gt; 2.5x, close &gt; 80% range, above MA20. Strong breakout - fast trade!
               </div>
             </div>
-            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
-              <div className="font-bold text-blue-400 mb-1">?? MICRO ICEBERG</div>
+            <div className="backdrop-blur-md bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl">
+              <div className="font-bold text-blue-400 mb-1 flex items-center gap-1.5">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                MICRO ICEBERG
+              </div>
               <div className="text-gray-300 text-xs">
                 Vol &gt; 1.5x, narrow spread &lt; 50% avg. Hidden accumulation - watch closely!
               </div>
             </div>
-            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
-              <div className="font-bold text-cyan-400 mb-1">?? MICRO DRY UP</div>
+            <div className="backdrop-blur-md bg-cyan-500/10 border border-cyan-500/20 p-3 rounded-xl">
+              <div className="font-bold text-cyan-400 mb-1 flex items-center gap-1.5">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                MICRO DRY UP
+              </div>
               <div className="text-gray-300 text-xs">
                 Low vol &lt; 35%, small body, Acc &gt; 1.2x. Professional accumulation - good setup!
               </div>
             </div>
-            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
-              <div className="font-bold text-red-400 mb-1">?? SCALP DUMP</div>
+            <div className="backdrop-blur-md bg-red-500/10 border border-red-500/20 p-3 rounded-xl">
+              <div className="font-bold text-red-400 mb-1 flex items-center gap-1.5">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                </svg>
+                SCALP DUMP
+              </div>
               <div className="text-gray-300 text-xs">
                 Red candle, Vol &gt; 2.5x, big body. Heavy selling - avoid or short!
               </div>
             </div>
-            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
-              <div className="font-bold text-orange-400 mb-1">?? PUCUK (Shooting Star)</div>
+            <div className="backdrop-blur-md bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl">
+              <div className="font-bold text-orange-400 mb-1 flex items-center gap-1.5">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                PUCUK (Shooting Star)
+              </div>
               <div className="text-gray-300 text-xs">
                 Vol &gt; 2x, long upper wick. Distribution at top - bearish reversal!
               </div>

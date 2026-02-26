@@ -82,18 +82,17 @@ export default function Home() {
     // Only run for subsequent changes after initial load
     // Skip if this is the initial load or if we just loaded from URL
     if (initialLoadDone) {
-      console.log('useEffect triggered for symbol change:', symbol); // Debug log
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlSymbol = urlParams.get('symbol');
+      console.log('useEffect triggered for symbol or timeframe change:', symbol, timeframe); // Debug log
 
-      // Only fetch if the symbol change wasn't from URL parameter
-      // or if the URL symbol is different from current symbol
-      if (!urlSymbol || ensureJKSuffix(urlSymbol) !== symbol) {
-        console.log('Fetching data for symbol change:', symbol); // Debug log
-        fetchStockData(symbol, timeframe);
-      } else {
-        console.log('Skipping fetch - symbol change was from URL parameter'); // Debug log
-      }
+      // Always fetch data when symbol or timeframe changes after initial load
+      // This ensures timeframe buttons work even when loaded from URL
+      fetchStockData(symbol, timeframe);
+
+      // Update URL to reflect current state (removes stale interval param)
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.set('symbol', symbol.replace('.JK', ''));
+      newUrl.searchParams.set('interval', timeframe);
+      window.history.replaceState({}, '', newUrl);
     }
   }, [symbol, timeframe, initialLoadDone]);
 
