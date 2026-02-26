@@ -53,20 +53,26 @@ export default function Home() {
   };
 
   useEffect(() => {
-    // Check for symbol in URL params (from screener view button)
+    // Check for symbol and interval in URL params (from screener view button)
     const urlParams = new URLSearchParams(window.location.search);
     const urlSymbol = urlParams.get('symbol');
+    const urlInterval = urlParams.get('interval');
+
+    // Set interval from URL if provided
+    if (urlInterval && ['5m', '15m', '1h', '4h', '1d', '1wk', '1mo'].includes(urlInterval)) {
+      setInterval(urlInterval);
+    }
 
     if (urlSymbol) {
       const fullSymbol = ensureJKSuffix(urlSymbol);
       setSymbol(fullSymbol);
       setInputSymbol(urlSymbol); // Update input field to show ticker without .JK
-      // Fetch data immediately for URL symbol
-      fetchStockData(fullSymbol, interval);
+      // Fetch data immediately for URL symbol with URL interval if provided
+      fetchStockData(fullSymbol, urlInterval || interval);
       setInitialLoadDone(true);
     } else {
       // No URL symbol, fetch default symbol
-      fetchStockData(symbol, interval);
+      fetchStockData(symbol, urlInterval || interval);
       setInitialLoadDone(true);
     }
   }, []); // Run once on component mount
