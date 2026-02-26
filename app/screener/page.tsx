@@ -57,7 +57,7 @@ export default function ScreenerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 text-white">
       <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
           <h1 className="text-xl md:text-2xl font-bold">Stock Screener - Indonesian Stocks</h1>
@@ -85,7 +85,7 @@ export default function ScreenerPage() {
               className={`px-3 md:px-4 py-2 rounded text-xs md:text-sm text-center ${
                 filter === f.value
                   ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
               }`}
             >
               {f.label}
@@ -112,7 +112,7 @@ export default function ScreenerPage() {
           <div className="bg-gray-800 rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs md:text-sm">
-                <thead className="bg-gray-700">
+                <thead className="backdrop-blur-md bg-black/30">
                   <tr>
                     <th className="px-2 md:px-6 py-2 md:py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                       Symbol
@@ -232,4 +232,5 @@ export default function ScreenerPage() {
     </div>
   );
 }
+
 

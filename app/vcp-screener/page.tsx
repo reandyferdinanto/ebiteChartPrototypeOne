@@ -162,7 +162,7 @@ export default function VCPScreener() {
                             ? 'bg-blue-900 text-blue-200'
                             : candidate.vpcScore >= 70
                             ? 'bg-yellow-900 text-yellow-200'
-                            : 'bg-gray-700 text-gray-300'
+                            : 'backdrop-blur-md bg-black/30 text-gray-300'
                         }`}
                       >
                         {candidate.vpcScore}
@@ -205,7 +205,7 @@ export default function VCPScreener() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 text-white">
       <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 lg:gap-0">
           <div>
@@ -223,7 +223,7 @@ export default function VCPScreener() {
             </Link>
             <Link
               href="/"
-              className="bg-gray-700 hover:bg-gray-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
+              className="backdrop-blur-md bg-black/30 hover:bg-gray-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
             >
               ← Back to Chart
             </Link>
@@ -261,14 +261,14 @@ export default function VCPScreener() {
         )}
 
         {/* Controls */}
-        <div className="bg-gray-800 border border-gray-700 rounded p-3 md:p-4 space-y-3 md:space-y-4">
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl rounded p-3 md:p-4 space-y-3 md:space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 items-end">
             <label className="text-xs md:text-sm text-gray-300">
               Filter:
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value as 'all' | 'liquid')}
-                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
+                className="mt-1 w-full backdrop-blur-md bg-black/30 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
               >
                 <option value="liquid">💧 Liquid Stocks (200+ stocks) - Faster</option>
                 <option value="all">📊 All IDX Stocks (800+) - Comprehensive</option>
@@ -284,7 +284,7 @@ export default function VCPScreener() {
                 min="10"
                 max="500"
                 step="10"
-                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
+                className="mt-1 w-full backdrop-blur-md bg-black/30 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
               />
             </label>
 
@@ -297,7 +297,7 @@ export default function VCPScreener() {
                 min="50"
                 max="100"
                 step="5"
-                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
+                className="mt-1 w-full backdrop-blur-md bg-black/30 border border-gray-600 rounded px-2 md:px-3 py-2 text-xs md:text-sm text-white"
               />
             </label>
 
@@ -311,7 +311,7 @@ export default function VCPScreener() {
           </div>
 
           {/* Legend */}
-          <div className="bg-gray-900 border border-gray-700 rounded p-3">
+          <div className="bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 border border-gray-700 rounded p-3">
             <div className="text-xs text-gray-400 space-y-1">
               <p><strong>💧 Liquid Stocks:</strong> High-volume, actively traded stocks (LQ45 + most liquid IDX). Faster scanning. Best for beginners.</p>
               <p><strong>📊 All IDX Stocks:</strong> Scans all 800+ Indonesian stocks. Comprehensive but slower. Finds hidden gems.</p>
@@ -333,7 +333,7 @@ export default function VCPScreener() {
             className={`px-3 md:px-4 py-2 rounded font-semibold transition text-xs md:text-sm ${
               activeTab === 'sniper'
                 ? 'bg-red-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
             }`}
           >
             🎯 Sniper ({results?.sniperCount || 0})
@@ -343,7 +343,7 @@ export default function VCPScreener() {
             className={`px-3 md:px-4 py-2 rounded font-semibold transition text-xs md:text-sm ${
               activeTab === 'vcp'
                 ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
             }`}
           >
             📉 VCP ({results?.vcpCount || 0})
@@ -353,7 +353,7 @@ export default function VCPScreener() {
             className={`px-3 md:px-4 py-2 rounded font-semibold transition text-xs md:text-sm ${
               activeTab === 'dryup'
                 ? 'bg-yellow-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
             }`}
           >
             🥷 Dry Up ({results?.dryUpCount || 0})
@@ -363,7 +363,7 @@ export default function VCPScreener() {
             className={`px-3 md:px-4 py-2 rounded font-semibold transition text-xs md:text-sm ${
               activeTab === 'all'
                 ? 'bg-purple-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
             }`}
           >
             📊 All
@@ -386,7 +386,7 @@ export default function VCPScreener() {
         )}
 
         {/* Legend */}
-        <div className="bg-gray-800 border border-gray-700 rounded p-3 md:p-4">
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl rounded p-3 md:p-4">
           <h3 className="font-semibold mb-3 text-sm md:text-base">📖 Pattern Guide</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs md:text-sm">
             <div>
@@ -411,5 +411,6 @@ export default function VCPScreener() {
     </div>
   );
 }
+
 
 

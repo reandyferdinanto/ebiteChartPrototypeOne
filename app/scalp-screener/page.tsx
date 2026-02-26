@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
@@ -186,7 +186,7 @@ export default function ScalpScreener() {
         );
 
         if (!histRes.ok) {
-          console.log(`❌ Failed to fetch ${ticker}: ${histRes.status}`);
+          console.log(`? Failed to fetch ${ticker}: ${histRes.status}`);
           errorCount++;
           setProgress(Math.round(((idx + 1) / SCALP_STOCKS.length) * 100));
           continue;
@@ -194,7 +194,7 @@ export default function ScalpScreener() {
 
         const histData = await histRes.json();
         if (!histData.data || histData.data.length < 50) {
-          console.log(`⚠️ ${ticker}: Insufficient data (${histData.data?.length || 0} candles)`);
+          console.log(`?? ${ticker}: Insufficient data (${histData.data?.length || 0} candles)`);
           setProgress(Math.round(((idx + 1) / SCALP_STOCKS.length) * 100));
           continue;
         }
@@ -204,7 +204,7 @@ export default function ScalpScreener() {
         // Fetch quote for current price
         const quoteRes = await fetch(`/api/stock/quote?symbol=${symbol}`);
         if (!quoteRes.ok) {
-          console.log(`❌ Failed to fetch quote for ${ticker}`);
+          console.log(`? Failed to fetch quote for ${ticker}`);
           setProgress(Math.round(((idx + 1) / SCALP_STOCKS.length) * 100));
           continue;
         }
@@ -215,7 +215,7 @@ export default function ScalpScreener() {
         const analysis = analyzeScalpingOpportunity(histData.data);
 
         if (analysis.entry) {
-          console.log(`✅ ${ticker}: ${analysis.signal} (Power: ${analysis.candlePower}, Mom: ${analysis.momentum}%)`);
+          console.log(`? ${ticker}: ${analysis.signal} (Power: ${analysis.candlePower}, Mom: ${analysis.momentum}%)`);
           newResults.push({
             symbol: ticker,
             price: quoteData.price,
@@ -241,14 +241,14 @@ export default function ScalpScreener() {
         }
 
       } catch (err) {
-        console.error(`❌ Error scanning ${ticker}:`, err);
+        console.error(`? Error scanning ${ticker}:`, err);
         errorCount++;
       }
 
       setProgress(Math.round(((idx + 1) / SCALP_STOCKS.length) * 100));
     }
 
-    console.log(`📊 Scan complete: ${scannedCount} stocks scanned, ${newResults.length} opportunities found, ${errorCount} errors`);
+    console.log(`?? Scan complete: ${scannedCount} stocks scanned, ${newResults.length} opportunities found, ${errorCount} errors`);
     setLoading(false);
   };
 
@@ -343,12 +343,12 @@ export default function ScalpScreener() {
 
       // Signal priority (matching AppScript order)
       let signal = "";
-      if (isScalpDump) signal = "🩸 SCALP DUMP";
-      else if (isShootingStar) signal = "⚠️ PUCUK";
-      else if (isVCP && isMicroDryUp) signal = "🎯 SCALP SNIPER";
-      else if (isScalpBreakout) signal = "⚡ SCALP BREAKOUT";
-      else if (isMicroIceberg) signal = "🧊 MICRO ICEBERG";
-      else if (isMicroDryUp) signal = "🥷 MICRO DRY UP";
+      if (isScalpDump) signal = "?? SCALP DUMP";
+      else if (isShootingStar) signal = "?? PUCUK";
+      else if (isVCP && isMicroDryUp) signal = "?? SCALP SNIPER";
+      else if (isScalpBreakout) signal = "? SCALP BREAKOUT";
+      else if (isMicroIceberg) signal = "?? MICRO ICEBERG";
+      else if (isMicroDryUp) signal = "?? MICRO DRY UP";
 
       if (signal !== "") {
         bestSignal = signal;
@@ -427,13 +427,13 @@ export default function ScalpScreener() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 text-white">
       {/* Header */}
       <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <Link href="/" className="text-xl md:text-2xl font-bold">
-              ⚡ Scalp Screener
+              ? Scalp Screener
             </Link>
             <span className="text-xs md:text-sm text-gray-400">
               Intraday Sniper Entries
@@ -444,13 +444,13 @@ export default function ScalpScreener() {
               href="/vcp-screener"
               className="bg-red-600 hover:bg-red-700 px-3 py-2 rounded text-sm transition"
             >
-              🎯 VCP
+              ?? VCP
             </Link>
             <Link
               href="/"
               className="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm transition"
             >
-              📊 Chart
+              ?? Chart
             </Link>
           </div>
         </div>
@@ -462,7 +462,7 @@ export default function ScalpScreener() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {/* Stock Selection */}
             <div>
-              <label className="block text-sm font-semibold mb-2">📊 Stocks</label>
+              <label className="block text-sm font-semibold mb-2">?? Stocks</label>
               <div className="flex gap-2">
                 <button
                   onClick={() => setStockSelection('LIQUID')}
@@ -470,7 +470,7 @@ export default function ScalpScreener() {
                   className={`flex-1 px-4 py-2 rounded font-semibold transition ${
                     stockSelection === 'LIQUID'
                       ? 'bg-purple-600 text-white ring-2 ring-purple-400'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
                   } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   Liquid ({LIQUID_STOCKS.length})
@@ -481,7 +481,7 @@ export default function ScalpScreener() {
                   className={`flex-1 px-4 py-2 rounded font-semibold transition ${
                     stockSelection === 'ALL'
                       ? 'bg-purple-600 text-white ring-2 ring-purple-400'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
                   } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   All ({ALL_INDONESIAN_STOCKS.length})
@@ -494,7 +494,7 @@ export default function ScalpScreener() {
 
             {/* Timeframe Selection */}
             <div>
-              <label className="block text-sm font-semibold mb-2">⏱️ Timeframe</label>
+              <label className="block text-sm font-semibold mb-2">?? Timeframe</label>
               <div className="flex gap-2">
                 <button
                   onClick={() => setTimeframe('5m')}
@@ -502,7 +502,7 @@ export default function ScalpScreener() {
                   className={`flex-1 px-4 py-2 rounded font-semibold transition ${
                     timeframe === '5m'
                       ? 'bg-green-600 text-white ring-2 ring-green-400'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
                   } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   5 Min
@@ -513,7 +513,7 @@ export default function ScalpScreener() {
                   className={`flex-1 px-4 py-2 rounded font-semibold transition ${
                     timeframe === '15m'
                       ? 'bg-green-600 text-white ring-2 ring-green-400'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'backdrop-blur-md bg-black/30 text-gray-300 hover:bg-gray-600'
                   } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   15 Min
@@ -523,12 +523,12 @@ export default function ScalpScreener() {
 
             {/* Sort By */}
             <div>
-              <label className="block text-sm font-semibold mb-2">📊 Sort By</label>
+              <label className="block text-sm font-semibold mb-2">?? Sort By</label>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
                 disabled={loading}
-                className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                className="w-full px-4 py-2 backdrop-blur-md bg-black/30 border border-gray-600 rounded text-white"
               >
                 <option value="momentum">Momentum</option>
                 <option value="power">Candle Power</option>
@@ -538,12 +538,12 @@ export default function ScalpScreener() {
 
             {/* Filter Entry Type */}
             <div>
-              <label className="block text-sm font-semibold mb-2">🎯 Filter</label>
+              <label className="block text-sm font-semibold mb-2">?? Filter</label>
               <select
                 value={filterEntry}
                 onChange={(e) => setFilterEntry(e.target.value as any)}
                 disabled={loading}
-                className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                className="w-full px-4 py-2 backdrop-blur-md bg-black/30 border border-gray-600 rounded text-white"
               >
                 <option value="ALL">All Signals</option>
                 <option value="SNIPER">Sniper Only</option>
@@ -563,13 +563,13 @@ export default function ScalpScreener() {
             }`}
           >
             {loading
-              ? `🔄 Scanning ${stockSelection === 'LIQUID' ? 'Liquid' : 'All'} Stocks... ${progress}%`
-              : `🚀 Scan ${SCALP_STOCKS.length} ${stockSelection === 'LIQUID' ? 'Liquid' : ''} Stocks`}
+              ? `?? Scanning ${stockSelection === 'LIQUID' ? 'Liquid' : 'All'} Stocks... ${progress}%`
+              : `?? Scan ${SCALP_STOCKS.length} ${stockSelection === 'LIQUID' ? 'Liquid' : ''} Stocks`}
           </button>
 
           {loading && (
             <div className="mt-3">
-              <div className="w-full bg-gray-700 rounded-full h-2">
+              <div className="w-full backdrop-blur-md bg-black/30 rounded-full h-2">
                 <div
                   className="bg-green-500 h-2 rounded-full transition-all duration-300"
                   style={{ width: `${progress}%` }}
@@ -580,41 +580,51 @@ export default function ScalpScreener() {
         </div>
 
         {/* Legend */}
-        <div className="bg-gray-800 rounded-lg p-4 mb-6">
-          <h3 className="font-bold mb-3">📚 Signal Guide - AppScript SCREENER_SCALP_5M Logic:</h3>
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl p-4 mb-6 shadow-2xl">
+          <h3 className="font-bold mb-3 flex items-center gap-2">
+            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Signal Guide - Scalp Logic
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-yellow-400 mb-1">🎯 SCALP SNIPER</div>
+            <div className="backdrop-blur-md bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-xl">
+              <div className="font-bold text-yellow-400 mb-1 flex items-center gap-1.5">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+                SCALP SNIPER
+              </div>
               <div className="text-gray-300 text-xs">
                 VCP + Micro Dry Up. Volume &lt; 35%, Acc &gt; 1.2x. Perfect base building - sniper entry!
               </div>
             </div>
-            <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-green-400 mb-1">⚡ SCALP BREAKOUT</div>
+            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
+              <div className="font-bold text-green-400 mb-1">? SCALP BREAKOUT</div>
               <div className="text-gray-300 text-xs">
                 Green candle, Vol &gt; 2.5x, close &gt; 80% range, above MA20. Strong breakout - fast trade!
               </div>
             </div>
-            <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-blue-400 mb-1">🧊 MICRO ICEBERG</div>
+            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
+              <div className="font-bold text-blue-400 mb-1">?? MICRO ICEBERG</div>
               <div className="text-gray-300 text-xs">
                 Vol &gt; 1.5x, narrow spread &lt; 50% avg. Hidden accumulation - watch closely!
               </div>
             </div>
-            <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-cyan-400 mb-1">🥷 MICRO DRY UP</div>
+            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
+              <div className="font-bold text-cyan-400 mb-1">?? MICRO DRY UP</div>
               <div className="text-gray-300 text-xs">
                 Low vol &lt; 35%, small body, Acc &gt; 1.2x. Professional accumulation - good setup!
               </div>
             </div>
-            <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-red-400 mb-1">🩸 SCALP DUMP</div>
+            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
+              <div className="font-bold text-red-400 mb-1">?? SCALP DUMP</div>
               <div className="text-gray-300 text-xs">
                 Red candle, Vol &gt; 2.5x, big body. Heavy selling - avoid or short!
               </div>
             </div>
-            <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-orange-400 mb-1">⚠️ PUCUK (Shooting Star)</div>
+            <div className="backdrop-blur-md bg-black/30 p-3 rounded">
+              <div className="font-bold text-orange-400 mb-1">?? PUCUK (Shooting Star)</div>
               <div className="text-gray-300 text-xs">
                 Vol &gt; 2x, long upper wick. Distribution at top - bearish reversal!
               </div>
@@ -625,7 +635,7 @@ export default function ScalpScreener() {
         {/* Results */}
         {loading && results.length === 0 && (
           <div className="text-center py-12">
-            <div className="inline-block animate-spin text-4xl mb-4">🔄</div>
+            <div className="inline-block animate-spin text-4xl mb-4">??</div>
             <div className="text-xl">Scanning {SCALP_STOCKS.length} {stockSelection === 'LIQUID' ? 'liquid ' : ''}stocks...</div>
             <div className="text-sm text-gray-400 mt-2">Analyzing {timeframe} charts for sniper entries</div>
             <div className="text-lg text-green-400 mt-3 font-bold">{progress}%</div>
@@ -634,7 +644,7 @@ export default function ScalpScreener() {
 
         {!loading && results.length === 0 && (
           <div className="bg-gray-800 rounded-lg p-8 text-center">
-            <div className="text-4xl mb-4">🔍</div>
+            <div className="text-4xl mb-4">??</div>
             <div className="text-xl mb-2">No scalping opportunities found</div>
             <div className="text-gray-400">
               Try changing timeframe or click scan again. Market may be consolidating.
@@ -674,7 +684,7 @@ export default function ScalpScreener() {
                             result.changePercent >= 0 ? 'text-green-400' : 'text-red-400'
                           }`}
                         >
-                          {result.changePercent >= 0 ? '↑' : '↓'} {Math.abs(result.changePercent).toFixed(2)}%
+                          {result.changePercent >= 0 ? '?' : '?'} {Math.abs(result.changePercent).toFixed(2)}%
                         </span>
                       </div>
 
@@ -690,21 +700,21 @@ export default function ScalpScreener() {
                         >
                           {result.signal}
                         </span>
-                        <span className="px-3 py-1 bg-gray-700 rounded text-sm">
+                        <span className="px-3 py-1 backdrop-blur-md bg-black/30 rounded text-sm">
                           Power: <span className="font-bold text-green-400">{result.candlePower}</span>
                         </span>
-                        <span className="px-3 py-1 bg-gray-700 rounded text-sm">
+                        <span className="px-3 py-1 backdrop-blur-md bg-black/30 rounded text-sm">
                           Momentum: <span className={`font-bold ${result.momentum > 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {result.momentum > 0 ? '+' : ''}{result.momentum}%
                           </span>
                         </span>
-                        <span className="px-3 py-1 bg-gray-700 rounded text-sm">
+                        <span className="px-3 py-1 backdrop-blur-md bg-black/30 rounded text-sm">
                           Vol: <span className="font-bold">{result.volume}x</span>
                         </span>
                       </div>
 
                       <div className="text-sm text-gray-400">
-                        💡 {result.reason}
+                        ?? {result.reason}
                       </div>
                     </div>
 
@@ -714,7 +724,7 @@ export default function ScalpScreener() {
                         href={`/?symbol=${result.symbol}&interval=${timeframe}`}
                         className="block px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded font-bold text-center transition whitespace-nowrap"
                       >
-                        📊 View Chart
+                        ?? View Chart
                       </Link>
                     </div>
                   </div>
@@ -727,3 +737,4 @@ export default function ScalpScreener() {
     </div>
   );
 }
+

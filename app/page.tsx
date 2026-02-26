@@ -36,7 +36,7 @@ export default function Home() {
   const [stockQuote, setStockQuote] = useState<StockQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [interval, setInterval] = useState('1d');
+  const [timeframe, setTimeframe] = useState('1d');
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [showSettings, setShowSettings] = useState(false); // Collapsible settings
 
@@ -61,7 +61,7 @@ export default function Home() {
 
     // Set interval from URL if provided
     if (urlInterval && ['5m', '15m', '1h', '4h', '1d', '1wk', '1mo'].includes(urlInterval)) {
-      setInterval(urlInterval);
+      setTimeframe(urlInterval);
     }
 
     if (urlSymbol) {
@@ -69,11 +69,11 @@ export default function Home() {
       setSymbol(fullSymbol);
       setInputSymbol(urlSymbol); // Update input field to show ticker without .JK
       // Fetch data immediately for URL symbol with URL interval if provided
-      fetchStockData(fullSymbol, urlInterval || interval);
+      fetchStockData(fullSymbol, urlInterval || timeframe);
       setInitialLoadDone(true);
     } else {
       // No URL symbol, fetch default symbol
-      fetchStockData(symbol, urlInterval || interval);
+      fetchStockData(symbol, urlInterval || timeframe);
       setInitialLoadDone(true);
     }
   }, []); // Run once on component mount
@@ -90,12 +90,12 @@ export default function Home() {
       // or if the URL symbol is different from current symbol
       if (!urlSymbol || ensureJKSuffix(urlSymbol) !== symbol) {
         console.log('Fetching data for symbol change:', symbol); // Debug log
-        fetchStockData(symbol, interval);
+        fetchStockData(symbol, timeframe);
       } else {
         console.log('Skipping fetch - symbol change was from URL parameter'); // Debug log
       }
     }
-  }, [symbol, interval, initialLoadDone]);
+  }, [symbol, timeframe, initialLoadDone]);
 
   const fetchStockData = async (sym: string, int: string) => {
     console.log('fetchStockData called with symbol:', sym, 'interval:', int); // Debug log
@@ -298,9 +298,9 @@ export default function Home() {
                   ].map((tf) => (
                     <button
                       key={tf.value}
-                      onClick={() => setInterval(tf.value)}
+                      onClick={() => setTimeframe(tf.value)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
-                        interval === tf.value
+                        timeframe === tf.value
                           ? tf.type === 'intraday'
                             ? 'backdrop-blur-md bg-green-500/30 text-white ring-2 ring-green-400/50 shadow-green-500/20'
                             : 'backdrop-blur-md bg-blue-500/30 text-white ring-2 ring-blue-400/50 shadow-blue-500/20'
@@ -309,7 +309,7 @@ export default function Home() {
                     >
                       <span>{tf.icon}</span>
                       <span>{tf.label}</span>
-                      {interval === tf.value && <span className="text-green-400">✓</span>}
+                      {timeframe === tf.value && <span className="text-green-400">✓</span>}
                     </button>
                   ))}
                 </div>

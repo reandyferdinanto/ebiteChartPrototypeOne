@@ -65,7 +65,7 @@ export default function ManualScreener() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 text-white">
       <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 lg:gap-0">
           <div>
@@ -77,7 +77,7 @@ export default function ManualScreener() {
           <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
             <Link
               href="/vcp-screener"
-              className="bg-gray-700 hover:bg-gray-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
+              className="backdrop-blur-md bg-black/30 hover:bg-gray-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
             >
               ← Back to Screener
             </Link>
@@ -93,7 +93,7 @@ export default function ManualScreener() {
 
       <div className="max-w-6xl mx-auto p-3 md:p-6 space-y-4 md:space-y-6">
         {/* Input Section */}
-        <div className="bg-gray-800 border border-gray-700 rounded p-3 md:p-6 space-y-3 md:space-y-4">
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl rounded p-3 md:p-6 space-y-3 md:space-y-4">
           <div className="space-y-2">
             <label className="block text-xs md:text-sm font-semibold text-gray-300">
               Stock Symbol (e.g., BBCA, BBRI, ASII)
@@ -105,7 +105,7 @@ export default function ManualScreener() {
                 onChange={(e) => setSymbol(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Enter stock symbol"
-                className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 md:px-4 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none text-sm md:text-base"
+                className="flex-1 backdrop-blur-md bg-black/30 border border-gray-600 rounded px-3 md:px-4 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none text-sm md:text-base"
               />
               <button
                 onClick={analyzeStock}
@@ -179,7 +179,7 @@ export default function ManualScreener() {
 
             {/* Detailed Metrics */}
             {result.details && (
-              <div className="bg-gray-800 border border-gray-700 rounded p-6">
+              <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl rounded p-6">
                 <h3 className="text-xl font-semibold mb-4">📊 Detailed Metrics</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                   <div>
@@ -230,7 +230,7 @@ export default function ManualScreener() {
             )}
 
             {/* View in Chart */}
-            <div className="bg-gray-800 border border-gray-700 rounded p-4 text-center">
+            <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl rounded p-4 text-center">
               <p className="text-gray-400 mb-3">Want to see this on the chart?</p>
               <Link
                 href={`/?symbol=${result.symbol}`}
@@ -243,7 +243,7 @@ export default function ManualScreener() {
         )}
 
         {/* Help Section */}
-        <div className="bg-gray-800 border border-gray-700 rounded p-6">
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl rounded p-6">
           <h3 className="text-lg font-semibold mb-4">❓ How to Use This Tool</h3>
           <div className="space-y-3 text-sm text-gray-300">
             <p>
@@ -277,4 +277,5 @@ export default function ManualScreener() {
     </div>
   );
 }
+
 
