@@ -332,40 +332,83 @@ export default function ScalpScreener() {
 
     candlePower = Math.max(0, Math.min(100, Math.round(candlePower)));
 
-    // Determine entry signal
+    // Calculate momentum characteristics for scalping
+    // Recent momentum acceleration (last 3 vs previous 3 candles)
+    let recentMom = 0;
+    let prevMom = 0;
+    if (N >= 10) {
+      recentMom = ((closes[N - 1] - closes[N - 4]) / closes[N - 4]) * 100;
+      prevMom = ((closes[N - 4] - closes[N - 7]) / closes[N - 7]) * 100;
+    }
+    const momentumAccelerating = recentMom > prevMom && recentMom > 0.5;
+
+    // Volume increasing (comparing recent 3 vs previous 3)
+    let recentVolAvg = 0;
+    let prevVolAvg = 0;
+    for (let i = N - 3; i < N; i++) recentVolAvg += volumes[i];
+    for (let i = N - 6; i < N - 3; i++) prevVolAvg += volumes[i];
+    recentVolAvg /= 3;
+    prevVolAvg /= 3;
+    const volumeIncreasing = recentVolAvg > prevVolAvg * 1.2;
+
+    // Price above MA (uptrend)
+    const aboveMA = current.close > ma20;
+
+    // Determine entry signal - FOCUS ON MOMENTUM
     let entry: 'SNIPER' | 'BREAKOUT' | 'WATCH' | null = null;
     let signal = '';
     let reason = '';
 
-    // SNIPER ENTRY: Accumulation before markup (MORE LENIENT)
-    const nearMA = Math.abs(current.close - ma20) / ma20 < 0.025; // Relaxed to 2.5%
-    const tailTouchesMA = current.low < ma20 * 1.02 && current.close >= ma20 * 0.98; // More lenient
-    const isDryingUp = volRatio < 0.80; // Relaxed to 80%
-    const momentumBuilding = momentum > -2 && momentum < 5; // Wider range
-    const highPower = candlePower >= 75; // Lowered from 85
-    const strongAccumulation = accRatio > 0.95; // Lowered from 1.1
+    // SCALP SNIPER: Early momentum catch (BEST for scalping)
+    // Stock starting to move with volume confirmation
+    const earlyMomentum = momentum > 0.5 && momentum < 3; // Just starting to move (0.5% to 3%)
+    const volumeConfirm = volRatio > 1.2 && volRatio < 3; // Above average but not extreme yet
+    const priceStrength = candlePower >= 70; // Decent strength
+    const buyingPressure = accRatio > 1.0; // More buying than selling
 
-    // SNIPER = Near MA + (Low volume OR tail) + Decent power + Above MA
-    if ((nearMA || tailTouchesMA) &&
-        (isDryingUp || highPower) &&
-        momentumBuilding &&
-        strongAccumulation &&
-        current.close > ma20 * 0.98) {
+    if (earlyMomentum && 
+        volumeConfirm && 
+        aboveMA && 
+        (momentumAccelerating || volumeIncreasing) &&
+        buyingPressure &&
+        priceStrength) {
       entry = 'SNIPER';
       signal = '⚡ SCALP SNIPER';
-      reason = `Accumulation at MA20 (Vol: ${volRatio.toFixed(2)}x, Power: ${candlePower})`;
+      reason = `Early momentum detected (Mom: ${momentum.toFixed(1)}%, Vol: ${volRatio.toFixed(1)}x) - Catch before explosion!`;
     }
-    // BREAKOUT ENTRY: Volume spike breaking out (MORE LENIENT)
-    else if (volRatio > 2.0 && isGreen && momentum > 1 && candlePower > 70 && current.close > ma20) {
+    // SCALP BREAKOUT: Strong momentum already moving
+    // Stock breaking out with strong volume
+    else if (momentum > 2 && 
+             volRatio > 2.5 && 
+             isGreen && 
+             candlePower > 75 && 
+             aboveMA &&
+             closePos > 0.6) {
       entry = 'BREAKOUT';
       signal = '🚀 SCALP BREAKOUT';
-      reason = `High volume breakout (Vol: ${volRatio.toFixed(2)}x, Mom: ${momentum.toFixed(1)}%)`;
+      reason = `Strong breakout in progress (Mom: ${momentum.toFixed(1)}%, Vol: ${volRatio.toFixed(1)}x) - Jump in now!`;
     }
-    // WATCH: Potential setup forming (MORE LENIENT)
-    else if (candlePower > 65 && current.close > ma20 * 0.97 && momentum > -3) {
+    // MOMENTUM BUILDING: Watch for entry
+    // Stock showing signs but needs confirmation
+    else if (momentum > 0.3 && 
+             momentum < 2.5 &&
+             volRatio > 1.0 && 
+             aboveMA &&
+             candlePower > 65 &&
+             (momentumAccelerating || volumeIncreasing)) {
       entry = 'WATCH';
-      signal = '👀 WATCH';
-      reason = `Setup forming (Power: ${candlePower}, Mom: ${momentum.toFixed(1)}%)`;
+      signal = '👀 MOMENTUM BUILDING';
+      reason = `Momentum building (Mom: ${momentum.toFixed(1)}%, Vol: ${volRatio.toFixed(1)}x) - Watch for acceleration`;
+    }
+    // VOLUME SPIKE: Sudden interest
+    // Volume surge with positive price action
+    else if (volRatio > 3 && 
+             momentum > 0 && 
+             isGreen && 
+             aboveMA) {
+      entry = 'BREAKOUT';
+      signal = '📢 VOLUME SPIKE';
+      reason = `Huge volume spike (${volRatio.toFixed(1)}x) - Major interest detected!`;
     }
 
     return {
@@ -539,24 +582,30 @@ export default function ScalpScreener() {
 
         {/* Legend */}
         <div className="bg-gray-800 rounded-lg p-4 mb-6">
-          <h3 className="font-bold mb-3">📚 Signal Guide:</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <h3 className="font-bold mb-3">📚 Signal Guide - MOMENTUM FOCUSED:</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
             <div className="bg-gray-700 p-3 rounded">
               <div className="font-bold text-yellow-400 mb-1">⚡ SCALP SNIPER</div>
               <div className="text-gray-300 text-xs">
-                Accumulation at MA20 before markup. Low volume + strong power. BEST risk/reward for scalping.
+                Early momentum 0.5-3% + Volume 1.2-3x. Catch BEFORE explosion! Best entry.
               </div>
             </div>
             <div className="bg-gray-700 p-3 rounded">
               <div className="font-bold text-green-400 mb-1">🚀 SCALP BREAKOUT</div>
               <div className="text-gray-300 text-xs">
-                High volume breakout with momentum. Fast trade - quick entry/exit. Momentum already started.
+                Strong momentum 2%+ with volume 2.5x+. Already moving - quick scalp!
               </div>
             </div>
             <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-blue-400 mb-1">👀 WATCH</div>
+              <div className="font-bold text-purple-400 mb-1">📢 VOLUME SPIKE</div>
               <div className="text-gray-300 text-xs">
-                Potential setup forming. Monitor for sniper entry or breakout confirmation.
+                Massive volume 3x+ with positive price. Major interest - investigate!
+              </div>
+            </div>
+            <div className="bg-gray-700 p-3 rounded">
+              <div className="font-bold text-blue-400 mb-1">👀 MOMENTUM BUILDING</div>
+              <div className="text-gray-300 text-xs">
+                Momentum 0.3-2.5% accelerating. Watch for entry signal soon.
               </div>
             </div>
           </div>

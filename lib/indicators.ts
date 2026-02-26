@@ -342,40 +342,44 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
                           hasSupport;
 
     // SCALP SNIPER ENTRY - For intraday (5m, 15m, 1h)
-    // Detects momentum building BEFORE markup for sniper entry
-    // Less strict than daily sniper - catches early momentum
-    const nearMA20Scalp = Math.abs(data[i].close - ma20) / ma20 < 0.015; // Within 1.5% of MA20
-    const priceAboveMA = data[i].close > ma20 * 0.998; // Just above or at MA20
-    const tailTouchesMA = data[i].low < ma20 && data[i].close >= ma20; // Tail touches MA20, closes above
+    // Detects EARLY MOMENTUM for scalping - catch stocks starting to move!
 
-    // Low volume (accumulation/dry up phase)
-    const isLowVolume = volRatio < 0.70; // < 70% of avg volume
-
-    // Slight positive momentum building (not explosive yet - that's the opportunity!)
+    // Calculate momentum
     let momentum = 0;
     if (i >= 10) {
       momentum = ((data[i].close - data[i - 10].close) / data[i - 10].close) * 100;
     }
-    const momentumBuilding = momentum > -1 && momentum < 3; // Between -1% to +3%
 
-    // Strong candle structure (body closed near high)
-    const closePosition = spread > 0 ? (data[i].close - data[i].low) / spread : 0.5;
-    const strongClose = closePosition > 0.65; // Close in upper 35% of range
+    // Momentum characteristics
+    let recentMom = 0;
+    let prevMom = 0;
+    if (i >= 7) {
+      recentMom = ((data[i].close - data[i - 3].close) / data[i - 3].close) * 100;
+      prevMom = ((data[i - 3].close - data[i - 6].close) / data[i - 6].close) * 100;
+    }
+    const momentumAccelerating = recentMom > prevMom && recentMom > 0.3;
 
-    // Small body = consolidation/coiling
-    const smallBody = body < spread * 0.4; // Body < 40% of total range
+    // Volume increasing
+    let recentVolAvg = 0;
+    let prevVolAvg = 0;
+    for (let j = Math.max(0, i - 2); j <= i; j++) recentVolAvg += (data[j].volume || 0);
+    for (let j = Math.max(0, i - 5); j < Math.max(0, i - 2); j++) prevVolAvg += (data[j].volume || 0);
+    recentVolAvg /= 3;
+    prevVolAvg /= 3;
+    const volumeIncreasing = recentVolAvg > prevVolAvg * 1.1;
 
-    // Accumulation pressure
-    const accumulationPressure = accRatio > 1.1; // Buying > selling
+    // SCALP SNIPER = Early momentum (0.5-3%) + Volume confirm (1.2-3x) + Above MA
+    const earlyMomentum = momentum > 0.5 && momentum < 3;
+    const volumeConfirm = volRatio > 1.2 && volRatio < 3;
+    const priceStrength = closePosition > 0.5; // Decent close position
+    const buyingPressure = accRatio > 1.0;
 
-    // SCALP SNIPER = Consolidation at MA + low volume + momentum building + accumulation
-    const isScalpSniper = (nearMA20Scalp || tailTouchesMA) &&
-                          priceAboveMA &&
-                          isLowVolume &&
-                          momentumBuilding &&
-                          accumulationPressure &&
-                          (strongClose || smallBody) &&
-                          aboveMA20;
+    const isScalpSniper = earlyMomentum &&
+                          volumeConfirm &&
+                          aboveMA20 &&
+                          (momentumAccelerating || volumeIncreasing) &&
+                          buyingPressure &&
+                          priceStrength;
 
     // Add markers for last 100 candles (increased from 30 for better visibility)
     if (i >= N - 100) {
