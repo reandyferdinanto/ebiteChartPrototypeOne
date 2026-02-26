@@ -9,8 +9,8 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const symbol = searchParams.get('symbol');
-    const period1 = searchParams.get('period1');
-    const period2 = searchParams.get('period2');
+    const period1Param = searchParams.get('period1');
+    const period2Param = searchParams.get('period2');
     const interval = searchParams.get('interval') || '1d';
 
     if (!symbol) {
@@ -21,51 +21,70 @@ export async function GET(request: NextRequest) {
     }
 
     // Determine appropriate date range based on interval
-    let defaultPeriod1: string;
+    // Yahoo Finance v3 expects Date objects, not strings
+    let defaultPeriod1: Date;
     const now = new Date();
     const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     switch (interval) {
       case '5m':
-        // 5-minute data: last 5-7 days (Yahoo Finance limit for 5m)
-        defaultPeriod1 = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        // 5-minute data: last 5 days (Yahoo Finance limit for 5m)
+        defaultPeriod1 = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
         break;
       case '15m':
         // 15-minute data: last 10 days
-        defaultPeriod1 = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        defaultPeriod1 = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
         break;
       case '1h':
         // 1-hour data: last 30 days
-        defaultPeriod1 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        defaultPeriod1 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         break;
       case '4h':
         // 4-hour data: last 60 days
-        defaultPeriod1 = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        defaultPeriod1 = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
         break;
       case '1d':
         // Daily data: 2 years
-        defaultPeriod1 = new Date(now.getTime() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        defaultPeriod1 = new Date(now.getTime() - 730 * 24 * 60 * 60 * 1000);
         break;
       case '1wk':
         // Weekly data: 5 years
-        defaultPeriod1 = new Date(now.getTime() - 1825 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        defaultPeriod1 = new Date(now.getTime() - 1825 * 24 * 60 * 60 * 1000);
         break;
       case '1mo':
         // Monthly data: 10 years
-        defaultPeriod1 = new Date(now.getTime() - 3650 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        defaultPeriod1 = new Date(now.getTime() - 3650 * 24 * 60 * 60 * 1000);
         break;
       default:
         // Default to 1 year
-        defaultPeriod1 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        defaultPeriod1 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     }
 
+    // Convert string parameters to Date if provided
+    const period1 = period1Param ? new Date(period1Param) : defaultPeriod1;
+    const period2 = period2Param ? new Date(period2Param) : tomorrow;
+
     const queryOptions: any = {
-      period1: period1 || defaultPeriod1,
-      period2: period2 || tomorrow.toISOString().split('T')[0], // tomorrow (to include today)
+      period1: period1,
+      period2: period2,
       interval: interval as any, // '1d', '1wk', '1mo', '5m', '15m', '1h', '4h', etc.
     };
 
+    console.log('Fetching historical data for:', symbol, 'with options:', {
+      ...queryOptions,
+      period1: queryOptions.period1.toISOString(),
+      period2: queryOptions.period2.toISOString()
+    });
+
     const result: any = await yahooFinance.historical(symbol, queryOptions);
+
+    if (!result || result.length === 0) {
+      console.warn('No historical data returned for:', symbol);
+      return NextResponse.json({
+        symbol,
+        data: [],
+      });
+    }
 
     // Transform data to match lightweight-charts format with WIB timezone
     const chartData = result.map((item: any) => {
@@ -83,14 +102,21 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    console.log('Successfully fetched', chartData.length, 'data points for', symbol);
+
     return NextResponse.json({
       symbol,
       data: chartData,
     });
-  } catch (error) {
-    console.error('Error fetching historical data:', error);
+  } catch (error: any) {
+    console.error('Error fetching historical data for', request.nextUrl.searchParams.get('symbol'), ':', error);
+    console.error('Error details:', error.message, error.stack);
     return NextResponse.json(
-      { error: 'Failed to fetch historical data' },
+      {
+        error: 'Failed to fetch historical data',
+        details: error.message || 'Unknown error',
+        symbol: request.nextUrl.searchParams.get('symbol')
+      },
       { status: 500 }
     );
   }
