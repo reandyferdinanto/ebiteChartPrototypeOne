@@ -254,35 +254,127 @@ export default function ScalpScreener() {
 
   const analyzeScalpingOpportunity = (data: any[]): any => {
     const N = data.length;
-    if (N < 50) return { entry: null };
+    if (N < 40) return { entry: null };
 
-    // Calculate indicators for scalping
-    const closes = data.map(d => d.close);
-    const highs = data.map(d => d.high);
-    const lows = data.map(d => d.low);
-    const volumes = data.map(d => d.volume || 0);
+    // Extract OHLCV data
+    const closes: number[] = [];
+    const opens: number[] = [];
+    const highs: number[] = [];
+    const lows: number[] = [];
+    const volumes: number[] = [];
 
-    // Recent 20 candles for analysis
-    const recentVolumes = volumes.slice(-20);
-    const avgVolume = recentVolumes.reduce((a, b) => a + b, 0) / 20;
-
-    // Current candle
-    const current = data[N - 1];
-    const volRatio = current.volume / (avgVolume || 1);
-
-    // Calculate momentum (rate of change)
-    const momentum = ((closes[N - 1] - closes[N - 10]) / closes[N - 10]) * 100;
-
-    // Calculate MA20 for trend
-    let sum20 = 0;
-    for (let i = N - 20; i < N; i++) {
-      sum20 += closes[i];
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].close !== null && data[i].volume > 0) {
+        closes.push(data[i].close);
+        opens.push(data[i].open);
+        highs.push(data[i].high);
+        lows.push(data[i].low);
+        volumes.push(data[i].volume);
+      }
     }
-    const ma20 = sum20 / 20;
 
-    // Calculate volatility (ATR-like)
+    const n = closes.length;
+    if (n < 40) return { entry: null };
+
+    // Look for best signal in last 5 candles (matching AppScript logic)
+    let bestSignal = "";
+    let barsAgo = 0;
+    let finalVolRatio = 0;
+    let finalAccRatio = 0;
+
+    for (let c = n - 5; c < n; c++) {
+      // Calculate MA20 for this candle
+      const sma20Slice = closes.slice(c - 19, c + 1);
+      const sma20 = sma20Slice.reduce((a, b) => a + b, 0) / 20;
+
+      // Calculate 20-period volume and spread average
+      let volAvg20 = 0;
+      let spreadSum20 = 0;
+      for (let i = c - 20; i < c; i++) {
+        volAvg20 += volumes[i];
+        spreadSum20 += (highs[i] - lows[i]);
+      }
+      volAvg20 /= 20;
+      const spreadAvg20 = spreadSum20 / 20;
+
+      const currentVol = volumes[c];
+      const volRatio = currentVol / (volAvg20 || 1);
+
+      const priceHigh = highs[c];
+      const priceLow = lows[c];
+      const priceClose = closes[c];
+      const priceOpen = opens[c];
+
+      const candleSpread = priceHigh - priceLow;
+      const bodySpread = Math.abs(priceClose - priceOpen);
+      const isGreen = priceClose > priceOpen;
+      const bodyPosition = candleSpread === 0 ? 0 : (priceClose - priceLow) / candleSpread;
+
+      // Calculate accumulation ratio (last 10 candles)
+      let buyVol = 0;
+      let sellVol = 0;
+      for (let i = c - 9; i <= c; i++) {
+        if (closes[i] > opens[i]) buyVol += volumes[i];
+        else if (closes[i] < opens[i]) sellVol += volumes[i];
+      }
+      const accRatio = buyVol / (sellVol === 0 ? 1 : sellVol);
+      const spreadRatio = candleSpread / (spreadAvg20 || 1);
+
+      // VCP detection (matching AppScript)
+      const highest30 = Math.max(...highs.slice(c - 29, c + 1));
+      const isNearHigh = priceClose > (highest30 * 0.85);
+
+      let spreadSum5 = 0;
+      let volSum5 = 0;
+      for (let i = c - 5; i < c; i++) {
+        spreadSum5 += (highs[i] - lows[i]);
+        volSum5 += volumes[i];
+      }
+      const isVCP = isNearHigh && (spreadSum5 / 5 < spreadAvg20 * 0.65) && (volSum5 / 5 < volAvg20 * 0.75);
+
+      // Pattern detection (EXACTLY matching AppScript SCREENER_SCALP_5M)
+      const isMicroDryUp = (!isGreen || bodySpread < candleSpread * 0.2) && (volRatio < 0.35) && (accRatio > 1.2);
+      const isScalpBreakout = isGreen && (volRatio > 2.5) && (bodyPosition > 0.8) && priceClose > sma20;
+      const isMicroIceberg = (volRatio > 1.5) && (spreadRatio < 0.5);
+      const isScalpDump = (!isGreen && volRatio > 2.5 && (bodySpread > candleSpread * 0.6));
+
+      const upperWick = priceHigh - Math.max(priceOpen, priceClose);
+      const isShootingStar = (volRatio > 2 && (upperWick / (candleSpread || 1) > 0.5));
+
+      // Signal priority (matching AppScript order)
+      let signal = "";
+      if (isScalpDump) signal = "🩸 SCALP DUMP";
+      else if (isShootingStar) signal = "⚠️ PUCUK";
+      else if (isVCP && isMicroDryUp) signal = "🎯 SCALP SNIPER";
+      else if (isScalpBreakout) signal = "⚡ SCALP BREAKOUT";
+      else if (isMicroIceberg) signal = "🧊 MICRO ICEBERG";
+      else if (isMicroDryUp) signal = "🥷 MICRO DRY UP";
+
+      if (signal !== "") {
+        bestSignal = signal;
+        barsAgo = (n - 1) - c;
+        finalVolRatio = volRatio;
+        finalAccRatio = accRatio;
+      }
+    }
+
+    if (bestSignal === "") return { entry: null };
+
+    // Determine entry type based on signal
+    let entry: 'SNIPER' | 'BREAKOUT' | 'WATCH' | null = null;
+    if (bestSignal.includes('SNIPER')) entry = 'SNIPER';
+    else if (bestSignal.includes('BREAKOUT')) entry = 'BREAKOUT';
+    else if (bestSignal.includes('DUMP') || bestSignal.includes('PUCUK')) entry = null; // Bearish - skip
+    else entry = 'WATCH'; // ICEBERG, DRY UP
+
+    const current = data[n - 1];
+
+    // Calculate momentum (last 10 candles)
+    const momentum = ((closes[n - 1] - closes[n - 10]) / closes[n - 10]) * 100;
+
+    // Calculate volatility (ATR)
     let atrSum = 0;
-    for (let i = N - 14; i < N; i++) {
+    for (let i = n - 14; i < n; i++) {
       const tr = Math.max(
         highs[i] - lows[i],
         Math.abs(highs[i] - closes[i - 1]),
@@ -291,132 +383,39 @@ export default function ScalpScreener() {
       atrSum += tr;
     }
     const atr = atrSum / 14;
-    const volatility = (atr / closes[N - 1]) * 100;
+    const volatility = (atr / closes[n - 1]) * 100;
 
-    // Candle Power Score (Wyckoff-based)
+    // Calculate candle power based on AppScript logic
     const spread = current.high - current.low;
     const body = Math.abs(current.close - current.open);
-    const isGreen = current.close >= current.open;
+    const isGreenCurrent = current.close >= current.open;
     const closePos = spread > 0 ? (current.close - current.low) / spread : 0.5;
-    const lowerWick = Math.min(current.open, current.close) - current.low;
-
-    // Calculate buying/selling pressure
-    let buyVol = 0;
-    let sellVol = 0;
-    for (let k = N - 10; k < N; k++) {
-      if (data[k].close > data[k].open) buyVol += data[k].volume || 0;
-      else if (data[k].close < data[k].open) sellVol += data[k].volume || 0;
-    }
-    const accRatio = buyVol / (sellVol || 1);
 
     let candlePower = 50;
-
-    // High volume + green + close near high = Strength
-    if (volRatio > 1.5 && isGreen && closePos > 0.7) {
-      candlePower = 85 + (volRatio * 5);
-    }
-    // Low volume + hammer at MA = Accumulation (SNIPER!)
-    else if (volRatio < 0.7 && lowerWick > body * 0.5 && current.close >= ma20 && current.low < ma20) {
-      candlePower = 92;
-    }
-    // Volume spike + narrow spread = Absorption
-    else if (volRatio > 2 && spread < (atr * 0.8)) {
-      candlePower = 88;
-    }
-    // Normal conditions
-    else if (isGreen && volRatio > 1) {
-      candlePower = 65 + (closePos * 20);
-    } else if (!isGreen && volRatio < 0.8) {
-      candlePower = 35 - (closePos * 10);
+    if (finalVolRatio > 1.5 && isGreenCurrent && closePos > 0.7) {
+      candlePower = 85 + (finalVolRatio * 3);
+    } else if (finalVolRatio < 0.4 && finalAccRatio > 1.2) {
+      candlePower = 92; // Dry up with accumulation
+    } else if (finalVolRatio > 2.5 && spread < atr * 0.6) {
+      candlePower = 88; // Iceberg
+    } else if (isGreenCurrent && finalVolRatio > 1.2) {
+      candlePower = 70 + (closePos * 15);
+    } else if (!isGreenCurrent && finalVolRatio < 0.6) {
+      candlePower = 30;
     }
 
     candlePower = Math.max(0, Math.min(100, Math.round(candlePower)));
+    candlePower = Math.max(0, Math.min(100, Math.round(candlePower)));
 
-    // Calculate momentum characteristics for scalping
-    // Recent momentum acceleration (last 3 vs previous 3 candles)
-    let recentMom = 0;
-    let prevMom = 0;
-    if (N >= 10) {
-      recentMom = ((closes[N - 1] - closes[N - 4]) / closes[N - 4]) * 100;
-      prevMom = ((closes[N - 4] - closes[N - 7]) / closes[N - 7]) * 100;
-    }
-    const momentumAccelerating = recentMom > prevMom && recentMom > 0.5;
-
-    // Volume increasing (comparing recent 3 vs previous 3)
-    let recentVolAvg = 0;
-    let prevVolAvg = 0;
-    for (let i = N - 3; i < N; i++) recentVolAvg += volumes[i];
-    for (let i = N - 6; i < N - 3; i++) prevVolAvg += volumes[i];
-    recentVolAvg /= 3;
-    prevVolAvg /= 3;
-    const volumeIncreasing = recentVolAvg > prevVolAvg * 1.2;
-
-    // Price above MA (uptrend)
-    const aboveMA = current.close > ma20;
-
-    // Determine entry signal - FOCUS ON MOMENTUM
-    let entry: 'SNIPER' | 'BREAKOUT' | 'WATCH' | null = null;
-    let signal = '';
-    let reason = '';
-
-    // SCALP SNIPER: Early momentum catch (BEST for scalping)
-    // Stock starting to move with volume confirmation
-    const earlyMomentum = momentum > 0.5 && momentum < 3; // Just starting to move (0.5% to 3%)
-    const volumeConfirm = volRatio > 1.2 && volRatio < 3; // Above average but not extreme yet
-    const priceStrength = candlePower >= 70; // Decent strength
-    const buyingPressure = accRatio > 1.0; // More buying than selling
-
-    if (earlyMomentum && 
-        volumeConfirm && 
-        aboveMA && 
-        (momentumAccelerating || volumeIncreasing) &&
-        buyingPressure &&
-        priceStrength) {
-      entry = 'SNIPER';
-      signal = '⚡ SCALP SNIPER';
-      reason = `Early momentum detected (Mom: ${momentum.toFixed(1)}%, Vol: ${volRatio.toFixed(1)}x) - Catch before explosion!`;
-    }
-    // SCALP BREAKOUT: Strong momentum already moving
-    // Stock breaking out with strong volume
-    else if (momentum > 2 && 
-             volRatio > 2.5 && 
-             isGreen && 
-             candlePower > 75 && 
-             aboveMA &&
-             closePos > 0.6) {
-      entry = 'BREAKOUT';
-      signal = '🚀 SCALP BREAKOUT';
-      reason = `Strong breakout in progress (Mom: ${momentum.toFixed(1)}%, Vol: ${volRatio.toFixed(1)}x) - Jump in now!`;
-    }
-    // MOMENTUM BUILDING: Watch for entry
-    // Stock showing signs but needs confirmation
-    else if (momentum > 0.3 && 
-             momentum < 2.5 &&
-             volRatio > 1.0 && 
-             aboveMA &&
-             candlePower > 65 &&
-             (momentumAccelerating || volumeIncreasing)) {
-      entry = 'WATCH';
-      signal = '👀 MOMENTUM BUILDING';
-      reason = `Momentum building (Mom: ${momentum.toFixed(1)}%, Vol: ${volRatio.toFixed(1)}x) - Watch for acceleration`;
-    }
-    // VOLUME SPIKE: Sudden interest
-    // Volume surge with positive price action
-    else if (volRatio > 3 && 
-             momentum > 0 && 
-             isGreen && 
-             aboveMA) {
-      entry = 'BREAKOUT';
-      signal = '📢 VOLUME SPIKE';
-      reason = `Huge volume spike (${volRatio.toFixed(1)}x) - Major interest detected!`;
-    }
+    const timeText = barsAgo === 0 ? "(Now!)" : `(${barsAgo} bars ago)`;
+    const reason = `${bestSignal} ${timeText} - Vol: ${finalVolRatio.toFixed(1)}x, Acc: ${finalAccRatio.toFixed(1)}x`;
 
     return {
       entry,
-      signal,
+      signal: bestSignal,
       momentum: parseFloat(momentum.toFixed(2)),
       candlePower,
-      volume: parseFloat(volRatio.toFixed(2)),
+      volume: parseFloat(finalVolRatio.toFixed(2)),
       volatility: parseFloat(volatility.toFixed(2)),
       reason,
     };
@@ -582,30 +581,42 @@ export default function ScalpScreener() {
 
         {/* Legend */}
         <div className="bg-gray-800 rounded-lg p-4 mb-6">
-          <h3 className="font-bold mb-3">📚 Signal Guide - MOMENTUM FOCUSED:</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+          <h3 className="font-bold mb-3">📚 Signal Guide - AppScript SCREENER_SCALP_5M Logic:</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
             <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-yellow-400 mb-1">⚡ SCALP SNIPER</div>
+              <div className="font-bold text-yellow-400 mb-1">🎯 SCALP SNIPER</div>
               <div className="text-gray-300 text-xs">
-                Early momentum 0.5-3% + Volume 1.2-3x. Catch BEFORE explosion! Best entry.
+                VCP + Micro Dry Up. Volume &lt; 35%, Acc &gt; 1.2x. Perfect base building - sniper entry!
               </div>
             </div>
             <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-green-400 mb-1">🚀 SCALP BREAKOUT</div>
+              <div className="font-bold text-green-400 mb-1">⚡ SCALP BREAKOUT</div>
               <div className="text-gray-300 text-xs">
-                Strong momentum 2%+ with volume 2.5x+. Already moving - quick scalp!
+                Green candle, Vol &gt; 2.5x, close &gt; 80% range, above MA20. Strong breakout - fast trade!
               </div>
             </div>
             <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-purple-400 mb-1">📢 VOLUME SPIKE</div>
+              <div className="font-bold text-blue-400 mb-1">🧊 MICRO ICEBERG</div>
               <div className="text-gray-300 text-xs">
-                Massive volume 3x+ with positive price. Major interest - investigate!
+                Vol &gt; 1.5x, narrow spread &lt; 50% avg. Hidden accumulation - watch closely!
               </div>
             </div>
             <div className="bg-gray-700 p-3 rounded">
-              <div className="font-bold text-blue-400 mb-1">👀 MOMENTUM BUILDING</div>
+              <div className="font-bold text-cyan-400 mb-1">🥷 MICRO DRY UP</div>
               <div className="text-gray-300 text-xs">
-                Momentum 0.3-2.5% accelerating. Watch for entry signal soon.
+                Low vol &lt; 35%, small body, Acc &gt; 1.2x. Professional accumulation - good setup!
+              </div>
+            </div>
+            <div className="bg-gray-700 p-3 rounded">
+              <div className="font-bold text-red-400 mb-1">🩸 SCALP DUMP</div>
+              <div className="text-gray-300 text-xs">
+                Red candle, Vol &gt; 2.5x, big body. Heavy selling - avoid or short!
+              </div>
+            </div>
+            <div className="bg-gray-700 p-3 rounded">
+              <div className="font-bold text-orange-400 mb-1">⚠️ PUCUK (Shooting Star)</div>
+              <div className="text-gray-300 text-xs">
+                Vol &gt; 2x, long upper wick. Distribution at top - bearish reversal!
               </div>
             </div>
           </div>
