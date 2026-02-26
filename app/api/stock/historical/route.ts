@@ -65,8 +65,12 @@ export async function GET(request: NextRequest) {
     const period2 = period2Param ? new Date(period2Param) : tomorrow;
 
 
+    // Yahoo Finance doesn't support 4h natively, so we need to use 1h and aggregate
+    const actualInterval = interval === '4h' ? '1h' : interval;
+
     console.log('Fetching historical data for:', symbol, 'with options:', {
-      interval,
+      interval: actualInterval,
+      requestedInterval: interval,
       period1: period1.toISOString(),
       period2: period2.toISOString()
     });
@@ -75,7 +79,7 @@ export async function GET(request: NextRequest) {
     const result: any = await yahooFinance.chart(symbol, {
       period1: period1,
       period2: period2,
-      interval: interval as any,
+      interval: actualInterval as any,
     });
 
     if (!result || !result.quotes || result.quotes.length === 0) {
@@ -87,7 +91,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform data to match lightweight-charts format with WIB timezone
-    const chartData = result.quotes
+    let chartData = result.quotes
       .filter((item: any) => item.date && item.close !== null && item.close !== undefined)
       .map((item: any) => {
         // Convert to WIB (UTC+7) by adding 7 hours
@@ -104,7 +108,34 @@ export async function GET(request: NextRequest) {
         };
       });
 
-    console.log('Successfully fetched', chartData.length, 'data points for', symbol, 'interval:', interval);
+    // If user requested 4h, aggregate 1h data into 4h candles
+    if (interval === '4h' && actualInterval === '1h') {
+      const aggregatedData: any[] = [];
+      const fourHoursInSeconds = 4 * 60 * 60;
+
+      // Group by 4-hour periods
+      for (let i = 0; i < chartData.length; i += 4) {
+        const chunk = chartData.slice(i, i + 4);
+        if (chunk.length === 0) continue;
+
+        // Create 4h candle from 4x 1h candles
+        const fourHourCandle = {
+          time: chunk[0].time, // Use first candle's time
+          open: chunk[0].open,
+          high: Math.max(...chunk.map(c => c.high)),
+          low: Math.min(...chunk.map(c => c.low)),
+          close: chunk[chunk.length - 1].close,
+          volume: chunk.reduce((sum, c) => sum + c.volume, 0)
+        };
+
+        aggregatedData.push(fourHourCandle);
+      }
+
+      chartData = aggregatedData;
+      console.log('Aggregated 1h data into', chartData.length, '4h candles for', symbol);
+    } else {
+      console.log('Successfully fetched', chartData.length, 'data points for', symbol, 'interval:', interval);
+    }
 
     return NextResponse.json({
       symbol,
