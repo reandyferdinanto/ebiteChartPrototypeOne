@@ -111,7 +111,6 @@ export async function GET(request: NextRequest) {
     // If user requested 4h, aggregate 1h data into 4h candles
     if (interval === '4h' && actualInterval === '1h') {
       const aggregatedData: any[] = [];
-      const fourHoursInSeconds = 4 * 60 * 60;
 
       // Group by 4-hour periods
       for (let i = 0; i < chartData.length; i += 4) {
@@ -120,12 +119,12 @@ export async function GET(request: NextRequest) {
 
         // Create 4h candle from 4x 1h candles
         const fourHourCandle = {
-          time: chunk[0].time, // Use first candle's time
+          time: chunk[0].time,
           open: chunk[0].open,
-          high: Math.max(...chunk.map(c => c.high)),
-          low: Math.min(...chunk.map(c => c.low)),
+          high: Math.max(...chunk.map((c: any) => c.high)),
+          low: Math.min(...chunk.map((c: any) => c.low)),
           close: chunk[chunk.length - 1].close,
-          volume: chunk.reduce((sum, c) => sum + c.volume, 0)
+          volume: chunk.reduce((sum: number, c: any) => sum + c.volume, 0)
         };
 
         aggregatedData.push(fourHourCandle);
@@ -154,4 +153,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
