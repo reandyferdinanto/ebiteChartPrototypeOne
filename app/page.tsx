@@ -159,6 +159,12 @@ export default function Home() {
           <h1 className="text-xl md:text-2xl font-bold">Ebite Chart</h1>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Link
+              href="/scalp-screener"
+              className="bg-green-600 hover:bg-green-700 px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition text-center"
+            >
+              ⚡ Scalp Screener
+            </Link>
+            <Link
               href="/vcp-screener"
               className="bg-red-600 hover:bg-red-700 px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition text-center"
             >

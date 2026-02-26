@@ -341,6 +341,42 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
                           (accRatio > 1.2) && // Strong buying
                           hasSupport;
 
+    // SCALP SNIPER ENTRY - For intraday (5m, 15m, 1h)
+    // Detects momentum building BEFORE markup for sniper entry
+    // Less strict than daily sniper - catches early momentum
+    const nearMA20Scalp = Math.abs(data[i].close - ma20) / ma20 < 0.015; // Within 1.5% of MA20
+    const priceAboveMA = data[i].close > ma20 * 0.998; // Just above or at MA20
+    const tailTouchesMA = data[i].low < ma20 && data[i].close >= ma20; // Tail touches MA20, closes above
+
+    // Low volume (accumulation/dry up phase)
+    const isLowVolume = volRatio < 0.70; // < 70% of avg volume
+
+    // Slight positive momentum building (not explosive yet - that's the opportunity!)
+    let momentum = 0;
+    if (i >= 10) {
+      momentum = ((data[i].close - data[i - 10].close) / data[i - 10].close) * 100;
+    }
+    const momentumBuilding = momentum > -1 && momentum < 3; // Between -1% to +3%
+
+    // Strong candle structure (body closed near high)
+    const closePosition = spread > 0 ? (data[i].close - data[i].low) / spread : 0.5;
+    const strongClose = closePosition > 0.65; // Close in upper 35% of range
+
+    // Small body = consolidation/coiling
+    const smallBody = body < spread * 0.4; // Body < 40% of total range
+
+    // Accumulation pressure
+    const accumulationPressure = accRatio > 1.1; // Buying > selling
+
+    // SCALP SNIPER = Consolidation at MA + low volume + momentum building + accumulation
+    const isScalpSniper = (nearMA20Scalp || tailTouchesMA) &&
+                          priceAboveMA &&
+                          isLowVolume &&
+                          momentumBuilding &&
+                          accumulationPressure &&
+                          (strongClose || smallBody) &&
+                          aboveMA20;
+
     // Add markers for last 100 candles (increased from 30 for better visibility)
     if (i >= N - 100) {
       let markerObj: MarkerData | null = null;
@@ -350,7 +386,7 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
         console.log(`Candle ${i}: VCP=${isVCP} DryUp=${isDryUp} Iceberg=${isIceberg} Sniper=${isSniperEntry} Vol=${volRatio.toFixed(2)} Acc=${accRatio.toFixed(2)}`);
       }
 
-      // SNIPER ENTRY = Perfect setup (MOST RESTRICTIVE)
+      // SNIPER ENTRY = Perfect setup (MOST RESTRICTIVE - for daily/weekly)
       if (isSniperEntry) {
         markerObj = {
           time: data[i].time,
@@ -360,6 +396,17 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
           text: '🎯 SNIPER'
         };
         if (i === N - 1) latestSignal = '🎯 SNIPER ENTRY';
+      }
+      // SCALP SNIPER = Intraday sniper entry (momentum before markup)
+      else if (isScalpSniper) {
+        markerObj = {
+          time: data[i].time,
+          position: 'belowBar',
+          color: '#ffd700',
+          shape: 'arrowUp',
+          text: '⚡ SCALP SNIPER'
+        };
+        if (i === N - 1) latestSignal = '⚡ SCALP SNIPER (Momentum Building)';
       }
       // VCP + ICEBERG (Strong accumulation in base)
       else if (isVCP && isIceberg) {
