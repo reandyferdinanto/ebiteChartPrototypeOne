@@ -38,9 +38,10 @@ export default function Home() {
   const [error, setError] = useState('');
   const [interval, setInterval] = useState('1d');
   const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [showSettings, setShowSettings] = useState(false); // Collapsible settings
 
   const popularStocks = [
-    'FIRE.JK', 'ELIT.JK', 'UVCR.JK', 'LAND.JK', 'KOTA.JK',
+    'BBCA', 'BBRI', 'BMRI', 'BBNI', 'ASII', 'TLKM', 'UNVR', 'ICBP'
   ];
 
   // Helper function to ensure .JK suffix
@@ -159,177 +160,196 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      <nav className="bg-gray-800 border-b border-gray-700 px-3 md:px-6 py-3 md:py-4">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
-          <h1 className="text-xl md:text-2xl font-bold">Ebite Chart</h1>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Link
-              href="/scalp-screener"
-              className="bg-green-600 hover:bg-green-700 px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition text-center"
-            >
-              ⚡ Scalp Screener
-            </Link>
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950 text-white">
+      {/* Top Navigation Bar - Glassmorphism */}
+      <nav className="backdrop-blur-xl bg-black/30 border-b border-white/10 px-4 py-3 sticky top-0 z-50 shadow-2xl">{/* ...existing code... */}
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+            </div>
+            <h1 className="text-lg md:text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Ebite Chart
+            </h1>
+          </div>
+          <div className="flex gap-2">
             <Link
               href="/vcp-screener"
-              className="bg-red-600 hover:bg-red-700 px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition text-center"
+              className="backdrop-blur-md bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 shadow-lg hover:shadow-orange-500/20"
             >
-              🎯 VCP Screener
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <span>VCP Screener</span>
             </Link>
             <Link
-              href="/screener"
-              className="bg-blue-600 hover:bg-blue-700 px-3 md:px-4 py-2 rounded text-sm md:text-base transition text-center"
+              href="/scalp-screener"
+              className="backdrop-blur-md bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 shadow-lg hover:shadow-green-500/20"
             >
-              Stock Screener
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span>Scalp Screener</span>
             </Link>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto p-3 md:p-6">
-        {/* Search Bar */}
-        <div className="mb-4 md:mb-6">
-          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2 mb-4">
-            <input
-              type="text"
-              value={inputSymbol}
-              onChange={(e) => setInputSymbol(e.target.value.toUpperCase())}
-              placeholder="Enter stock ticker (e.g., BBCA, TLKM, BBRI)"
-              className="flex-1 px-3 md:px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder:text-gray-500 text-sm md:text-base"
-            />
+      <div className="max-w-7xl mx-auto p-2 md:p-4">
+        {/* Compact Search Section - Glassmorphism */}
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl p-3 md:p-4 mb-3 shadow-2xl">
+          {/* Search Bar */}
+          <form onSubmit={handleSearch} className="flex gap-2 mb-3">
+            <div className="flex-1 relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={inputSymbol}
+                onChange={(e) => setInputSymbol(e.target.value.toUpperCase())}
+                placeholder="Type ticker symbol (e.g., BBCA, TLKM, ASII)"
+                className="w-full pl-10 pr-3 py-2.5 backdrop-blur-md bg-black/30 border border-white/20 rounded-xl text-white placeholder:text-gray-500 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none transition"
+              />
+            </div>
             <button
               type="submit"
               disabled={!inputSymbol.trim() || loading}
-              className={`px-4 md:px-6 py-2 rounded font-semibold transition text-sm md:text-base ${
+              className={`px-4 py-2.5 rounded-xl font-semibold transition text-sm flex items-center gap-2 shadow-lg ${
                 !inputSymbol.trim() || loading
-                  ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  ? 'backdrop-blur-md bg-gray-500/20 text-gray-500 cursor-not-allowed border border-gray-500/30'
+                  : 'backdrop-blur-md bg-blue-500/30 hover:bg-blue-500/40 text-white border border-blue-500/30 hover:shadow-blue-500/30'
               }`}
             >
-              {loading ? '⏳ Loading...' : '🔍 Search'}
+              {loading ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span className="hidden md:inline">Loading</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <span className="hidden md:inline">Search</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSettings(!showSettings)}
+              className="backdrop-blur-md bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-lg"
+              title="Toggle Settings"
+            >
+              <svg className={`w-4 h-4 transition-transform ${showSettings ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="hidden md:inline">Settings</span>
             </button>
           </form>
 
-          <p className="text-xs md:text-sm text-gray-400 mb-3">
-            💡 Tip: Just type the ticker symbol (e.g., BBCA). The .JK suffix is added automatically for Indonesian stocks.
-          </p>
-
-          {/* Popular Stocks */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:flex lg:flex-wrap gap-2">
+          {/* Quick Access Stocks */}
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            <span className="text-xs text-gray-400 self-center mr-1">Quick Access:</span>
             {popularStocks.map((stock) => (
               <button
                 key={stock}
                 onClick={() => {
-                  setSymbol(stock);
-                  setInputSymbol(stock.replace('.JK', '')); // Show without .JK in input
+                  const fullSymbol = ensureJKSuffix(stock);
+                  setSymbol(fullSymbol);
+                  setInputSymbol(stock);
                 }}
-                className={`px-2 md:px-3 py-1 rounded text-xs md:text-sm text-center ${
-                  symbol === stock
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition shadow-md ${
+                  symbol === ensureJKSuffix(stock)
+                    ? 'backdrop-blur-md bg-blue-500/30 text-white border border-blue-500/50 shadow-blue-500/20'
+                    : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
                 }`}
               >
-                {stock.replace('.JK', '')}
+                {stock}
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Interval Selector */}
-        <div className="mb-4 md:mb-6">
-          <div className="flex flex-col gap-3">
-            {/* Current Selection Display */}
-            <div className="bg-gray-800 border border-gray-700 rounded p-3">
-              <p className="text-sm text-gray-400">
-                📊 Current Timeframe: <span className="text-white font-bold">
-                  {interval === '5m' ? '5 Minutes' :
-                   interval === '15m' ? '15 Minutes' :
-                   interval === '1h' ? '1 Hour' :
-                   interval === '4h' ? '4 Hours' :
-                   interval === '1d' ? 'Daily' :
-                   interval === '1wk' ? 'Weekly' : 'Monthly'}
-                </span>
-                {(interval === '5m' || interval === '15m' || interval === '1h' || interval === '4h') && (
-                  <span className="ml-2 text-yellow-400 text-xs">⚡ Intraday</span>
-                )}
-              </p>
-            </div>
-
-            {/* Intraday Timeframes */}
-            <div>
-              <p className="text-xs text-gray-400 mb-2">⚡ Intraday (Short-term Trading)</p>
-              <div className="flex flex-wrap gap-2">
-                {['5m', '15m', '1h', '4h'].map((int) => (
-                  <button
-                    key={int}
-                    onClick={() => setInterval(int)}
-                    className={`px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition-all ${
-                      interval === int
-                        ? 'bg-green-600 text-white ring-2 ring-green-400 shadow-lg'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    {interval === int ? '✓ ' : ''}
-                    {int === '5m' ? '5 Min' : int === '15m' ? '15 Min' : int === '1h' ? '1 Hour' : '4 Hours'}
-                  </button>
-                ))}
+          {/* Collapsible Settings */}
+          {showSettings && (
+            <div className="mt-3 pt-3 border-t border-white/10 space-y-3 animate-in slide-in-from-top duration-200">
+              {/* Timeframe Selector */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-xs text-gray-300 font-semibold">Timeframe</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { value: '5m', label: '5 Min', type: 'intraday', icon: '⚡' },
+                    { value: '15m', label: '15 Min', type: 'intraday', icon: '⚡' },
+                    { value: '1h', label: '1 Hour', type: 'intraday', icon: '⚡' },
+                    { value: '4h', label: '4 Hours', type: 'intraday', icon: '⚡' },
+                    { value: '1d', label: 'Daily', type: 'daily', icon: '📅' },
+                    { value: '1wk', label: 'Weekly', type: 'daily', icon: '📅' },
+                    { value: '1mo', label: 'Monthly', type: 'daily', icon: '📅' },
+                  ].map((tf) => (
+                    <button
+                      key={tf.value}
+                      onClick={() => setInterval(tf.value)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
+                        interval === tf.value
+                          ? tf.type === 'intraday'
+                            ? 'backdrop-blur-md bg-green-500/30 text-white ring-2 ring-green-400/50 shadow-green-500/20'
+                            : 'backdrop-blur-md bg-blue-500/30 text-white ring-2 ring-blue-400/50 shadow-blue-500/20'
+                          : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+                      }`}
+                    >
+                      <span>{tf.icon}</span>
+                      <span>{tf.label}</span>
+                      {interval === tf.value && <span className="text-green-400">✓</span>}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-
-            {/* Daily/Weekly/Monthly Timeframes */}
-            <div>
-              <p className="text-xs text-gray-400 mb-2">📅 Daily/Weekly/Monthly (Long-term Analysis)</p>
-              <div className="flex flex-wrap gap-2">
-                {['1d', '1wk', '1mo'].map((int) => (
-                  <button
-                    key={int}
-                    onClick={() => setInterval(int)}
-                    className={`px-3 md:px-4 py-2 rounded text-sm md:text-base font-semibold transition-all ${
-                      interval === int
-                        ? 'bg-blue-600 text-white ring-2 ring-blue-400 shadow-lg'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    }`}
-                  >
-                    {interval === int ? '✓ ' : ''}
-                    {int === '1d' ? 'Daily' : int === '1wk' ? 'Weekly' : 'Monthly'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
+        {/* Loading State - Glassmorphism */}
         {loading && (
-          <div className="text-center py-12">
+          <div className="text-center py-8 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl shadow-2xl">
             <div className="inline-block">
-              <div className="animate-spin mb-4 text-3xl">🔄</div>
-              <div className="text-xl mb-2">
-                Loading {inputSymbol || symbol.replace('.JK', '')} chart...
-              </div>
-              {window.location.search && (
-                <p className="text-sm text-gray-400">
-                  Loading stock from screener analysis...
-                </p>
-              )}
+              <svg className="w-12 h-12 text-blue-400 animate-spin mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
             </div>
+            <p className="text-lg">Loading {inputSymbol || symbol.replace('.JK', '')}...</p>
           </div>
         )}
 
+        {/* Error State - Glassmorphism */}
         {error && (
-          <div className="bg-red-900 border border-red-700 text-red-100 px-4 py-3 rounded mb-6">
-            {error}
+          <div className="backdrop-blur-xl bg-red-500/10 border border-red-500/30 text-red-100 px-4 py-3 rounded-2xl mb-4 flex items-center gap-3 shadow-lg">
+            <svg className="w-5 h-5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>{error}</span>
           </div>
         )}
 
+        {/* Stock Info & Chart - Maximum Focus */}
         {!loading && !error && stockQuote && (
-          <>
+          <div className="space-y-3">
             <StockInfo {...stockQuote} />
             {chartData.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-2 md:p-6">
+              <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
                 <StockChart symbol={symbol} data={chartData} />
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>

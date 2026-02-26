@@ -536,162 +536,142 @@ export default function StockChart({ data }: StockChartProps) {
 
   return (
     <div className="w-full">
-      {/* Sticky Controls - Mobile Responsive */}
-      <div className="sticky top-0 z-50 bg-gray-900 border-b border-gray-700 shadow-lg">
-        {/* Mobile Toggle Button */}
-        <div className="md:hidden flex items-center justify-between p-3 border-b border-gray-700">
-          <span className="text-sm font-semibold text-gray-300">Chart Controls</span>
-          <button
-            onClick={() => setShowControls(!showControls)}
-            className="text-gray-400 hover:text-white text-xl p-1 rounded"
-          >
-            {showControls ? '▼ Hide' : '▶ Show'}
-          </button>
+      {/* Compact Sticky Controls - Glassmorphism */}
+      <div className="sticky top-0 z-50 backdrop-blur-xl bg-white/5 border-b border-white/10">
+        {/* Main Control Bar - Always Visible */}
+        <div className="flex items-center justify-between p-2 md:p-3 gap-2 flex-wrap">
+          {/* Left: Quick Mode Buttons with Labels */}
+          <div className="flex gap-1.5 flex-wrap">
+            <button
+              onClick={setMAMode}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
+                showIndicators.ma && !showIndicators.momentum && !showIndicators.vsa && !showIndicators.candlePower
+                  ? 'backdrop-blur-md bg-yellow-500/30 text-white ring-2 ring-yellow-400/50' 
+                  : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+              title="Moving Averages"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              <span className="hidden md:inline">MA</span>
+            </button>
+            <button
+              onClick={setVSAMode}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
+                showIndicators.vsa || showIndicators.vcp
+                  ? 'backdrop-blur-md bg-orange-500/30 text-white ring-2 ring-orange-400/50' 
+                  : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+              title="VSA & VCP Patterns"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <span className="hidden md:inline">VSA</span>
+            </button>
+            <button
+              onClick={setCandlePowerMode}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
+                showIndicators.candlePower
+                  ? 'backdrop-blur-md bg-green-500/30 text-white ring-2 ring-green-400/50' 
+                  : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+              title="Candle Power Analysis"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span className="hidden md:inline">Power</span>
+            </button>
+          </div>
+
+          {/* Center: Chart Type with Labels */}
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => setChartType('candlestick')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition ${
+                chartType === 'candlestick'
+                  ? 'backdrop-blur-md bg-blue-500/30 text-white ring-2 ring-blue-400/50'
+                  : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+              title="Candlestick Chart"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <span className="hidden md:inline">Candle</span>
+            </button>
+            <button
+              onClick={() => setChartType('line')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition ${
+                chartType === 'line'
+                  ? 'backdrop-blur-md bg-blue-500/30 text-white ring-2 ring-blue-400/50'
+                  : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+              title="Line Chart"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              <span className="hidden md:inline">Line</span>
+            </button>
+          </div>
+
+          {/* Right: Toggle Controls & Indicators with Labels */}
+          <div className="flex gap-1.5 flex-wrap">
+            <button
+              onClick={() => setShowIndicators(prev => ({ ...prev, sr: !prev.sr }))}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition ${
+                showIndicators.sr
+                  ? 'backdrop-blur-md bg-purple-500/30 text-white ring-2 ring-purple-400/50' 
+                  : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+              title="Support/Resistance Zones"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              <span className="hidden md:inline">S/R</span>
+            </button>
+            <button
+              onClick={() => setShowIndicators(prev => ({ ...prev, momentum: !prev.momentum }))}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition ${
+                showIndicators.momentum
+                  ? 'backdrop-blur-md bg-cyan-500/30 text-white ring-2 ring-cyan-400/50' 
+                  : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+              }`}
+              title="MACD Histogram"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+              <span className="hidden md:inline">MACD</span>
+            </button>
+            <button
+              onClick={() => setShowControls(!showControls)}
+              className="backdrop-blur-md bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md"
+              title="More Options"
+            >
+              <svg className={`w-3.5 h-3.5 transition-transform ${showControls ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              <span className="hidden md:inline">More</span>
+            </button>
+          </div>
         </div>
 
-        {/* Controls - Collapsible on Mobile */}
+        {/* Expandable Controls - Glassmorphism */}
         {showControls && (
-          <div className="p-3 md:p-4 space-y-3 max-h-[70vh] md:max-h-none overflow-y-auto md:overflow-y-visible">{/* ...existing controls... */}
-
-            {/* Quick Mode Presets */}
-            <div className="flex gap-1 md:gap-2 flex-wrap mb-3 p-2 bg-gray-800 rounded">
-              <span className="text-xs text-gray-400 py-1">⚡ Quick Modes:</span>
-              <button
-                onClick={setMAMode}
-                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  showIndicators.ma && !showIndicators.momentum && !showIndicators.vsa && !showIndicators.candlePower
-                    ? 'bg-yellow-600 text-white shadow-lg' 
-                    : 'bg-gray-700 hover:bg-yellow-700 text-gray-300'
-                }`}
-                title="Moving Averages: MA5, MA20, MA50, MA200"
-              >
-                {showIndicators.ma && !showIndicators.momentum && !showIndicators.vsa && !showIndicators.candlePower ? '✓ ' : ''}📈 MA Lines
-              </button>
-              <button
-                onClick={setVSAMode}
-                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  showIndicators.vsa || showIndicators.vcp
-                    ? 'bg-orange-600 text-white shadow-lg' 
-                    : 'bg-gray-700 hover:bg-orange-700 text-gray-300'
-                }`}
-                title="VSA Patterns: Iceberg, Dry Up, VCP Base, Sniper Entry"
-              >
-                {showIndicators.vsa || showIndicators.vcp ? '✓ ' : ''}🎯 VSA Patterns
-              </button>
-              <button
-                onClick={setCandlePowerMode}
-                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  showIndicators.candlePower
-                    ? 'bg-green-600 text-white shadow-lg ring-2 ring-green-400' 
-                    : 'bg-gray-700 hover:bg-green-700 text-gray-300'
-                }`}
-                title="Candle Power Score & Wyckoff Analysis - Shows colored dots with scores"
-              >
-                {showIndicators.candlePower ? '✓ ' : ''}🔥 Candle Power
-              </button>
-              <button
-                onClick={setAnalysisMode}
-                className={`px-2 md:px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                  showIndicators.momentum || showIndicators.ao
-                    ? 'bg-blue-600 text-white shadow-lg' 
-                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-                }`}
-                title="All Indicators & Analysis"
-              >
-                {showIndicators.momentum || showIndicators.ao ? '✓ ' : ''}🔬 Full Analysis
-              </button>
-            </div>
-
-            {/* MACD Status Display */}
-            <div className="text-xs text-gray-400 px-2 py-1 bg-gray-800 rounded border border-gray-700">
-              📊 Default View: MA Lines + MACD Histogram {showIndicators.momentum ? '✓' : ''}
-            </div>
-
-            {/* Chart Type */}
-            <div className="flex gap-1 md:gap-2 flex-wrap">
-              <button
-                onClick={() => setChartType('candlestick')}
-                className={`px-2 md:px-4 py-1 md:py-2 rounded text-xs md:text-sm ${
-                  chartType === 'candlestick'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-              >
-                Candlestick
-              </button>
-              <button
-                onClick={() => setChartType('line')}
-                className={`px-2 md:px-4 py-1 md:py-2 rounded text-xs md:text-sm ${
-                  chartType === 'line'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-              >
-                Line
-              </button>
-            </div>
-
-            {/* Candle Power Toggle - Prominent button */}
-            <div className="flex gap-1 md:gap-2 flex-wrap items-center p-2 bg-gray-800 rounded border border-gray-700">
-              <span className="text-xs text-gray-400">🔥 Indicator:</span>
-              <button
-                onClick={() => setShowIndicators(prev => ({
-                  ...prev,
-                  candlePower: !prev.candlePower,
-                  // Disable other patterns when enabling candle power
-                  vsa: prev.candlePower ? prev.vsa : false,
-                  vcp: prev.candlePower ? prev.vcp : false
-                }))}
-                className={`px-3 md:px-4 py-1.5 md:py-2 rounded text-xs md:text-sm font-bold transition-all ${
-                  showIndicators.candlePower
-                    ? 'bg-green-600 text-white shadow-lg ring-2 ring-green-400 animate-pulse' 
-                    : 'bg-gray-700 text-gray-400 hover:bg-gray-600 hover:text-white'
-                }`}
-                title={showIndicators.candlePower
-                  ? "Candle Power ON - Showing colored score dots on candles"
-                  : "Candle Power OFF - Click to show Wyckoff analysis scores"
-                }
-              >
-                {showIndicators.candlePower ? '✓ ON' : 'OFF'} Candle Power
-              </button>
-              {showIndicators.candlePower && (
-                <span className="text-xs text-green-400 animate-pulse">
-                  ● Active
-                </span>
-              )}
-            </div>
-
-            {/* Support/Resistance Toggle */}
-            <div className="flex gap-1 md:gap-2 flex-wrap items-center p-2 bg-gray-800 rounded border border-gray-700">
-              <span className="text-xs text-gray-400">📊 Zones:</span>
-              <button
-                onClick={() => setShowIndicators(prev => ({
-                  ...prev,
-                  sr: !prev.sr
-                }))}
-                className={`px-3 md:px-4 py-1.5 md:py-2 rounded text-xs md:text-sm font-bold transition-all ${
-                  showIndicators.sr
-                    ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400' 
-                    : 'bg-gray-700 text-gray-400 hover:bg-gray-600 hover:text-white'
-                }`}
-                title={showIndicators.sr
-                  ? "Support/Resistance ON - Showing S/R zones based on pivot points"
-                  : "Support/Resistance OFF - Click to show key levels"
-                }
-              >
-                {showIndicators.sr ? '✓ ON' : 'OFF'} S/R Zones
-              </button>
-              {showIndicators.sr && (
-                <span className="text-xs text-blue-400">
-                  ● Active
-                </span>
-              )}
-            </div>
-
-
-            {/* Zoom Controls */}
-            <div className="flex gap-1 md:gap-2 flex-wrap items-center">
-              <span className="text-xs text-gray-400 py-1 px-1 md:px-2 bg-gray-800 rounded">🔍 Zoom:</span>
+          <div className="p-3 border-t border-white/10 backdrop-blur-md bg-white/5 space-y-2 animate-in slide-in-from-top duration-200">
+            {/* Zoom Controls with Labels */}
+            <div className="flex gap-1.5 flex-wrap items-center">
+              <span className="text-xs text-gray-400 mr-1 flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                </svg>
+                Zoom:
+              </span>
               <button
                 onClick={() => {
                   if (chartRef.current) {
@@ -701,21 +681,21 @@ export default function StockChart({ data }: StockChartProps) {
                       if (visibleRange) {
                         const duration = visibleRange.to - visibleRange.from;
                         const center = (visibleRange.from + visibleRange.to) / 2;
-                        const newDuration = duration * 0.7; // Zoom in by 30%
+                        const newDuration = duration * 0.7;
                         timeScale.setVisibleRange({
                           from: (center - newDuration / 2) as any,
                           to: (center + newDuration / 2) as any,
                         });
                       }
-                    } catch (e) {
-                      console.warn('Error zooming in:', e);
-                    }
+                    } catch (e) {}
                   }
                 }}
-                className="px-2 md:px-3 py-1 rounded text-xs md:text-sm bg-green-700 hover:bg-green-600 text-white font-semibold"
-                title="Zoom In"
+                className="backdrop-blur-md bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 px-2.5 py-1 rounded-lg text-xs text-white font-semibold transition flex items-center gap-1 shadow-md"
               >
-                🔍+ In
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Zoom In</span>
               </button>
               <button
                 onClick={() => {
@@ -726,105 +706,73 @@ export default function StockChart({ data }: StockChartProps) {
                       if (visibleRange) {
                         const duration = visibleRange.to - visibleRange.from;
                         const center = (visibleRange.from + visibleRange.to) / 2;
-                        const newDuration = duration * 1.4; // Zoom out by 40%
+                        const newDuration = duration * 1.4;
                         timeScale.setVisibleRange({
                           from: (center - newDuration / 2) as any,
                           to: (center + newDuration / 2) as any,
                         });
                       }
-                    } catch (e) {
-                      console.warn('Error zooming out:', e);
-                    }
+                    } catch (e) {}
                   }
                 }}
-                className="px-2 md:px-3 py-1 rounded text-xs md:text-sm bg-red-700 hover:bg-red-600 text-white font-semibold"
-                title="Zoom Out"
+                className="backdrop-blur-md bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 px-2.5 py-1 rounded-lg text-xs text-white font-semibold transition flex items-center gap-1 shadow-md"
               >
-                🔍- Out
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                </svg>
+                <span>Zoom Out</span>
               </button>
               <button
                 onClick={() => {
                   if (chartRef.current) {
                     try {
                       chartRef.current.timeScale().fitContent();
-                    } catch (e) {
-                      console.warn('Error fitting content:', e);
-                    }
+                    } catch (e) {}
                   }
                 }}
-                className="px-2 md:px-3 py-1 rounded text-xs md:text-sm bg-blue-700 hover:bg-blue-600 text-white font-semibold"
-                title="Fit to Screen"
+                className="backdrop-blur-md bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 px-2.5 py-1 rounded-lg text-xs text-white font-semibold transition flex items-center gap-1 shadow-md"
               >
-                📐 Fit
-              </button>
-              <button
-                onClick={() => {
-                  if (chartRef.current && data.length > 50) {
-                    try {
-                      const timeScale = chartRef.current.timeScale();
-                      timeScale.setVisibleRange({
-                        from: data[Math.max(0, data.length - 50)].time as any,
-                        to: data[data.length - 1].time as any,
-                      });
-                    } catch (e) {
-                      console.warn('Error setting 50-day view:', e);
-                    }
-                  }
-                }}
-                className="px-2 md:px-3 py-1 rounded text-xs md:text-sm bg-purple-700 hover:bg-purple-600 text-white font-semibold"
-                title="Show Last 50 Candles"
-              >
-                📊 50D
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+                <span>Fit All</span>
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Sticky Trading Signals Panel - Below Controls */}
+      {/* Trading Signals Panel - Compact Glassmorphism */}
       {indicators && showIndicators.signals && (
-        <div className="sticky top-0 z-30 bg-gray-900 border-b border-gray-700 shadow-lg">
-          <div className="bg-gray-800 border border-gray-700 rounded-b p-3 md:p-4 space-y-2">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs md:text-sm font-semibold text-gray-400">📊 Trading Signals</h3>
-              <button
-                onClick={() => setShowIndicators(prev => ({ ...prev, signals: false }))}
-                className="text-gray-400 hover:text-red-400 text-sm px-1"
-                title="Hide Signals"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-1 text-xs md:text-sm">
-              {/* Main Signal - Always shown */}
-              <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-900 rounded">
-                <span className="text-gray-400 md:min-w-[80px] font-semibold">📍 Signal:</span>
-                <span className="text-white break-words font-semibold">{indicators.signals.bandar}</span>
+        <div className="backdrop-blur-xl bg-white/5 border-b border-white/10 p-2 md:p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <svg className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-xs text-gray-400">Trading Signal</p>
               </div>
-
-              {/* Detailed analysis - Only in Full Analysis mode */}
-              {(showIndicators.candlePower || showIndicators.momentum || showIndicators.ao) && (
-                <div className="flex flex-col md:flex-row md:items-start gap-1 md:gap-2 p-2 bg-gray-900 rounded">
-                  <span className="text-gray-400 md:min-w-[80px]">🔥 Candle Power:</span>
-                  <span className="text-white break-words">{indicators.candlePowerAnalysis}</span>
-                </div>
+              <p className="text-xs md:text-sm text-white font-semibold truncate">{indicators.signals.bandar}</p>
+              {(showIndicators.candlePower || showIndicators.momentum) && (
+                <p className="text-xs text-gray-400 mt-1 truncate">{indicators.candlePowerAnalysis}</p>
               )}
             </div>
-
-            <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-gray-700">
-              <p className="text-xs text-gray-500">
-                💡 Signals based on VSA, VCP, and Candle Power Analysis
-              </p>
-            </div>
+            <button
+              onClick={() => setShowIndicators(prev => ({ ...prev, signals: false }))}
+              className="text-gray-400 hover:text-red-400 text-xs px-1 backdrop-blur-md bg-white/5 rounded-lg"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
       )}
 
-      {/* Chart Container - Mobile Responsive */}
-      <div className="p-1 md:p-4 overflow-x-auto">
-        {/* Chart Container */}
-        <div ref={chartContainerRef} className="w-full min-h-[450px] md:min-h-[550px] lg:min-h-[600px]" />
+      {/* Chart Container - Maximum space for chart */}
+      <div className="p-1 md:p-2">
+        <div ref={chartContainerRef} className="w-full min-h-[400px] md:min-h-[500px] lg:min-h-[600px]" />
       </div>
     </div>
   );
