@@ -425,22 +425,25 @@ export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: s
 }
 
 
-// Calculate Candle Power - Enhanced with MA analysis and better VSA logic
-// ✅ Analyzes current candle to predict next candle movement with improved accuracy
+// Calculate Candle Power - PREDICTIVE NEXT CANDLE DIRECTION
+// ✅ Analyzes CURRENT candle to predict NEXT candle's movement
 //
-// ENHANCED FEATURES:
-// - Hammer/Doji patterns near MA support
-// - Volume spread analysis relative to MA position
-// - Volatility contraction vs dump distinction
-// - Professional VSA interpretation
+// PREDICTION LOGIC:
+// 1. Setup Quality: Is the current candle creating a good setup?
+// 2. Momentum: Will the trend continue or reverse?
+// 3. Volume Context: Is there follow-through potential?
+// 4. Support/Resistance: Where is price relative to key levels?
 //
-// SCORE MEANING:
-// 95+ = Extreme markup likely (Hammer at MA + Volume confirmation)
-// 85+ = Strong markup (Dry Up / Iceberg confirmed)
-// 70+ = Good markup chance (Volume/Price alignment)
-// 50-60 = Neutral/Uncertain
-// 25-40 = Bearish / Distribution
-// <25 = Very bearish / Trap/Dump
+// SCORE MEANING (NEXT CANDLE PREDICTION):
+// 90+ = Very High probability next candle GREEN (strong setup completed)
+// 75-89 = High probability next candle GREEN (good setup)
+// 60-74 = Moderate probability next candle GREEN (okay setup)
+// 40-59 = Neutral (could go either way)
+// 25-39 = Moderate probability next candle RED (weak/distribution)
+// 10-24 = High probability next candle RED (bearish setup)
+// 0-9 = Very High probability next candle RED (panic/collapse)
+//
+// KEY PRINCIPLE: Score reflects NEXT CANDLE probability, not current candle quality
 export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]; analysis: string } {
   const markers: MarkerData[] = [];
   const N = data.length;
@@ -544,387 +547,189 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
 
     // =========================================================================
     // WYCKOFF + VSA + VCP INTEGRATED CANDLE POWER CALCULATION
-    // Based on Wyckoff Method principles combined with Volume Spread Analysis
+    // =========================================================================
+    // PREDICTIVE NEXT CANDLE POWER SCORE
+    // Based on: What setup does this candle CREATE for tomorrow?
     // =========================================================================
     let power = 50;
     let reason = 'Neutral';
 
-    // WYCKOFF PRINCIPLE 1: EFFORT vs RESULT ANALYSIS
-    // The relationship between volume (effort) and price range (result) reveals market intent
-    const isHighEffort = volRatio > 1.3; // High volume = effort
-    const isWideResult = spreadRatio > 1.2; // Wide spread = result
-    const isLowEffort = volRatio < 0.7; // Low volume
-    const isNarrowResult = spreadRatio < 0.8; // Narrow spread
+    // KEY INSIGHT: Current candle quality matters LESS than the setup it creates
+    // A bad-looking candle (red, low volume) can create an EXCELLENT setup
+    // A good-looking candle (green, high volume) might exhaust the move
 
-    // WYCKOFF PRINCIPLE 2: SUPPLY & DEMAND BALANCE (VSA Integration)
-    const strongDemand = accRatio > 1.5; // Buying dominates
+    // VOLUME CONTEXT
+    const isHighEffort = volRatio > 1.3;
+    const isLowEffort = volRatio < 0.7;
+    const isNarrowResult = spreadRatio < 0.8;
+    const isWideResult = spreadRatio > 1.2;
+
+    // DEMAND/SUPPLY
+    const strongDemand = accRatio > 1.5;
     const moderateDemand = accRatio > 1.1;
-    const strongSupply = accRatio < 0.6; // Selling dominates
+    const strongSupply = accRatio < 0.6;
     const moderateSupply = accRatio < 0.9;
 
-    // WYCKOFF PRINCIPLE 3: MARKET PHASE IDENTIFICATION
+    // TREND CONTEXT
     const inUptrend = (current.close > ma20 && current.close > ma50 && ma20 > ma50);
     const inDowntrend = (current.close < ma20 && current.close < ma50 && ma20 < ma50);
-    const inAccumulation = !inUptrend && !inDowntrend && (current.close > ma20 * 0.95);
-    const inDistribution = !inUptrend && !inDowntrend && (current.close < ma20 * 0.95);
+    const nearMA20Support = (current.low <= ma20 * 1.03) && (current.close >= ma20 * 0.97);
 
-    // VCP CONTEXT: Check if stock is in volatility contraction
-    const isInVCP = volatilityDecreasing && (current.close > ma20 * 0.95);
+    // PATTERN CONTEXT
+    const hasLowerWick = lowerWick > bodySize * 0.8;
+    const hasUpperWick = upperWick > bodySize * 1.5;
+    const isSmallBody = bodySize < spread * 0.3;
 
     // =========================================================================
-    // WYCKOFF ACCUMULATION PHASE PATTERNS (Phase A-E)
+    // PREDICTIVE SCORING: What will NEXT candle likely do?
     // =========================================================================
 
-    // PRIORITY 0A: WYCKOFF PRELIMINARY SUPPORT (PS) - Buying appears after decline
-    const nearMA20 = (current.low <= ma20 * 1.03) && (current.low >= ma20 * 0.97);
-    const hasLowerWick = lowerWick > 0 && (lowerWick >= bodySize * 0.5);
-
-    if (nearMA20 && hasLowerWick) {
-      // Test of support at MA20 - Critical Wyckoff moment
-      if (isLowEffort && strongDemand) {
-        // NO SUPPLY (Phase C): Low volume test + strong demand = sellers exhausted
-        power = 96;
-        reason = '🏛️ Wyckoff NO SUPPLY (Phase C)';
-      } else if (isLowEffort && moderateDemand && isInVCP) {
-        // NO SUPPLY in VCP = highest probability setup
-        power = 98;
-        reason = '🎯 VCP + NO SUPPLY (Sniper)';
-      } else if (isHighEffort && strongDemand && isNarrowResult) {
-        // SPRING (Phase C): High volume absorption at support
-        power = 93;
-        reason = '🌱 Wyckoff SPRING (Phase C)';
-      } else if (isHighEffort && strongDemand && isWideResult) {
-        // SIGN OF STRENGTH (Phase D): High volume + wide spread + buying
+    // SCENARIO 1: HAMMER/TEST AT SUPPORT = Next candle likely GREEN
+    // Current: Red/small candle with tail at MA20
+    // Next: High probability bounce
+    if (nearMA20Support && hasLowerWick) {
+      if (isLowEffort && moderateDemand) {
+        // NO SUPPLY test = Very bullish for tomorrow
+        power = 95;
+        reason = '🎯 NO SUPPLY Test → Next: Strong Up';
+      } else if (isLowEffort && !strongSupply) {
+        // Dry up test = Bullish for tomorrow
+        power = 88;
+        reason = '🥷 Dry Up Test → Next: Likely Up';
+      } else if (isHighEffort && strongDemand) {
+        // Spring/Shakeout = Very bullish for tomorrow
         power = 92;
-        reason = '💪 Wyckoff SOS (Phase D)';
+        reason = '🌱 Spring → Next: Strong Up';
       } else if (moderateDemand) {
-        // TEST (Phase C): Support test with decent buying
-        power = 82;
-        reason = '🎯 TEST Support (Phase C)';
+        // Decent test = Bullish for tomorrow
+        power = 78;
+        reason = '✅ Support Test → Next: Likely Up';
       } else if (strongSupply) {
-        // Failed test = weakness
-        power = 35;
-        reason = '⚠️ Failed Support Test';
+        // Failed test = Bearish
+        power = 30;
+        reason = '❌ Failed Test → Next: Down';
       } else {
         power = 65;
-        reason = '🎯 Support Test (Neutral)';
+        reason = '⏳ Support Test → Next: Neutral';
       }
     }
 
-    // PRIORITY 0B: WYCKOFF SELLING CLIMAX (SC) / AUTOMATIC RALLY (AR)
-    else if (!isGreen && isHighEffort && isWideResult && (current.low < ma50) && strongSupply) {
-      // Selling Climax: High volume panic selling (Phase A)
-      if (i < N - 3) {
-        // Not the latest candle, wait for confirmation
-        power = 25;
-        reason = '📉 Potential Selling Climax';
-      } else {
-        power = 88; // If followed by green = reversal potential
-        reason = '🔄 Selling Climax (Watch AR)';
-      }
-    }
-
-    // =========================================================================
-    // WYCKOFF DISTRIBUTION PHASE PATTERNS
-    // =========================================================================
-
-    // PRIORITY 1: UPTHRUST (UT) - False breakout at top (Phase B-C)
-    else if (inUptrend && isHighEffort && isWideResult && strongSupply) {
-      if (upperWick > bodySize * 1.5 && !isGreen) {
-        power = 8; // Extreme bearish - professional distribution
-        reason = '⚡ Wyckoff UPTHRUST (Phase C)';
-      } else {
-        power = 18;
-        reason = '🩸 Wyckoff Distribution (Phase B)';
-      }
-    }
-
-    // PRIORITY 2: UPTHRUST AFTER DISTRIBUTION (UTAD)
-    else if (inUptrend && upperWick > bodySize * 2 && isHighEffort && strongSupply) {
-      power = 5;
-      reason = '☠️ Wyckoff UTAD (Phase D)';
-    }
-
-    // =========================================================================
-    // WYCKOFF MARKUP PHASE (Phase E - Trending Up)
-    // =========================================================================
-
-    // PRIORITY 3: SIGN OF STRENGTH (SOS) in Markup
-    else if (isHighEffort && isWideResult && strongDemand && isGreen) {
-      if (inUptrend && (current.close > ma20 * 1.05)) {
-        // Strong SOS in established uptrend (Phase E)
-        power = 90;
-        reason = '💪 Wyckoff SOS (Markup)';
-      } else if (inAccumulation || (current.close > ma20 * 0.98 && current.close < ma20 * 1.02)) {
-        // SOS at breakout point (Phase D->E transition)
-        power = 93;
-        reason = '🚀 Wyckoff BREAKOUT (SOS)';
-      } else {
-        power = 78;
-        reason = '💪 Strong Buying';
-      }
-    }
-
-    // PRIORITY 4: LAST POINT OF SUPPORT (LPS) - Retest after breakout
-    else if (inUptrend && (current.low <= ma20 * 1.02) && isLowEffort && moderateDemand) {
-      // LPS: Low volume pullback to support in uptrend (Phase E)
-      power = 87;
-      reason = '🎯 Wyckoff LPS (Last Support)';
-    }
-
-    // =========================================================================
-    // WYCKOFF STOPPING VOLUME PATTERNS
-    // =========================================================================
-
-    // PRIORITY 5: STOPPING VOLUME (Phase A)
-    else if (isHighEffort && isNarrowResult) {
-      if (strongDemand && (inDowntrend || current.close < ma20)) {
-        // High vol + narrow spread + buying in downtrend = Stopping Volume
-        power = 87;
-        reason = '🛑 Wyckoff STOPPING VOL (Phase A)';
-      } else if (strongSupply && inUptrend) {
-        // High vol + narrow spread + selling in uptrend = Distribution
-        power = 22;
-        reason = '🛑 Distribution (Stopping Buying)';
-      } else if (strongDemand) {
-        power = 78;
-        reason = '🛑 Volume Absorption';
-      } else {
-        power = 45;
-        reason = '🛑 High Vol (Unclear Intent)';
-      }
-    }
-
-    // =========================================================================
-    // WYCKOFF NO DEMAND / NO SUPPLY PATTERNS
-    // =========================================================================
-
-    // PRIORITY 6: NO DEMAND (Phase D of Distribution)
-    else if (isLowEffort && isNarrowResult) {
-      if (inUptrend && moderateSupply) {
-        // No Demand: Low volume + narrow spread in uptrend = weak buying
-        power = 28;
-        reason = '😴 Wyckoff NO DEMAND';
-      } else if (inDowntrend && moderateDemand) {
-        // No Supply: Low volume + narrow spread in downtrend = weak selling
-        power = 77;
-        reason = '🥷 Wyckoff NO SUPPLY';
-      } else if (inAccumulation && strongDemand) {
-        // Quiet accumulation = professional activity
-        power = 85;
-        reason = '🤫 Quiet Accumulation';
-      } else {
-        power = 50;
-        reason = '😴 No Interest';
-      }
-    }
-
-    // =========================================================================
-    // WYCKOFF EFFORTLESS ADVANCE/DECLINE (Professional Activity)
-    // =========================================================================
-
-    // PRIORITY 7: EFFORTLESS MOVEMENT (Low volume + wide spread)
-    else if (isLowEffort && isWideResult) {
-      if (isGreen && moderateDemand && inUptrend) {
-        // Effortless advance = professional support (Phase E)
-        power = 92;
-        reason = '🏛️ Wyckoff EFFORTLESS ADVANCE';
-      } else if (isGreen && strongDemand) {
-        // Strong demand with low volume = absorption phase ending
-        power = 88;
-        reason = '🏛️ Professional Accumulation';
-      } else if (!isGreen && moderateSupply && inDowntrend) {
-        // Effortless decline = no support
-        power = 23;
-        reason = '📉 Wyckoff NO SUPPORT';
+    // SCENARIO 2: EXHAUSTION CANDLE AFTER RUN = Next candle likely RED
+    // Current: High volume green candle far from support
+    // Next: Likely pullback/reversal
+    else if (isGreen && isHighEffort && isWideResult && !nearMA20Support) {
+      if (current.close > ma20 * 1.1 && strongSupply) {
+        // Climactic buying far from support = Exhaustion
+        power = 15;
+        reason = '🔴 Buying Climax → Next: Down';
+      } else if (current.close > ma20 * 1.08 && moderateSupply) {
+        // Possible exhaustion
+        power = 35;
+        reason = '⚠️ Possible Top → Next: Likely Down';
+      } else if (strongDemand && inUptrend) {
+        // Still strong demand in uptrend = Continue
+        power = 72;
+        reason = '💪 Strong Demand → Next: Up Likely';
       } else {
         power = 55;
-        reason = '📊 Wide Range (Low Vol)';
+        reason = '📊 High Volume → Next: Neutral';
       }
     }
 
-    // =========================================================================
-    // VSA INTEGRATION: Classic VSA Patterns with Wyckoff Context
-    // =========================================================================
-
-    // PRIORITY 8: VSA + VCP COMBINATION PATTERNS
-    else if (isInVCP) {
-      // Stock is in VCP base - evaluate with Wyckoff lens
-      if (isLowEffort && !isGreen && moderateDemand) {
-        // VCP Dry Up = No Supply in base (Phase C)
-        power = 95;
-        reason = '🎯 VCP DRY UP (NO SUPPLY)';
-      } else if (isHighEffort && isNarrowResult && strongDemand) {
-        // VCP Iceberg = Volume absorption in base
-        power = 94;
-        reason = '🧊 VCP ICEBERG (Absorption)';
-      } else if (isLowEffort && isNarrowResult) {
-        // VCP tightening = calm before breakout
+    // SCENARIO 3: DRY UP CANDLE = Next candle can go either way BUT setup is forming
+    // Current: Low volume, small candle
+    // Next: If at support = up, if after run = consolidation
+    else if (isLowEffort && isSmallBody) {
+      if (nearMA20Support && moderateDemand) {
+        // Dry up AT support = Bullish
         power = 82;
-        reason = '📉 VCP BASE (Phase C)';
-      } else if (isHighEffort && isWideResult && strongDemand) {
-        // VCP breakout with volume = Jump Across Creek (JAC)
-        power = 95;
-        reason = '🚀 VCP BREAKOUT (JAC)';
-      } else {
-        power = 72;
-        reason = '📉 VCP Formation';
-      }
-    }
-
-    // PRIORITY 9: VSA DRY UP (Independent of VCP)
-    else if (isLowEffort && !isGreen && moderateDemand && (current.close > ma20 * 0.97)) {
-      // Dry Up near support = No Supply
-      power = 88;
-      reason = '🥷 DRY UP (NO SUPPLY)';
-    }
-
-    // PRIORITY 10: VSA ICEBERG (Hidden activity)
-    else if (isHighEffort && isNarrowResult && strongDemand) {
-      // Iceberg = Smart money quietly accumulating
-      power = 86;
-      reason = '🧊 ICEBERG (Hidden Buy)';
-    }
-
-    // =========================================================================
-    // STANDARD PATTERNS WITH INTEGRATED ANALYSIS
-    // =========================================================================
-
-    // PRIORITY 11: STRONG BULLISH PATTERNS
-    else if (isGreen && (current.close > ma20)) {
-      if (isHighEffort && strongDemand && isWideResult) {
-        // Classic bullish: High volume + wide spread + demand
-        power = 85;
-        reason = '🚀 Strong Bullish (SOS)';
-      } else if (isLowEffort && moderateDemand && isWideResult) {
-        // Effortless rise = professional support
-        power = 83;
-        reason = '📈 Effortless Rise';
-      } else if (isHighEffort && moderateDemand) {
-        power = 75;
-        reason = '📈 Good Bullish';
-      } else if (isLowEffort) {
-        power = 68;
-        reason = '📈 Weak Volume Bull';
+        reason = '🥷 Dry Up Support → Next: Up';
+      } else if (inUptrend && moderateDemand) {
+        // Dry up IN uptrend = Healthy pullback, continue up
+        power = 70;
+        reason = '📈 Healthy Pause → Next: Up Likely';
+      } else if (!isGreen && current.close < ma20 * 0.95) {
+        // Dry up BELOW support = Weak
+        power = 38;
+        reason = '💤 Weak Dry Up → Next: Down Risk';
       } else {
         power = 60;
-        reason = '📈 Neutral Bull';
+        reason = '😴 Low Volume → Next: Neutral';
       }
     }
 
-    // PRIORITY 12: BULLISH REVERSAL ATTEMPTS (Below MA)
-    else if (isGreen && (current.close < ma20)) {
-      if (isHighEffort && strongDemand) {
-        // High volume buying below MA = potential reversal
-        power = 72;
-        reason = '🔄 Strong Reversal Try';
-      } else if (isLowEffort && moderateDemand) {
-        // Low volume rise = weak or early accumulation
-        power = 58;
-        reason = '🔄 Weak Reversal';
+    // SCENARIO 4: DISTRIBUTION/SELLING = Next candle likely RED
+    // Current: High volume red candle or shooting star
+    // Next: Likely continue down
+    else if (!isGreen && isHighEffort && strongSupply) {
+      if (hasUpperWick && current.close > ma20) {
+        // Shooting star with distribution = Very bearish
+        power = 12;
+        reason = '⭐ Shooting Star → Next: Down';
+      } else if (isWideResult) {
+        // Wide range selling = Bearish continuation
+        power = 22;
+        reason = '🩸 Heavy Selling → Next: Down';
       } else {
+        // Narrow range high volume selling = Possible bottom
         power = 48;
-        reason = '📈 Weak Green';
+        reason = '🛑 Selling Volume → Next: Neutral';
       }
     }
 
-    // PRIORITY 13: BEARISH PATTERNS
-    else if (!isGreen && (current.close < ma20)) {
-      if (isHighEffort && strongSupply && isWideResult) {
-        // Heavy selling with volume = strong markdown
-        power = 15;
-        reason = '📉 Strong Markdown (SOW)';
-      } else if (isHighEffort && strongSupply) {
-        power = 25;
-        reason = '📉 Heavy Selling';
-      } else if (isLowEffort && moderateSupply) {
-        // Low volume decline = weak hands selling
-        power = 38;
-        reason = '📉 Weak Selling';
+    // SCENARIO 5: BULLISH CONTINUATION = Next candle likely GREEN
+    // Current: Green candle with good volume in uptrend
+    // Next: Likely continue
+    else if (isGreen && inUptrend && (moderateDemand || strongDemand)) {
+      if (isHighEffort && isWideResult) {
+        // Strong day but might need pause
+        power = 65;
+        reason = '📈 Strong Day → Next: Pause/Up';
+      } else if (isLowEffort || isNarrowResult) {
+        // Effortless advance = Very bullish
+        power = 85;
+        reason = '🚀 Effortless Rise → Next: Up';
       } else {
-        power = 32;
-        reason = '📉 Bearish';
+        power = 68;
+        reason = '📈 Uptrend → Next: Up Likely';
       }
     }
 
-    // PRIORITY 14: DISTRIBUTION PATTERNS (Red candle above MA)
-    else if (!isGreen && (current.close > ma20)) {
-      if (isHighEffort && strongSupply) {
-        // High volume selling above support = distribution
-        power = 30;
-        reason = '🩸 Distribution (Phase B)';
-      } else if (isLowEffort && strongSupply) {
-        // No Demand: Low volume with selling
-        power = 35;
-        reason = '😴 NO DEMAND';
+    // SCENARIO 6: BEARISH CONTINUATION = Next candle likely RED
+    // Current: Red candle in downtrend
+    // Next: Likely continue down
+    else if (!isGreen && inDowntrend && (moderateSupply || strongSupply)) {
+      if (isHighEffort && isWideResult) {
+        // Panic selling = Might be near bottom
+        power = 42;
+        reason = '📉 Panic Sell → Next: Bounce?';
+      } else {
+        power = 28;
+        reason = '📉 Downtrend → Next: Down Likely';
+      }
+    }
+
+    // SCENARIO 7: CONSOLIDATION = Next candle 50/50
+    // Current: Small candle, normal volume
+    // Next: Could go either way
+    else if (isSmallBody && !isHighEffort && !isLowEffort) {
+      if (current.close > ma20) {
+        power = 58;
+        reason = '⏸️ Consolidating → Next: Slight Up';
       } else {
         power = 45;
-        reason = '📉 Weak Red';
+        reason = '⏸️ Consolidating → Next: Slight Down';
       }
     }
 
-    // =========================================================================
-    // SPECIAL WYCKOFF + VSA PATTERNS
-    // =========================================================================
-
-    // Check for shake-out patterns (Spring variant)
-    if ((lowerWick > bodySize * 2) && (current.low < ma20) && (current.close > ma20) && strongDemand) {
-      // Shake-out and recovery = Spring
-      power = Math.max(power, 91);
-      reason = '🌱 Wyckoff SHAKE-OUT (Spring)';
-    }
-
-    // Check for end of rising (climax)
-    if (inUptrend && isGreen && (upperWick > bodySize * 1.8) && isHighEffort) {
-      // Buying climax = potential top
-      power = Math.min(power, 40);
-      reason = '⚠️ Buying Climax (Top?)';
-    }
-
-    // =========================================================================
-    // CONTEXT-AWARE ADJUSTMENTS (Wyckoff Background Analysis)
-    // =========================================================================
-
-    // VCP enhancement: Reward tight action near support
-    if (isInVCP && (current.close > ma20 * 0.98)) {
-      if (power > 70) power += 5; // VCP in good position
-      if (power > 95 && isLowEffort) {
-        reason += ' + VCP';
-      }
-    }
-
-    // Trend alignment (Wyckoff Principle: Trade with the trend)
-    if (inUptrend && power > 50) {
-      power += 3; // Bullish in uptrend (Phase E)
-    } else if (inDowntrend && power < 50) {
-      power -= 5; // Bearish in downtrend (Phase E Markdown)
-    } else if (inAccumulation && power > 75) {
-      power += 4; // Strong accumulation signals (Phase C-D)
-    }
-
-    // Extreme volume adjustments (Climactic activity)
-    if (volRatio > 3.0) {
-      if (strongDemand && isGreen) {
-        power += 4; // Climactic buying (if at top = warning, if at bottom = reversal)
-        if (inUptrend && current.close > ma20 * 1.1) {
-          power -= 10; // Buying climax at top = danger
-          reason = '⚠️ ' + reason + ' (Climax?)';
-        }
-      } else if (strongSupply && !isGreen) {
-        if (inDowntrend) {
-          power -= 8; // Panic selling continues
-        } else {
-          power = Math.max(power, 85); // Climactic selling at support = potential reversal
-          reason = '🔄 Panic Selling (Reversal?)';
-        }
-      }
-    }
-
-    // Volatility contraction bonus (VCP + Wyckoff Cause)
-    if (volatilityDecreasing && (current.close > ma20) && power > 65) {
-      power += 3; // Building cause for next move
-      if (power > 90 && isLowEffort) {
-        reason += ' + Tight';
+    // DEFAULT: Neutral
+    else {
+      if (isGreen) {
+        power = 55;
+        reason = '🟢 Green Day → Next: Neutral';
+      } else {
+        power = 45;
+        reason = '🔴 Red Day → Next: Neutral';
       }
     }
 
@@ -934,30 +739,27 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
     latestPower = power;
     latestAnalysis = reason;
 
-    // Enhanced color coding based on Wyckoff principles
+    // Enhanced color coding based on predictive score (NEXT CANDLE probability)
     let color = '#808080';
-    if (power >= 95) {
-      color = '#00b894'; // Dark green - Wyckoff professional buying
-    } else if (power >= 85) {
-      color = '#55efc4'; // Light green - strong bullish
-    } else if (power >= 70) {
-      color = '#a4de6c'; // Yellow-green - good
+    if (power >= 90) {
+      color = '#00b894'; // Dark green - Very high probability next candle green
+    } else if (power >= 75) {
+      color = '#55efc4'; // Light green - High probability next candle green
     } else if (power >= 60) {
-      color = '#ffd700'; // Gold - bullish bias
+      color = '#a4de6c'; // Yellow-green - Moderate probability next candle green
     } else if (power >= 50) {
-      color = '#ffb347'; // Orange - neutral
+      color = '#ffd700'; // Gold - Neutral (50/50)
     } else if (power >= 40) {
-      color = '#ff8c00'; // Dark orange - weak
+      color = '#ff8c00'; // Orange - Moderate probability next candle red
     } else if (power >= 25) {
-      color = '#d63031'; // Red - bearish
-    } else if (power >= 15) {
-      color = '#8b0000'; // Dark red - very bearish
+      color = '#d63031'; // Red - High probability next candle red
+    } else if (power >= 10) {
+      color = '#8b0000'; // Dark red - Very high probability next candle red
     } else {
-      color = '#4a0000'; // Very dark red - Wyckoff professional selling
+      color = '#4a0000'; // Very dark red - Extreme bearish next candle
     }
 
-    // Only add markers for the LAST 5 CANDLES (most recent data)
-    // This keeps the chart clean and focuses on current market condition
+    // Only add markers for the LAST 5 CANDLES (most recent, most actionable)
     if (i >= N - 5) {
       markers.push({
         time: current.time,
