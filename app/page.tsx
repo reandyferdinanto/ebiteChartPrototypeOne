@@ -98,7 +98,10 @@ export default function Home() {
     try {
       // Fetch quote
       const quoteRes = await fetch(`/api/stock/quote?symbol=${sym}`);
-      if (!quoteRes.ok) throw new Error('Failed to fetch quote');
+      if (!quoteRes.ok) {
+        const errorData = await quoteRes.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'Failed to fetch quote');
+      }
       const quoteData = await quoteRes.json();
       setStockQuote(quoteData);
 
@@ -106,11 +109,21 @@ export default function Home() {
       const historicalRes = await fetch(
         `/api/stock/historical?symbol=${sym}&interval=${int}`
       );
-      if (!historicalRes.ok) throw new Error('Failed to fetch historical data');
+      if (!historicalRes.ok) {
+        const errorData = await historicalRes.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Historical API error:', errorData);
+        throw new Error(errorData.error || errorData.details || 'Failed to fetch historical data');
+      }
       const historicalData = await historicalRes.json();
-      setChartData(historicalData.data);
 
-      console.log('Successfully fetched data for:', sym); // Debug log
+      // Check if we have valid data
+      if (!historicalData.data || historicalData.data.length === 0) {
+        console.warn('No historical data available for:', sym, 'interval:', int);
+        throw new Error('No data available for this symbol and timeframe');
+      }
+
+      setChartData(historicalData.data);
+      console.log('Successfully fetched', historicalData.data.length, 'data points for:', sym); // Debug log
     } catch (err: any) {
       console.error('Error fetching data for', sym, ':', err); // Debug log
       setError(err.message || 'Failed to fetch data');
