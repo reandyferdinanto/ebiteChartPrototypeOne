@@ -34,6 +34,18 @@ export interface FibonacciData {
   f618: MovingAverageData[];
 }
 
+export interface SupportResistanceZone {
+  level: number;
+  top: number;
+  bottom: number;
+  startIndex: number;
+  type: 'support' | 'resistance';
+}
+
+export interface SupportResistanceData {
+  zones: SupportResistanceZone[];
+}
+
 export interface IndicatorResult {
   ma5: MovingAverageData[];
   ma20: MovingAverageData[];
@@ -42,6 +54,7 @@ export interface IndicatorResult {
   momentum: HistogramData[];
   awesomeOscillator: HistogramData[];
   fibonacci: FibonacciData;
+  supportResistance: SupportResistanceData;
   candlePowerMarkers: MarkerData[];
   candlePowerAnalysis: string;
   vsaMarkers: MarkerData[];
@@ -828,6 +841,167 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
   return { markers, analysis: `Power: ${latestPower} (${latestAnalysis})` };
 }
 
+// Calculate Support and Resistance Zones
+// Based on pivot highs and pivot lows with ATR-based zones
+export function calculateSupportResistance(
+  data: ChartData[],
+  pivotLeft: number = 7,
+  pivotRight: number = 7,
+  atrLength: number = 14,
+  zoneMult: number = 0.25,
+  maxStore: number = 60
+): SupportResistanceData {
+  const N = data.length;
+  const zones: SupportResistanceZone[] = [];
+
+  if (N < pivotLeft + pivotRight + atrLength) {
+    return { zones };
+  }
+
+  // Calculate ATR
+  const atrValues: number[] = [];
+  for (let i = 0; i < N; i++) {
+    if (i === 0) {
+      atrValues.push(data[i].high - data[i].low);
+    } else {
+      const tr = Math.max(
+        data[i].high - data[i].low,
+        Math.abs(data[i].high - data[i - 1].close),
+        Math.abs(data[i].low - data[i - 1].close)
+      );
+
+      if (i < atrLength) {
+        const sum = atrValues.slice(0, i).reduce((a, b) => a + b, 0) + tr;
+        atrValues.push(sum / (i + 1));
+      } else {
+        const prevATR = atrValues[i - 1];
+        const smoothedATR = (prevATR * (atrLength - 1) + tr) / atrLength;
+        atrValues.push(smoothedATR);
+      }
+    }
+  }
+
+  const currentATR = atrValues[N - 1];
+  const zoneHalf = currentATR * zoneMult;
+
+  // Detect pivot highs and lows
+  interface Pivot {
+    value: number;
+    index: number;
+  }
+
+  const pivotHighs: Pivot[] = [];
+  const pivotLows: Pivot[] = [];
+
+  for (let i = pivotLeft; i < N - pivotRight; i++) {
+    // Check for pivot high
+    let isPivotHigh = true;
+    for (let j = i - pivotLeft; j < i; j++) {
+      if (data[j].high >= data[i].high) {
+        isPivotHigh = false;
+        break;
+      }
+    }
+    if (isPivotHigh) {
+      for (let j = i + 1; j <= i + pivotRight; j++) {
+        if (data[j].high >= data[i].high) {
+          isPivotHigh = false;
+          break;
+        }
+      }
+    }
+    if (isPivotHigh) {
+      pivotHighs.push({ value: data[i].high, index: i });
+    }
+
+    // Check for pivot low
+    let isPivotLow = true;
+    for (let j = i - pivotLeft; j < i; j++) {
+      if (data[j].low <= data[i].low) {
+        isPivotLow = false;
+        break;
+      }
+    }
+    if (isPivotLow) {
+      for (let j = i + 1; j <= i + pivotRight; j++) {
+        if (data[j].low <= data[i].low) {
+          isPivotLow = false;
+          break;
+        }
+      }
+    }
+    if (isPivotLow) {
+      pivotLows.push({ value: data[i].low, index: i });
+    }
+  }
+
+  // Keep only recent pivots
+  const recentPivotHighs = pivotHighs.slice(-maxStore);
+  const recentPivotLows = pivotLows.slice(-maxStore);
+
+  const currentPrice = data[N - 1].close;
+
+  // Filter pivots: resistances above price, supports below price
+  const resistanceCandidates = recentPivotHighs
+    .filter(p => p.value > currentPrice)
+    .sort((a, b) => a.value - b.value); // Sort ascending (nearest first)
+
+  const supportCandidates = recentPivotLows
+    .filter(p => p.value < currentPrice)
+    .sort((a, b) => b.value - a.value); // Sort descending (nearest first)
+
+  // Take nearest 2 resistances
+  const res1 = resistanceCandidates[0];
+  const res2 = resistanceCandidates[1];
+
+  // Take nearest 2 supports
+  const sup1 = supportCandidates[0];
+  const sup2 = supportCandidates[1];
+
+  // Create zone objects
+  if (res1) {
+    zones.push({
+      level: res1.value,
+      top: res1.value + zoneHalf,
+      bottom: res1.value - zoneHalf,
+      startIndex: res1.index,
+      type: 'resistance'
+    });
+  }
+
+  if (res2) {
+    zones.push({
+      level: res2.value,
+      top: res2.value + zoneHalf,
+      bottom: res2.value - zoneHalf,
+      startIndex: res2.index,
+      type: 'resistance'
+    });
+  }
+
+  if (sup1) {
+    zones.push({
+      level: sup1.value,
+      top: sup1.value + zoneHalf,
+      bottom: sup1.value - zoneHalf,
+      startIndex: sup1.index,
+      type: 'support'
+    });
+  }
+
+  if (sup2) {
+    zones.push({
+      level: sup2.value,
+      top: sup2.value + zoneHalf,
+      bottom: sup2.value - zoneHalf,
+      startIndex: sup2.index,
+      type: 'support'
+    });
+  }
+
+  return { zones };
+}
+
 // Calculate all indicators
 export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
   const ma5 = calculateMA(data, 5);
@@ -943,6 +1117,7 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
 
   const vsaResult = detectVSA(data);
   const candlePowerResult = calculateCandlePower(data);
+  const supportResistance = calculateSupportResistance(data);
 
   const baseSignal = isSqueezed[data.length - 1]
     ? `⏳ ${squeezeCount[data.length - 1]} Hari Squeeze`
@@ -958,6 +1133,7 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
     momentum,
     awesomeOscillator,
     fibonacci,
+    supportResistance,
     candlePowerMarkers: candlePowerResult.markers,
     candlePowerAnalysis: candlePowerResult.analysis,
     vsaMarkers: vsaResult.markers,

@@ -32,6 +32,7 @@ export default function StockChart({ data }: StockChartProps) {
     vsa: false,     // Disabled by default
     vcp: false,     // Disabled by default
     candlePower: false, // User must explicitly enable
+    sr: true,       // Support/Resistance enabled by default
     signals: true   // Always show signals panel
   });
   const [indicators, setIndicators] = useState<IndicatorResult | null>(null);
@@ -48,6 +49,7 @@ export default function StockChart({ data }: StockChartProps) {
       vsa: false,      // Focus only on squeeze
       vcp: false,
       candlePower: false,
+      sr: true,        // Show S/R zones
       signals: true
     });
   };
@@ -62,6 +64,7 @@ export default function StockChart({ data }: StockChartProps) {
       vsa: false,      // Clean chart with only MA lines
       vcp: false,
       candlePower: false,
+      sr: true,        // Show S/R zones
       signals: true
     });
   };
@@ -76,6 +79,7 @@ export default function StockChart({ data }: StockChartProps) {
       vsa: true,       // Focus on VSA patterns (iceberg, dry up, VCP base)
       vcp: true,       // Include VCP detection
       candlePower: false,
+      sr: true,        // Show S/R zones
       signals: true
     });
   };
@@ -90,6 +94,7 @@ export default function StockChart({ data }: StockChartProps) {
       vsa: false,      // DISABLE VSA patterns
       vcp: false,      // DISABLE VCP patterns
       candlePower: true, // ONLY show candle power scores
+      sr: true,        // Show S/R zones
       signals: true
     });
   };
@@ -104,6 +109,7 @@ export default function StockChart({ data }: StockChartProps) {
       vsa: true,
       vcp: true,
       candlePower: true,
+      sr: true,        // Show S/R zones
       signals: true
     });
   };
@@ -356,6 +362,80 @@ export default function StockChart({ data }: StockChartProps) {
         priceLineVisible: false
       });
       fib618Series.setData(calculatedIndicators.fibonacci.f618 as any);
+    }
+
+    // Add Support/Resistance Zones - Colored areas between dotted lines
+    if (showIndicators.sr) {
+      const srZones = calculatedIndicators.supportResistance.zones;
+
+      srZones.forEach((zone) => {
+        const isResistance = zone.type === 'resistance';
+
+        // Colors for the filled area between boundaries
+        const fillColor = isResistance
+          ? 'rgba(239, 83, 80, 0.15)'   // Semi-transparent red for resistance
+          : 'rgba(38, 166, 154, 0.15)'; // Semi-transparent green for support
+
+        const lineColor = isResistance
+          ? 'rgba(239, 83, 80, 0.8)'  // Solid red for boundary lines
+          : 'rgba(38, 166, 154, 0.8)'; // Solid green for boundary lines
+
+        // Create baseline series (bottom line) - this will be the base for our area
+        const baselineSeries = chart.addBaselineSeries({
+          baseValue: { type: 'price', price: zone.bottom },
+          topLineColor: fillColor,
+          topFillColor1: fillColor,
+          topFillColor2: fillColor,
+          bottomLineColor: fillColor,
+          bottomFillColor1: 'transparent',
+          bottomFillColor2: 'transparent',
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+
+        // Set data for the filled area (top boundary)
+        const areaData = [];
+        for (let i = zone.startIndex; i < data.length; i++) {
+          areaData.push({
+            time: data[i].time,
+            value: zone.top // This creates filled area from bottom to top
+          });
+        }
+        baselineSeries.setData(areaData as any);
+
+        // Add TOP boundary line (dotted)
+        const topLineSeries = chart.addLineSeries({
+          color: lineColor,
+          lineWidth: isMobile ? 2 : 1,
+          lineStyle: 2, // Dashed/dotted line
+          priceLineVisible: false, // ✅ NO helper line to right axis!
+          lastValueVisible: false, // ✅ NO value bubble on right!
+          crosshairMarkerVisible: true, // Show value on crosshair
+        });
+
+        const topData = [];
+        for (let i = zone.startIndex; i < data.length; i++) {
+          topData.push({ time: data[i].time, value: zone.top });
+        }
+        topLineSeries.setData(topData as any);
+
+        // Add BOTTOM boundary line (dotted)
+        const bottomLineSeries = chart.addLineSeries({
+          color: lineColor,
+          lineWidth: isMobile ? 2 : 1,
+          lineStyle: 2, // Dashed/dotted line
+          priceLineVisible: false, // ✅ NO helper line to right axis!
+          lastValueVisible: false, // ✅ NO value bubble on right!
+          crosshairMarkerVisible: true, // Show value on crosshair
+        });
+
+        const bottomData = [];
+        for (let i = zone.startIndex; i < data.length; i++) {
+          bottomData.push({ time: data[i].time, value: zone.bottom });
+        }
+        bottomLineSeries.setData(bottomData as any);
+      });
     }
 
     // Add volume series
@@ -613,6 +693,33 @@ export default function StockChart({ data }: StockChartProps) {
               </button>
               {showIndicators.candlePower && (
                 <span className="text-xs text-green-400 animate-pulse">
+                  ● Active
+                </span>
+              )}
+            </div>
+
+            {/* Support/Resistance Toggle */}
+            <div className="flex gap-1 md:gap-2 flex-wrap items-center p-2 bg-gray-800 rounded border border-gray-700">
+              <span className="text-xs text-gray-400">📊 Zones:</span>
+              <button
+                onClick={() => setShowIndicators(prev => ({
+                  ...prev,
+                  sr: !prev.sr
+                }))}
+                className={`px-3 md:px-4 py-1.5 md:py-2 rounded text-xs md:text-sm font-bold transition-all ${
+                  showIndicators.sr
+                    ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-400' 
+                    : 'bg-gray-700 text-gray-400 hover:bg-gray-600 hover:text-white'
+                }`}
+                title={showIndicators.sr
+                  ? "Support/Resistance ON - Showing S/R zones based on pivot points"
+                  : "Support/Resistance OFF - Click to show key levels"
+                }
+              >
+                {showIndicators.sr ? '✓ ON' : 'OFF'} S/R Zones
+              </button>
+              {showIndicators.sr && (
+                <span className="text-xs text-blue-400">
                   ● Active
                 </span>
               )}
