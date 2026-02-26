@@ -64,22 +64,22 @@ export async function GET(request: NextRequest) {
     const period1 = period1Param ? new Date(period1Param) : defaultPeriod1;
     const period2 = period2Param ? new Date(period2Param) : tomorrow;
 
-    const queryOptions: any = {
-      period1: period1,
-      period2: period2,
-      interval: interval as any, // '1d', '1wk', '1mo', '5m', '15m', '1h', '4h', etc.
-    };
 
     console.log('Fetching historical data for:', symbol, 'with options:', {
-      ...queryOptions,
-      period1: queryOptions.period1.toISOString(),
-      period2: queryOptions.period2.toISOString()
+      interval,
+      period1: period1.toISOString(),
+      period2: period2.toISOString()
     });
 
-    const result: any = await yahooFinance.historical(symbol, queryOptions);
+    // Use chart() method instead of historical() - more reliable for intraday data
+    const result: any = await yahooFinance.chart(symbol, {
+      period1: period1,
+      period2: period2,
+      interval: interval as any,
+    });
 
-    if (!result || result.length === 0) {
-      console.warn('No historical data returned for:', symbol);
+    if (!result || !result.quotes || result.quotes.length === 0) {
+      console.warn('No historical data returned for:', symbol, 'interval:', interval);
       return NextResponse.json({
         symbol,
         data: [],
@@ -87,22 +87,24 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform data to match lightweight-charts format with WIB timezone
-    const chartData = result.map((item: any) => {
-      // Convert to WIB (UTC+7) by adding 7 hours
-      const dateUTC = new Date(item.date);
-      const wibTime = Math.floor(dateUTC.getTime() / 1000) + (7 * 60 * 60);
+    const chartData = result.quotes
+      .filter((item: any) => item.date && item.close !== null && item.close !== undefined)
+      .map((item: any) => {
+        // Convert to WIB (UTC+7) by adding 7 hours
+        const dateUTC = new Date(item.date);
+        const wibTime = Math.floor(dateUTC.getTime() / 1000) + (7 * 60 * 60);
 
-      return {
-        time: wibTime,
-        open: item.open || 0,
-        high: item.high || 0,
-        low: item.low || 0,
-        close: item.close || 0,
-        volume: item.volume || 0,
-      };
-    });
+        return {
+          time: wibTime,
+          open: item.open || item.close,
+          high: item.high || item.close,
+          low: item.low || item.close,
+          close: item.close,
+          volume: item.volume || 0,
+        };
+      });
 
-    console.log('Successfully fetched', chartData.length, 'data points for', symbol);
+    console.log('Successfully fetched', chartData.length, 'data points for', symbol, 'interval:', interval);
 
     return NextResponse.json({
       symbol,
