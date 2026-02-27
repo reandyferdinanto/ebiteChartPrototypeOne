@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import StockChart from '@/components/StockChart';
 import StockInfo from '@/components/StockInfo';
 import Link from 'next/link';
