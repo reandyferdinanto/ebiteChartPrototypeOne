@@ -477,53 +477,72 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
         {/* Main Control Bar - Always Visible */}
         <div className="flex items-center justify-between p-2 md:p-3 gap-2 flex-wrap">
           {/* Left: Quick Mode Buttons with Labels */}
+          {/* Left: Quick Mode Buttons */}
           <div className="flex gap-1.5 flex-wrap">
+            {/* MA — sinusoidal wave icon */}
             <button
               onClick={setMAMode}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
                 showIndicators.ma && !showIndicators.momentum && !showIndicators.vsa && !showIndicators.candlePower
-                  ? 'backdrop-blur-md bg-yellow-500/30 text-white ring-2 ring-yellow-400/50' 
+                  ? 'backdrop-blur-md bg-yellow-500/30 text-white ring-2 ring-yellow-400/50'
                   : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
               }`}
               title="Moving Averages"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              {/* Sine wave / MA ribbon */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M2 12 C4 6, 7 6, 9 12 S14 18, 16 12 S21 6, 23 12" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} opacity="0.5"
+                  d="M2 16 C4 10, 7 10, 9 16 S14 22, 16 16 S21 10, 23 16" />
               </svg>
               <span className="hidden md:inline">MA</span>
             </button>
+
+            {/* VSA — radar / signal detection */}
             <button
               onClick={setVSAMode}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
                 showIndicators.vsa || showIndicators.vcp
-                  ? 'backdrop-blur-md bg-orange-500/30 text-white ring-2 ring-orange-400/50' 
+                  ? 'backdrop-blur-md bg-orange-500/30 text-white ring-2 ring-orange-400/50'
                   : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
               }`}
               title="VSA & VCP Patterns"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              {/* Radar pulse icon */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <circle cx="12" cy="12" r="2" strokeWidth={2}/>
+                <path strokeLinecap="round" strokeWidth={1.8} d="M12 2a10 10 0 0 1 7.07 17.07"/>
+                <path strokeLinecap="round" strokeWidth={1.5} d="M12 5a7 7 0 0 1 4.95 11.95"/>
+                <path strokeLinecap="round" strokeWidth={1.2} d="M12 8a4 4 0 0 1 2.83 6.83"/>
+                <line x1="12" y1="12" x2="19" y2="5" strokeWidth={1.5} strokeLinecap="round"/>
               </svg>
               <span className="hidden md:inline">VSA</span>
             </button>
+
+            {/* Candle Power — CPU / processor chip */}
             <button
               onClick={setCandlePowerMode}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
                 showIndicators.candlePower
-                  ? 'backdrop-blur-md bg-green-500/30 text-white ring-2 ring-green-400/50' 
+                  ? 'backdrop-blur-md bg-green-500/30 text-white ring-2 ring-green-400/50'
                   : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
               }`}
               title="Candle Power Analysis"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              {/* CPU chip icon */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <rect x="7" y="7" width="10" height="10" rx="1" strokeWidth={1.8}/>
+                <rect x="9" y="9" width="6" height="6" rx="0.5" strokeWidth={1.2}/>
+                <path strokeLinecap="round" strokeWidth={1.8} d="M9 4v3M12 4v3M15 4v3M9 17v3M12 17v3M15 17v3M4 9h3M4 12h3M4 15h3M17 9h3M17 12h3M17 15h3"/>
               </svg>
               <span className="hidden md:inline">Power</span>
             </button>
           </div>
 
-          {/* Center: Chart Type with Labels */}
+          {/* Center: Chart Type */}
           <div className="flex gap-1.5">
+            {/* Candlestick — OHLC bars icon */}
             <button
               onClick={() => setChartType('candlestick')}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition ${
@@ -533,11 +552,19 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
               }`}
               title="Candlestick Chart"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              {/* 3 candle bars: wick + body */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <line x1="5"  y1="3"  x2="5"  y2="21" strokeWidth={1.2} strokeLinecap="round"/>
+                <rect x="3"  y="7"  width="4" height="8"  rx="0.5" strokeWidth={1.8}/>
+                <line x1="12" y1="2"  x2="12" y2="22" strokeWidth={1.2} strokeLinecap="round"/>
+                <rect x="10" y="5"  width="4" height="10" rx="0.5" strokeWidth={1.8}/>
+                <line x1="19" y1="4"  x2="19" y2="20" strokeWidth={1.2} strokeLinecap="round"/>
+                <rect x="17" y="8"  width="4" height="7"  rx="0.5" strokeWidth={1.8}/>
               </svg>
               <span className="hidden md:inline">Candle</span>
             </button>
+
+            {/* Line — smooth trend line */}
             <button
               onClick={() => setChartType('line')}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition ${
@@ -547,64 +574,97 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
               }`}
               title="Line Chart"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              {/* Smooth upward curve */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M3 17 C6 17, 7 10, 10 9 S15 12, 17 8 S20 4, 21 4"/>
+                <circle cx="21" cy="4" r="1.5" strokeWidth={1.5}/>
+                <circle cx="3"  cy="17" r="1.5" strokeWidth={1.5}/>
               </svg>
               <span className="hidden md:inline">Line</span>
             </button>
           </div>
 
-          {/* Right: Toggle Controls & Indicators with Labels */}
+          {/* Right: Toggle Indicators */}
           <div className="flex gap-1.5 flex-wrap">
+            {/* S/R — horizontal zone layers */}
             <button
               onClick={() => setShowIndicators(prev => ({ ...prev, sr: !prev.sr }))}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition ${
                 showIndicators.sr
-                  ? 'backdrop-blur-md bg-purple-500/30 text-white ring-2 ring-purple-400/50' 
+                  ? 'backdrop-blur-md bg-purple-500/30 text-white ring-2 ring-purple-400/50'
                   : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
               }`}
               title="Support/Resistance Zones"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              {/* Two filled zone bands with price line through */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <rect x="2" y="5"  width="20" height="3" rx="1" strokeWidth={1.5} opacity="0.7"/>
+                <rect x="2" y="16" width="20" height="3" rx="1" strokeWidth={1.5} opacity="0.7"/>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                  strokeDasharray="2 2" d="M2 12h20"/>
+                <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
               </svg>
               <span className="hidden md:inline">S/R</span>
             </button>
+
+            {/* MACD — waveform histogram bars */}
             <button
               onClick={() => setShowIndicators(prev => ({ ...prev, momentum: !prev.momentum }))}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition ${
                 showIndicators.momentum
-                  ? 'backdrop-blur-md bg-cyan-500/30 text-white ring-2 ring-cyan-400/50' 
+                  ? 'backdrop-blur-md bg-cyan-500/30 text-white ring-2 ring-cyan-400/50'
                   : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
               }`}
               title="MACD Histogram"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              {/* Diverging histogram bars above/below zero line */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <line x1="2" y1="12" x2="22" y2="12" strokeWidth={1} strokeDasharray="2 1" opacity="0.5"/>
+                <rect x="3"  y="6"  width="3" height="6"  rx="0.5" strokeWidth={1.6}/>
+                <rect x="7"  y="4"  width="3" height="8"  rx="0.5" strokeWidth={1.6}/>
+                <rect x="11" y="9"  width="3" height="3"  rx="0.5" strokeWidth={1.6}/>
+                <rect x="15" y="12" width="3" height="5"  rx="0.5" strokeWidth={1.6}/>
+                <rect x="19" y="12" width="3" height="7"  rx="0.5" strokeWidth={1.6}/>
               </svg>
               <span className="hidden md:inline">MACD</span>
             </button>
+
+            {/* More / collapse — chevron with gear hint */}
             <button
               onClick={() => setShowControls(!showControls)}
               className="backdrop-blur-md bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md"
               title="More Options"
             >
-              <svg className={`w-3.5 h-3.5 transition-transform ${showControls ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              {/* Settings sliders icon */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <line x1="4"  y1="6"  x2="20" y2="6"  strokeWidth={1.8} strokeLinecap="round"/>
+                <line x1="4"  y1="12" x2="20" y2="12" strokeWidth={1.8} strokeLinecap="round"/>
+                <line x1="4"  y1="18" x2="20" y2="18" strokeWidth={1.8} strokeLinecap="round"/>
+                <circle cx="8"  cy="6"  r="2" fill="currentColor" strokeWidth={0}/>
+                <circle cx="16" cy="12" r="2" fill="currentColor" strokeWidth={0}/>
+                <circle cx="10" cy="18" r="2" fill="currentColor" strokeWidth={0}/>
               </svg>
-              <span className="hidden md:inline">More</span>
+              <span className="hidden md:inline">Tools</span>
+              {/* Collapse arrow */}
+              <svg className={`w-3 h-3 transition-transform ${showControls ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7"/>
+              </svg>
             </button>
           </div>
         </div>
 
-        {/* Expandable Controls - Glassmorphism */}
+        {/* Expandable Controls */}
         {showControls && (
           <div className="p-3 border-t border-white/10 backdrop-blur-md bg-white/5 space-y-2 animate-in slide-in-from-top duration-200">
-            {/* Zoom Controls with Labels */}
             <div className="flex gap-1.5 flex-wrap items-center">
               <span className="text-xs text-gray-400 mr-1 flex items-center gap-1">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                {/* Magnifier with cross-hair */}
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="11" cy="11" r="7" strokeWidth={1.8}/>
+                  <line x1="16.5" y1="16.5" x2="22" y2="22" strokeWidth={2} strokeLinecap="round"/>
+                  <line x1="11" y1="8" x2="11" y2="14" strokeWidth={1.5} strokeLinecap="round"/>
+                  <line x1="8"  y1="11" x2="14" y2="11" strokeWidth={1.5} strokeLinecap="round"/>
                 </svg>
                 Zoom:
               </span>
@@ -628,10 +688,14 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 }}
                 className="backdrop-blur-md bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 px-2.5 py-1 rounded-lg text-xs text-white font-semibold transition flex items-center gap-1 shadow-md"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                {/* Plus in magnifier */}
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="10" cy="10" r="6" strokeWidth={2}/>
+                  <line x1="14.5" y1="14.5" x2="20" y2="20" strokeWidth={2} strokeLinecap="round"/>
+                  <line x1="10" y1="7" x2="10" y2="13" strokeWidth={2} strokeLinecap="round"/>
+                  <line x1="7"  y1="10" x2="13" y2="10" strokeWidth={2} strokeLinecap="round"/>
                 </svg>
-                <span>Zoom In</span>
+                <span>In</span>
               </button>
               <button
                 onClick={() => {
@@ -653,10 +717,13 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 }}
                 className="backdrop-blur-md bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 px-2.5 py-1 rounded-lg text-xs text-white font-semibold transition flex items-center gap-1 shadow-md"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                {/* Minus in magnifier */}
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="10" cy="10" r="6" strokeWidth={2}/>
+                  <line x1="14.5" y1="14.5" x2="20" y2="20" strokeWidth={2} strokeLinecap="round"/>
+                  <line x1="7" y1="10" x2="13" y2="10" strokeWidth={2} strokeLinecap="round"/>
                 </svg>
-                <span>Zoom Out</span>
+                <span>Out</span>
               </button>
               <button
                 onClick={() => {
@@ -668,10 +735,11 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 }}
                 className="backdrop-blur-md bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 px-2.5 py-1 rounded-lg text-xs text-white font-semibold transition flex items-center gap-1 shadow-md"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                {/* Expand arrows to corners */}
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 14v6h6M20 10V4h-6M4 10V4h6M20 14v6h-6"/>
                 </svg>
-                <span>Fit All</span>
+                <span>Fit</span>
               </button>
             </div>
           </div>
@@ -688,8 +756,12 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
               <div className="flex flex-wrap gap-x-3 gap-y-1 items-center">
                 {indicators.signals.bandar && indicators.signals.bandar !== '⬜ Netral' && (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-white">
-                    <svg className="w-3 h-3 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    {/* Signal tower / broadcast */}
+                    <svg className="w-3 h-3 text-blue-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path strokeLinecap="round" strokeWidth={1.8} d="M5 12.55a11 11 0 0114.08 0"/>
+                      <path strokeLinecap="round" strokeWidth={1.8} d="M1.42 9a16 16 0 0121.16 0"/>
+                      <path strokeLinecap="round" strokeWidth={1.8} d="M8.53 16.11a6 6 0 016.95 0"/>
+                      <circle cx="12" cy="20" r="1.5" fill="currentColor" strokeWidth={0}/>
                     </svg>
                     {indicators.signals.bandar}
                   </span>
@@ -815,13 +887,20 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
 
             </div>
 
-            {/* Close button */}
+            {/* Close signal panel */}
             <button
               onClick={() => setShowIndicators(prev => ({ ...prev, signals: false }))}
               className="text-gray-400 hover:text-red-400 px-1 backdrop-blur-md bg-white/5 rounded-lg flex-shrink-0 mt-0.5"
+              title="Hide signals"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              {/* X with circuit dot corners */}
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <line x1="7" y1="7" x2="17" y2="17" strokeWidth={2} strokeLinecap="round"/>
+                <line x1="17" y1="7" x2="7" y2="17" strokeWidth={2} strokeLinecap="round"/>
+                <circle cx="5"  cy="5"  r="1.5" fill="currentColor" strokeWidth={0}/>
+                <circle cx="19" cy="5"  r="1.5" fill="currentColor" strokeWidth={0}/>
+                <circle cx="5"  cy="19" r="1.5" fill="currentColor" strokeWidth={0}/>
+                <circle cx="19" cy="19" r="1.5" fill="currentColor" strokeWidth={0}/>
               </svg>
             </button>
           </div>
