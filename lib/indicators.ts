@@ -764,7 +764,7 @@ export function detectBreakoutVolumeDelta(
   data: ChartData[],
   pivotLeft = 5,
   pivotRight = 5,
-  maxLevels = 5,
+  maxLevels = 10,       // increased from 5 → catches older pivots used in screener
   brVolFilter = false,
   brVolPct = 55,
 ): { markers: MarkerData[]; breakouts: BreakoutDeltaResult[]; latestBreakout: BreakoutDeltaResult | null } {
@@ -775,7 +775,9 @@ export function detectBreakoutVolumeDelta(
   if (N < pivotLeft + pivotRight + 20) return { markers, breakouts, latestBreakout };
 
   // ── 1. Detect swing pivots ────────────────────────────────────────────────
-  interface Pivot { value: number; index: number; mitigated: boolean; }
+  // Each pivot tracks its own "first breakout bar" instead of a boolean flag,
+  // so we don't consume the pivot until it's actually broken (no premature mitigation)
+  interface Pivot { value: number; index: number; firstBreakBar: number; }
   const pivotsHi: Pivot[] = [];
   const pivotsLo: Pivot[] = [];
 
@@ -786,8 +788,8 @@ export function detectBreakoutVolumeDelta(
       if (data[j].high >= data[i].high) isH = false;
       if (data[j].low  <= data[i].low)  isL = false;
     }
-    if (isH) pivotsHi.push({ value: data[i].high, index: i, mitigated: false });
-    if (isL) pivotsLo.push({ value: data[i].low,  index: i, mitigated: false });
+    if (isH) pivotsHi.push({ value: data[i].high, index: i, firstBreakBar: -1 });
+    if (isL) pivotsLo.push({ value: data[i].low,  index: i, firstBreakBar: -1 });
   }
 
   // Keep only the most recent `maxLevels` on each side
@@ -795,42 +797,38 @@ export function detectBreakoutVolumeDelta(
   const activeLo = pivotsLo.slice(-maxLevels);
 
   // ── 2. Helper: estimate bull/bear volume split for a single candle ────────
-  // Since we don't have lower-timeframe bars, we proxy with close position:
-  //   If close > open  → mostly buying:  bullV = vol, bearV = 0
-  //   If close < open  → mostly selling: bullV = 0,  bearV = vol
-  //   Doji / small body → split proportionally by close position
   function splitVolume(bar: ChartData): { bullV: number; bearV: number } {
     const vol  = bar.volume || 0;
     const rng  = bar.high - bar.low;
     const cPos = rng > 0 ? (bar.close - bar.low) / rng : 0.5;
     if (bar.close > bar.open) return { bullV: vol,       bearV: 0 };
     if (bar.close < bar.open) return { bullV: 0,         bearV: vol };
-    // Doji: split by close position
     return { bullV: vol * cPos, bearV: vol * (1 - cPos) };
   }
 
   // ── 3. Check each bar for breakouts of unmitigated pivots ─────────────────
+  // Key fix: only mark the FIRST bar that breaks each pivot, then stop
+  // tracking that pivot (firstBreakBar >= 0 means consumed).
+  // Do NOT mitigate when volOk is false — skip but keep pivot active.
   for (let i = pivotRight + pivotLeft; i < N; i++) {
     const bar = data[i];
     const { bullV, bearV } = splitVolume(bar);
     const totalV = bullV + bearV;
     const bullPct = totalV > 0 ? (bullV / totalV) * 100 : 50;
     const bearPct = 100 - bullPct;
-    const brVolThr = brVolFilter ? brVolPct : 0; // 0 = always pass filter
 
     // ── Upside breakout (resistance break) ──
     for (const pivot of activeHi) {
-      if (pivot.mitigated) continue;
-      if (pivot.index >= i) continue; // pivot must be before breakout bar
+      if (pivot.firstBreakBar >= 0) continue; // already consumed
+      if (pivot.index >= i) continue;
 
-      const broke = bar.close > pivot.value; // break by close
+      const broke = bar.close > pivot.value;
       if (!broke) continue;
 
-      // Volume filter: only count if dominant side meets threshold
-      const volOk = !brVolFilter || bullPct >= brVolThr;
-      if (!volOk) { pivot.mitigated = true; continue; }
+      // Volume filter: if enabled and not met, skip without consuming pivot
+      if (brVolFilter && bullPct < brVolPct) continue;
 
-      pivot.mitigated = true; // consume this level
+      pivot.firstBreakBar = i; // consume — only first break counts
 
       const isReal = bullPct >= 55;
       const isFake = bearPct >= 55;
@@ -858,16 +856,16 @@ export function detectBreakoutVolumeDelta(
 
     // ── Downside breakdown (support break) ──
     for (const pivot of activeLo) {
-      if (pivot.mitigated) continue;
+      if (pivot.firstBreakBar >= 0) continue; // already consumed
       if (pivot.index >= i) continue;
 
-      const broke = bar.close < pivot.value; // break by close
+      const broke = bar.close < pivot.value;
       if (!broke) continue;
 
-      const volOk = !brVolFilter || bearPct >= brVolThr;
-      if (!volOk) { pivot.mitigated = true; continue; }
+      // Volume filter: if enabled and not met, skip without consuming pivot
+      if (brVolFilter && bearPct < brVolPct) continue;
 
-      pivot.mitigated = true;
+      pivot.firstBreakBar = i; // consume
 
       const isReal = bearPct >= 55;
       const isFake = bullPct >= 55;

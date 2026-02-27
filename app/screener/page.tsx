@@ -328,9 +328,11 @@ function screenSpring(data: any[]): Omit<SpringResult, 'symbol' | 'change' | 'ch
   const acc = bv / (sv || 1);
   const vr = V[i] / (va || 1);
 
-  // ── BVD: Detect pivot lows, look for Spring in last 10 bars ──
-  const pivotLeft = 5, pivotRight = 5, maxLevels = 6;
-  interface PivotLo { value: number; index: number; mitigated: boolean; }
+  // ── BVD: Detect pivot lows, look for Spring ──
+  // Uses identical logic to detectBreakoutVolumeDelta() in indicators.ts
+  // so chart markers and screener results are always in sync.
+  const pivotLeft = 5, pivotRight = 5, maxLevels = 10;
+  interface PivotLo { value: number; index: number; firstBreakBar: number; }
   const pivotsLo: PivotLo[] = [];
   for (let j = pivotLeft; j < n - pivotRight; j++) {
     let isL = true;
@@ -338,56 +340,66 @@ function screenSpring(data: any[]): Omit<SpringResult, 'symbol' | 'change' | 'ch
       if (k === j) continue;
       if (L[k] <= L[j]) { isL = false; break; }
     }
-    if (isL) pivotsLo.push({ value: L[j], index: j, mitigated: false });
+    if (isL) pivotsLo.push({ value: L[j], index: j, firstBreakBar: -1 });
   }
   const activeLo = pivotsLo.slice(-maxLevels);
 
-  // Find most recent spring event in last 15 bars
+  // Volume split helper (identical to indicators.ts splitVolume)
+  const splitVol = (barIdx: number): { bPct: number; ePct: number } => {
+    const bc = C[barIdx], bo = O[barIdx], bh = H[barIdx], bl = L[barIdx], bv = V[barIdx];
+    const rng = bh - bl;
+    const cPos = rng > 0 ? (bc - bl) / rng : 0.5;
+    let bullV: number, bearV: number;
+    if (bc > bo) { bullV = bv; bearV = 0; }
+    else if (bc < bo) { bullV = 0; bearV = bv; }
+    else { bullV = bv * cPos; bearV = bv * (1 - cPos); }
+    const tv = bullV + bearV;
+    const bP = tv > 0 ? (bullV / tv) * 100 : 50;
+    return { bPct: bP, ePct: 100 - bP };
+  };
+
+  // PHASE 1: Scan ALL history (same as BVD in chart) to correctly consume pivots
+  // so we know which ones are still "fresh" vs already broken.
+  // Collect all spring events with their bar index.
+  const springEvents: Array<{ barIdx: number; bullPct: number; bearPct: number; pivotLevel: number }> = [];
+
+  for (let barIdx = pivotLeft + pivotRight; barIdx <= i; barIdx++) {
+    for (const pivot of activeLo) {
+      if (pivot.firstBreakBar >= 0) continue;
+      if (pivot.index >= barIdx) continue;
+      if (C[barIdx] >= pivot.value) continue; // not broken
+
+      // Consume pivot on first close below it
+      pivot.firstBreakBar = barIdx;
+
+      const { bPct, ePct } = splitVol(barIdx);
+      if (bPct >= 55) {
+        // This is a spring — record it
+        springEvents.push({ barIdx, bullPct: Math.round(bPct), bearPct: Math.round(ePct), pivotLevel: pivot.value });
+      }
+    }
+  }
+
+  // PHASE 2: From all detected springs, find the most recent one within 20 bars
   let springFound: { barsAgo: number; bullPct: number; bearPct: number; pivotLevel: number; recoverPct: number } | null = null;
 
-  for (let barIdx = Math.max(pivotLeft + pivotRight, n - 15); barIdx <= i; barIdx++) {
-    const bar_C = C[barIdx], bar_O = O[barIdx], bar_H = H[barIdx], bar_L = L[barIdx], bar_V = V[barIdx];
+  for (const evt of springEvents) {
+    const barsAgo = i - evt.barIdx;
+    if (barsAgo > 20) continue; // too old
 
-    // Volume split (same proxy as BVD in indicators.ts)
-    const rng = bar_H - bar_L;
-    const cPos = rng > 0 ? (bar_C - bar_L) / rng : 0.5;
-    let bullV: number, bearV: number;
-    if (bar_C > bar_O) { bullV = bar_V; bearV = 0; }
-    else if (bar_C < bar_O) { bullV = 0; bearV = bar_V; }
-    else { bullV = bar_V * cPos; bearV = bar_V * (1 - cPos); }
+    const recoverPct = ((C[i] - C[evt.barIdx]) / C[evt.barIdx]) * 100;
+    if (recoverPct < -3) continue; // still falling
 
-    const totalV = bullV + bearV;
-    const bPct = totalV > 0 ? (bullV / totalV) * 100 : 50;
-    const ePct = 100 - bPct;
-
-    for (const pivot of activeLo) {
-      if (pivot.mitigated) continue;
-      if (pivot.index >= barIdx) continue;
-
-      // Price broke support by close
-      const broke = bar_C < pivot.value;
-      if (!broke) continue;
-
-      pivot.mitigated = true;
-
-      // SPRING = fake breakdown: buyers dominate (bullPct >= 55%), aligned with BVD chart indicator
-      const isSpring = bPct >= 55;
-      if (!isSpring) continue;
-
-      // How much price has recovered since the spring bar
-      const recoverPct = ((C[i] - bar_C) / bar_C) * 100;
-      if (recoverPct < -3) continue; // still falling — not a real spring
-
+    // Keep most recent (highest barIdx = smallest barsAgo)
+    if (!springFound || barsAgo < springFound.barsAgo) {
       springFound = {
-        barsAgo: i - barIdx,
-        bullPct: Math.round(bPct),
-        bearPct: Math.round(ePct),
-        pivotLevel: pivot.value,
+        barsAgo,
+        bullPct: evt.bullPct,
+        bearPct: evt.bearPct,
+        pivotLevel: evt.pivotLevel,
         recoverPct: parseFloat(recoverPct.toFixed(2)),
       };
-      break;
     }
-    if (springFound) break;
   }
 
   if (!springFound) return null;
