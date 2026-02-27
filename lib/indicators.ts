@@ -626,6 +626,106 @@ export function detectVSA(data: ChartData[]): {
 }
 
 // ============================================================================
+// INTRADAY SCALP MARKERS — AppScript getLWCData intraday VSA logic
+// Produces markers for 5m / 15m / 1h / 4h timeframes:
+//   🎯 SCALP SNIPER (VCP+DryUp), ⚡ HAKA (breakout),
+//   🧊 ICEBERG, 🥷 MICRO DRY UP, 🩸 DUMP, ⚠️ PUCUK
+// ============================================================================
+export interface ScalpMarkerSignal { type: string; text: string; }
+
+export function calculateIntradayScalpMarkers(
+  data: ChartData[]
+): { markers: MarkerData[]; latestSignal: ScalpMarkerSignal | null } {
+  const markers: MarkerData[] = [];
+  const N = data.length;
+  let latestSignal: ScalpMarkerSignal | null = null;
+
+  if (N < 42) return { markers, latestSignal };
+
+  // precompute SMA 20 array
+  const smaArr: number[] = new Array(N).fill(0);
+  for (let i = 20; i < N; i++) {
+    let s = 0;
+    for (let j = i - 19; j <= i; j++) s += data[j].close;
+    smaArr[i] = s / 20;
+  }
+
+  for (let i = 40; i < N; i++) {
+    // rolling 20-bar vol & spread avg
+    let volAvg20 = 0, spreadSum20 = 0;
+    for (let j = i - 20; j < i; j++) {
+      volAvg20  += data[j].volume || 0;
+      spreadSum20 += data[j].high - data[j].low;
+    }
+    volAvg20  /= 20;
+    const spreadAvg20 = spreadSum20 / 20;
+
+    const v = data[i];
+    const vol       = v.volume || 0;
+    const volRatio  = vol / (volAvg20 || 1);
+    const spread    = v.high - v.low;
+    const body      = Math.abs(v.close - v.open);
+    const isGreen   = v.close >= v.open;
+    const spreadRatio = spread / (spreadAvg20 || 1);
+    const upperWick = v.high - Math.max(v.open, v.close);
+    const bodyPos   = spread === 0 ? 0 : (v.close - v.low) / spread;
+
+    // accumulation ratio (last 10 bars)
+    let buyVol = 0, sellVol = 0;
+    for (let k = i - 9; k <= i; k++) {
+      if (data[k].close > data[k].open) buyVol  += data[k].volume || 0;
+      else if (data[k].close < data[k].open) sellVol += data[k].volume || 0;
+    }
+    const accRatio = buyVol / (sellVol || 1);
+
+    // VCP: near 30-bar high + spread + vol contracting
+    const highest30 = Math.max(...data.slice(Math.max(0, i - 30), i).map(d => d.high));
+    const isNearHigh = v.close > (highest30 * 0.85);
+    let spreadSum5 = 0, volSum5 = 0;
+    for (let j = i - 5; j < i; j++) { spreadSum5 += data[j].high - data[j].low; volSum5 += data[j].volume || 0; }
+    const isVCP = isNearHigh && (spreadSum5 / 5 < spreadAvg20 * 0.65) && (volSum5 / 5 < volAvg20 * 0.75);
+
+    // AppScript intraday pattern flags
+    const isDryUp       = (!isGreen || body < spread * 0.2) && volRatio <= 0.45 && accRatio > 1.2;
+    const isIceberg     = volRatio > 1.5 && spreadRatio < 0.6;
+    const isScalpDump   = !isGreen && volRatio > 2.5 && body > spread * 0.6;
+    const isShootingStar = volRatio > 2 && (upperWick / (spread || 1) > 0.5);
+    const isScalpBreakout = isGreen && volRatio > 2.5 && bodyPos > 0.8 && v.close > smaArr[i];
+
+    let markerObj: MarkerData | null = null;
+    let sigType = '';
+
+    // Priority order from AppScript
+    if (isScalpDump) {
+      sigType = 'SCALP DUMP';
+      markerObj = { time: v.time, position: 'aboveBar', color: '#d63031', shape: 'arrowDown', text: '🩸 DUMP' };
+    } else if (isShootingStar && !isVCP && !isDryUp) {
+      sigType = 'PUCUK';
+      markerObj = { time: v.time, position: 'aboveBar', color: '#e74c3c', shape: 'arrowDown', text: '⚠️ PUCUK' };
+    } else if (isVCP && isDryUp) {
+      sigType = 'SCALP SNIPER';
+      markerObj = { time: v.time, position: 'belowBar', color: '#ff9f43', shape: 'arrowUp', text: '🎯 SNIPER' };
+    } else if (isScalpBreakout) {
+      sigType = 'SCALP BREAKOUT';
+      markerObj = { time: v.time, position: 'belowBar', color: '#00b894', shape: 'arrowUp', text: '⚡ HAKA!' };
+    } else if (isIceberg) {
+      sigType = 'ICEBERG';
+      markerObj = { time: v.time, position: 'belowBar', color: '#00cec9', shape: 'arrowUp', text: '🧊 ICEBERG' };
+    } else if (isDryUp) {
+      sigType = 'DRY UP';
+      markerObj = { time: v.time, position: 'belowBar', color: '#0984e3', shape: 'arrowUp', text: '🥷 DRY UP' };
+    }
+
+    if (markerObj) {
+      markers.push(markerObj);
+      if (i >= N - 1) latestSignal = { type: sigType, text: markerObj.text };
+    }
+  }
+
+  return { markers, latestSignal };
+}
+
+// ============================================================================
 // SUPPORT & RESISTANCE ZONES (Pivot-based + ATR zones)
 // ============================================================================
 export function calculateSupportResistance(

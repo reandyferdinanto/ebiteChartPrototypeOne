@@ -328,7 +328,7 @@ export default function Home() {
             <StockInfo {...stockQuote} />
             {chartData.length > 0 && (
               <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
-                <StockChart symbol={symbol} data={chartData} />
+                <StockChart symbol={symbol} data={chartData} timeframe={timeframe} />
               </div>
             )}
           </div>

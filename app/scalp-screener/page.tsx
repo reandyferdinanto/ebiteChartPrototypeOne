@@ -187,182 +187,200 @@ function calcRMV(H: number[], L: number[], C: number[], i: number): number {
 }
 
 // ── Intraday Scalp Screener Core ──────────────────────────────────────────────
-// Analyzes 5m or 15m candles to find:
-//   PHASE 1: HAKA Spike — price up >=minGain% in <=8 bars, volume >=1.3× avg
-//   PHASE 2: Calmdown — 2-15 bars after spike, pullback <=45%, sell vol <55%
-//   PHASE 3: Power — CPP bullish, above MA20, acc > dist, RMV contracting
+// Ported from AppScript getLWCData intraday VSA logic.
+// Detects: isScalpBreakout (⚡ HAKA), isVCP+isDryUp (🎯 SNIPER),
+//          isIceberg (🧊), isDryUp (🥷 MICRO DRY UP),
+//          then validates with CPP / MA / accRatio filters.
+// Rejects:  isScalpDump (🩸), isShootingStar (⚠️ PUCUK)
 function screenIntraday(
   data: any[],
-  tf: '5m' | '15m'
+  _tf: '5m' | '15m'
 ): Omit<ScalpResult, 'symbol' | 'price' | 'changePercent' | 'timeframe'> | null {
   const C: number[] = [], O: number[] = [], H: number[] = [], L: number[] = [], V: number[] = [];
   for (const d of data) {
-    if (d.close !== null && d.volume > 0) {
+    if (d.close != null && d.volume > 0) {
       C.push(d.close); O.push(d.open); H.push(d.high); L.push(d.low); V.push(d.volume);
     }
   }
   const n = C.length;
-  const minBars = tf === '5m' ? 100 : 40;
-  if (n < minBars) return null;
+  if (n < 42) return null;
 
   const i = n - 1;
-  const minSpikeGain = tf === '5m' ? 1.5 : 2.0;
-  const lookWindow = Math.min(30, n - 1);
 
-  let volSum30 = 0, spSum30 = 0;
-  for (let k = i - lookWindow + 1; k <= i; k++) {
-    volSum30 += V[k];
-    spSum30  += H[k] - L[k];
+  // ── rolling 20-bar averages (same as AppScript volAvg20 / spreadAvg20) ──
+  let volAvg20 = 0, spreadSum20 = 0;
+  for (let j = i - 20; j < i; j++) { volAvg20 += V[j]; spreadSum20 += (H[j] - L[j]); }
+  volAvg20 /= 20;
+  const spreadAvg20 = spreadSum20 / 20;
+
+  const volRatioI  = V[i] / (volAvg20 || 1);
+  const candleSpread = H[i] - L[i];
+  const bodySpread   = Math.abs(C[i] - O[i]);
+  const isGreen      = C[i] >= O[i];
+  const spreadRatio  = candleSpread / (spreadAvg20 || 1);
+  const upperWick    = H[i] - Math.max(O[i], C[i]);
+  const bodyPosition = candleSpread === 0 ? 0 : (C[i] - L[i]) / candleSpread;
+
+  // accumulation ratio — last 10 bars (AppScript accRatio)
+  let buyVol = 0, sellVol10 = 0;
+  for (let k = i - 9; k <= i; k++) {
+    if (C[k] > O[k]) buyVol += V[k];
+    else if (C[k] < O[k]) sellVol10 += V[k];
   }
-  const volAvg30 = volSum30 / lookWindow;
-  const spAvg30  = spSum30  / lookWindow;
+  const accRatio = buyVol / (sellVol10 || 1);
 
-  const atr14   = calcATR(H, L, C, 14, i);
-  const rmvVal  = calcRMV(H, L, C, i);
-  const cppRaw  = calcCPP(C, O, H, L, V, i);
+  // SMA20 (AppScript smaArr[i])
+  const sma20 = calcSMA(C, 20, i);
+  const ma20  = calcSMA(C, 20, i);
+  const ma50  = calcSMA(C, 50, i);
+  const atr14 = calcATR(H, L, C, 14, i);
+  const rmvVal = calcRMV(H, L, C, i);
+  const cppRaw = calcCPP(C, O, H, L, V, i);
   const cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH' =
     cppRaw > 0.3 ? 'BULLISH' : cppRaw < -0.3 ? 'BEARISH' : 'NEUTRAL';
-  const cppScore   = parseFloat(cppRaw.toFixed(2));
-  const powerScore = Math.max(0, Math.min(100, Math.round(50 + (cppRaw / 1.5) * 45)));
-  const ma20val    = calcSMA(C, 20, i);
-  const ma50val    = calcSMA(C, 50, i);
+  const cppScore = parseFloat(cppRaw.toFixed(2));
+  // (powerScore is computed as cScore below and returned as powerScore: cScore)
 
-  let buyVol = 0, sellVolTen = 0;
-  for (let k = Math.max(0, i - 9); k <= i; k++) {
-    if (C[k] > O[k]) buyVol += V[k];
-    else if (C[k] < O[k]) sellVolTen += V[k];
-  }
-  const accRatio  = buyVol / (sellVolTen || 1);
-  const volRatioI = V[i] / (volAvg30 || 1);
+  // ── AppScript intraday VSA patterns ──────────────────────────────────────
+  // isDryUp: no green or tiny body, very low vol, acc > 1.2
+  const isDryUp       = (!isGreen || bodySpread < candleSpread * 0.2) && (volRatioI <= 0.45) && (accRatio > 1.2);
 
-  // Gate 0: basic filters
-  if (cppBias === 'BEARISH') return null;
-  if (C[i] < ma20val * 0.995) return null;
-  if (accRatio < 0.8) return null;
+  // isNearHigh: close > 85% of 30-bar high
+  const highest30 = Math.max(...H.slice(Math.max(0, i - 30), i));
+  const isNearHigh = C[i] > (highest30 * 0.85);
 
-  // Gate 1: find HAKA spike in last 25 bars
-  let spikeFoundAt = -1;
-  let spikeGain    = 0;
-  let spikeBars    = 0;
+  // isVCP: near high + spread contracting + vol drying
+  let spreadSum5 = 0, volSum5 = 0;
+  for (let j = i - 5; j < i; j++) { spreadSum5 += (H[j] - L[j]); volSum5 += V[j]; }
+  const isVCP = isNearHigh && (spreadSum5 / 5 < spreadAvg20 * 0.65) && (volSum5 / 5 < volAvg20 * 0.75);
 
-  for (let peakIdx = i - 2; peakIdx >= Math.max(0, i - 25); peakIdx--) {
-    const isLocalHigh = (peakIdx + 2 <= i)
-      ? H[peakIdx] >= H[peakIdx + 1] && H[peakIdx] >= H[peakIdx + 2]
-      : true;
-    if (!isLocalHigh) continue;
+  // isIceberg: high vol, narrow spread, accRatio good
+  const isIceberg = (volRatioI > 1.5) && (spreadRatio < 0.6);
 
-    for (let baseIdx = peakIdx - 1; baseIdx >= Math.max(0, peakIdx - 8); baseIdx--) {
-      const gain = ((H[peakIdx] - L[baseIdx]) / (L[baseIdx] || 1)) * 100;
-      if (gain >= minSpikeGain) {
-        let spikeVol = 0;
-        const barCount = peakIdx - baseIdx + 1;
-        for (let k = baseIdx; k <= peakIdx; k++) spikeVol += V[k];
-        if ((spikeVol / barCount) >= volAvg30 * 1.3) {
-          spikeFoundAt = peakIdx;
-          spikeGain    = gain;
-          spikeBars    = barCount;
-          break;
-        }
-      }
-    }
-    if (spikeFoundAt >= 0) break;
-  }
+  // isScalpDump: big red candle on high volume
+  const isScalpDump = (!isGreen && volRatioI > 2.5 && (bodySpread > candleSpread * 0.6));
 
-  if (spikeFoundAt < 0) return null;
+  // isShootingStar: high upper wick + high volume
+  const isShootingStar = (volRatioI > 2 && (upperWick / (candleSpread || 1) > 0.5));
 
-  // Gate 2: calmdown state
-  const calmBars = i - spikeFoundAt;
-  if (calmBars < 2 || calmBars > 15) return null;
+  // isScalpBreakout: green, high vol, high close, above SMA20
+  const isScalpBreakout = isGreen && (volRatioI > 2.5) && (bodyPosition > 0.8) && C[i] > sma20;
 
-  const spikeHighPrice = H[spikeFoundAt];
-  const spikeBasePrice = C[Math.max(0, spikeFoundAt - spikeBars)];
-  const spikePriceMove = spikeHighPrice - spikeBasePrice;
-  const retracement    = spikeHighPrice - C[i];
-  const pullbackPct    = spikePriceMove > 0 ? (retracement / spikePriceMove) * 100 : 100;
-  if (pullbackPct > 45) return null;
+  // ── Reject bearish patterns first ─────────────────────────────────────────
+  if (isScalpDump)    return null;   // 🩸 strong red dump
+  if (isShootingStar && !isVCP && !isDryUp) return null; // ⚠️ pucuk without base
 
-  let cdSellVol = 0, cdTotalVol = 0, cdSpreadSum = 0;
-  for (let k = spikeFoundAt + 1; k <= i; k++) {
-    cdTotalVol  += V[k];
-    cdSpreadSum += H[k] - L[k];
-    if (C[k] < O[k]) cdSellVol += V[k];
-  }
-  const sellVolRatio = cdTotalVol > 0 ? cdSellVol / cdTotalVol : 0;
-  const avgCdSpread  = calmBars > 0 ? cdSpreadSum / calmBars : H[i] - L[i];
-  if (sellVolRatio >= 0.55) return null;
-
-  const isSpreadContracting = avgCdSpread < spAvg30 * 0.9;
-
-  // Gate 3: power signals
-  const hasPower1 = cppBias === 'BULLISH';
-  const hasPower2 = accRatio >= 1.2;
-  const hasPower3 = rmvVal <= 55;
-  const hasPower4 = sellVolRatio < 0.35;
-  const hasPower5 = C[i] > ma20val && C[i] > ma50val;
-  const powerCount = [hasPower1, hasPower2, hasPower3, hasPower4, hasPower5].filter(Boolean).length;
-  if (powerCount < 2) return null;
-
-  // VSA pattern on current bar
-  const curSpread = H[i] - L[i];
-  const curBody   = Math.abs(C[i] - O[i]);
-  const isGreen   = C[i] >= O[i];
-  const lWick     = Math.min(O[i], C[i]) - L[i];
-  const uWick     = H[i] - Math.max(O[i], C[i]);
-
-  const isPinbar  = uWick > curBody * 2 && lWick < curBody * 0.5 && !isGreen;
-  if (isPinbar && (uWick / (curSpread || 1)) > 0.6) return null;
-
-  const isDryUp   = (!isGreen || curBody < curSpread * 0.3) && volRatioI <= 0.70;
-  const isNSup    = !isGreen && curSpread < atr14 && volRatioI < 0.80;
-  const isIceberg = volRatioI > 1.1 && (curSpread / (spAvg30 || 1)) < 0.80 && accRatio > 1.1;
-  const isHammer  = lWick > curBody && uWick < curBody * 0.8 && (lWick / (curSpread || 1)) > 0.4;
-
+  // ── Determine VSA signal (AppScript priority order) ────────────────────────
   let vsaSignal = 'NEUTRAL';
-  if (isDryUp)        vsaSignal = 'DRY UP';
-  else if (isNSup)    vsaSignal = 'NO SUPPLY';
-  else if (isIceberg) vsaSignal = 'ICEBERG';
-  else if (isHammer)  vsaSignal = 'HAMMER';
+  let entryType: 'SNIPER' | 'WATCH' = 'WATCH';
+  let grade: 'A+' | 'A' | 'B' = 'B';
 
-  const hasBullVSA    = ['DRY UP','NO SUPPLY','ICEBERG','HAMMER'].includes(vsaSignal);
-  const isVCPIntraday = isSpreadContracting && rmvVal <= 50 && sellVolRatio < 0.40;
-
-  // Grading
-  let grade: 'A+' | 'A' | 'B';
-  let entryType: 'SNIPER' | 'WATCH';
-
-  if (powerCount >= 4 && hasBullVSA && isVCPIntraday) {
-    grade = 'A+'; entryType = 'SNIPER';
-  } else if (powerCount >= 3 && hasBullVSA) {
-    grade = 'A';  entryType = 'SNIPER';
-  } else if (powerCount >= 3 && isVCPIntraday) {
-    grade = 'A';  entryType = 'SNIPER';
-  } else if (powerCount >= 2 && hasBullVSA) {
-    grade = 'A';  entryType = 'SNIPER';
-  } else if (powerCount >= 2 && isVCPIntraday) {
-    grade = 'B';  entryType = 'WATCH';
-  } else if (powerCount >= 2 && cppBias === 'BULLISH') {
-    grade = 'B';  entryType = 'WATCH';
+  if (isVCP && isDryUp) {
+    vsaSignal  = 'SCALP SNIPER';
+    entryType  = 'SNIPER';
+    grade      = 'A+';
+  } else if (isScalpBreakout) {
+    vsaSignal  = 'SCALP BREAKOUT';
+    entryType  = 'SNIPER';
+    grade      = 'A+';
+  } else if (isIceberg) {
+    vsaSignal  = 'ICEBERG';
+    entryType  = 'SNIPER';
+    grade      = 'A';
+  } else if (isDryUp) {
+    vsaSignal  = 'DRY UP';
+    entryType  = 'WATCH';
+    grade      = 'B';
+  } else if (isVCP) {
+    vsaSignal  = 'VCP BASE';
+    entryType  = 'WATCH';
+    grade      = 'B';
   } else {
-    return null;
+    return null;  // no signal → skip
   }
 
-  const calmMins = calmBars * (tf === '5m' ? 5 : 15);
-  const parts: string[] = [
-    `Spike +${spikeGain.toFixed(1)}% in ${spikeBars} bars`,
-    `Calm ${calmMins}min (${calmBars} bars)`,
-    `Pullback ${pullbackPct.toFixed(0)}% of spike`,
-    `Sell vol ${Math.round(sellVolRatio * 100)}%`,
-  ];
-  if (hasBullVSA)            parts.push(vsaSignal);
-  if (isVCPIntraday)         parts.push(`VCP RMV=${Math.round(rmvVal)}`);
-  if (cppBias === 'BULLISH') parts.push(`CPP +${cppScore}`);
-  if (accRatio >= 1.2)       parts.push(`Acc ${accRatio.toFixed(1)}x`);
+  // ── Additional quality gates ───────────────────────────────────────────────
+  if (cppBias === 'BEARISH') return null;
+  if (accRatio < 0.8)        return null;
+  // must be near or above MA20
+  if (C[i] < ma20 * 0.98)   return null;
 
-  const calmLow  = Math.min(...C.slice(spikeFoundAt + 1, i + 1));
-  const tpMult   = grade === 'A+' ? 2.5 : grade === 'A' ? 2.0 : 1.5;
+  // Upgrade grade based on confluence
+  if (grade !== 'A+') {
+    const bullCount = [
+      cppBias === 'BULLISH',
+      accRatio >= 1.2,
+      rmvVal <= 40,
+      C[i] > ma50,
+      isVCP,
+    ].filter(Boolean).length;
+    if (bullCount >= 3) grade = grade === 'B' ? 'A' : 'A+';
+  }
+
+  // ── VSA cScore (AppScript formula) ────────────────────────────────────────
+  const closePos   = candleSpread > 0 ? (C[i] - L[i]) / candleSpread : 0.5;
+  const cUpperPerc = candleSpread > 0 ? (H[i] - Math.max(O[i], C[i])) / candleSpread : 0;
+  const cLowerPerc = candleSpread > 0 ? (Math.min(O[i], C[i]) - L[i]) / candleSpread : 0;
+
+  let cScore: number;
+  if (volRatioI > 1.3) {
+    if (closePos >= 0.6)       cScore = 70 + (closePos * 20) + (Math.min(volRatioI, 3) * 5);
+    else if (closePos <= 0.35) cScore = 30 - ((1 - closePos) * 20) - (Math.min(volRatioI, 3) * 5);
+    else { cScore = isGreen ? 55 : 45; if (accRatio > 1.2) cScore += 10; }
+  } else if (volRatioI < 0.6) {
+    cScore = !isGreen ? 75 + (cLowerPerc * 10) : 35 - (cUpperPerc * 10);
+  } else {
+    cScore = 50 + (closePos * 40 - 20); cScore += isGreen ? 5 : -5;
+  }
+  if (cUpperPerc > 0.5 && volRatioI > 1.5) cScore -= 30;
+  if (cLowerPerc > 0.5 && volRatioI > 1.5) cScore = Math.max(cScore, 85);
+  if (isVCP && isDryUp)                     cScore = Math.max(cScore, 95);
+  if (volRatioI > 1.5 && spreadRatio < 0.6 && accRatio > 1.2) cScore = Math.max(cScore, 80);
+  cScore = Math.max(0, Math.min(100, Math.round(cScore)));
+
+  // ── Calm-down metrics (how many bars since last HAKA / spike) ─────────────
+  // Find the last high-volume spike bar in the past 25 bars
+  let spikeFoundAt = -1, spikeGain = 0, spikeBars = 1;
+  for (let k = i - 1; k >= Math.max(0, i - 25); k--) {
+    if (V[k] >= volAvg20 * 2.0 && C[k] > O[k]) {
+      spikeFoundAt = k;
+      spikeGain = ((H[k] - L[k]) / (L[k] || 1)) * 100;
+      break;
+    }
+  }
+  const calmBars = spikeFoundAt >= 0 ? i - spikeFoundAt : 0;
+
+  // sell ratio in calm window
+  let cdSell = 0, cdTotal = 0;
+  if (spikeFoundAt >= 0) {
+    for (let k = spikeFoundAt + 1; k <= i; k++) {
+      cdTotal += V[k];
+      if (C[k] < O[k]) cdSell += V[k];
+    }
+  }
+  const sellVolRatio = cdTotal > 0 ? cdSell / cdTotal : 0;
+
+  const runGainPct  = spikeGain;
+  const pullbackPct = spikeFoundAt >= 0 ? Math.max(0, ((H[spikeFoundAt] - C[i]) / (H[spikeFoundAt] || 1)) * 100) : 0;
+
+  // ── Build reason string ────────────────────────────────────────────────────
+  const parts: string[] = [];
+  if (spikeFoundAt >= 0) parts.push(`Spike +${runGainPct.toFixed(1)}% (${calmBars}b ago)`);
+  parts.push(`VSA: ${vsaSignal}`);
+  parts.push(`Pwr: ${cScore}`);
+  if (cppBias === 'BULLISH') parts.push(`CPP +${cppScore}`);
+  parts.push(`Acc ${accRatio.toFixed(1)}x`);
+  if (isVCP)  parts.push(`VCP RMV=${Math.round(rmvVal)}`);
+  if (pullbackPct > 0) parts.push(`Pullback ${pullbackPct.toFixed(0)}%`);
+  parts.push(`Sell ${Math.round(sellVolRatio * 100)}%`);
+
+  const calmLow = spikeFoundAt >= 0
+    ? Math.min(...C.slice(spikeFoundAt, i + 1))
+    : C[i] - atr14;
+  const tpMult = grade === 'A+' ? 2.5 : grade === 'A' ? 2.0 : 1.5;
 
   return {
-    runGainPct:  spikeGain,
+    runGainPct,
     runBars:     spikeBars,
     calmBars,
     pullbackPct,
@@ -371,10 +389,10 @@ function screenIntraday(
     volRatio:    volRatioI,
     cppScore,
     cppBias,
-    powerScore,
+    powerScore:  cScore,
     rmv:         rmvVal,
-    aboveMA20:   C[i] > ma20val,
-    aboveMA50:   C[i] > ma50val,
+    aboveMA20:   C[i] > ma20,
+    aboveMA50:   C[i] > ma50,
     vsaSignal,
     grade,
     entryType,

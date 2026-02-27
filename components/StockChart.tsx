@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
-import { calculateAllIndicators, type IndicatorResult } from '@/lib/indicators';
+import { calculateAllIndicators, calculateIntradayScalpMarkers, type IndicatorResult } from '@/lib/indicators';
 
 interface ChartData {
   time: number;
@@ -16,9 +16,10 @@ interface ChartData {
 interface StockChartProps {
   symbol: string;
   data: ChartData[];
+  timeframe?: string;
 }
 
-export default function StockChart({ data }: StockChartProps) {
+export default function StockChart({ data, timeframe = '1d' }: StockChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const macdContainerRef  = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
@@ -228,11 +229,17 @@ export default function StockChart({ data }: StockChartProps) {
       });
       candlestickSeries.setData(data as any);
 
+      // Determine if intraday (use AppScript-ported intraday VSA logic)
+      const isIntraday = ['5m','15m','1h','4h'].includes(timeframe);
+
       // Add markers
       if (showIndicators.signals || showIndicators.vsa || showIndicators.vcp || showIndicators.candlePower) {
         const allMarkers: typeof calculatedIndicators.vsaMarkers = [];
         if (showIndicators.candlePower) {
           allMarkers.push(...calculatedIndicators.candlePowerMarkers);
+        } else if (isIntraday && (showIndicators.vsa || showIndicators.vcp || showIndicators.signals)) {
+          // Intraday: use AppScript intraday scalp markers (🎯 SNIPER, ⚡ HAKA, 🧊, 🥷, 🩸, ⚠️)
+          allMarkers.push(...calculateIntradayScalpMarkers(data).markers);
         } else if (showIndicators.vsa || showIndicators.vcp) {
           allMarkers.push(...calculatedIndicators.vsaMarkers);
         } else if (showIndicators.signals) {
@@ -729,7 +736,15 @@ export default function StockChart({ data }: StockChartProps) {
 
               {/* ── Row 3: Legend ─────────────────────────────────────────── */}
               <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5 border-t border-white/5">
-                {([
+                {(['5m','15m','1h','4h'].includes(timeframe) ? ([
+                  ['🎯', 'text-yellow-300',  'SCALP SNIPER — VCP+DryUp intraday'],
+                  ['⚡', 'text-green-300',   'HAKA! — Scalp breakout kuat'],
+                  ['🧊', 'text-cyan-300',    'ICEBERG — Akumulasi tersembunyi'],
+                  ['🥷', 'text-blue-300',    'MICRO DRY UP — Pengeringan supply'],
+                  ['🩸', 'text-red-300',     'DUMP — Jual paksa, hindari'],
+                  ['⚠️', 'text-orange-300',  'PUCUK — Distribusi, jebakan naik'],
+                  ['CPP', 'text-gray-300',   'Cumulative Power Prediction'],
+                ] as [string, string, string][]) : ([
                   ['NS',    'text-blue-300',   'No Supply — penjual habis'],
                   ['SC',    'text-green-300',  'Selling Climax — akumulasi institusi'],
                   ['BC',    'text-red-300',    'Buying Climax — distribusi institusi'],
@@ -742,7 +757,8 @@ export default function StockChart({ data }: StockChartProps) {
                   ['PIVOT', 'text-amber-300',  'VCP Pivot — breakout optimal (RMV≤15)'],
                   ['CPP',   'text-gray-300',   'Cumulative Power Prediction'],
                   ['EVR',   'text-gray-300',   'Effort vs Result anomaly'],
-                ] as [string, string, string][]).map(([abbr, color, desc]) => (
+                ] as [string, string, string][])
+                ).map(([abbr, color, desc]) => (
                   <span key={abbr} className="text-xs flex items-center gap-1">
                     <span className={`font-bold font-mono ${color}`}>{abbr}</span>
                     <span className="text-gray-500 hidden sm:inline">= {desc}</span>
