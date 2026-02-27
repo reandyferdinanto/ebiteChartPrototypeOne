@@ -106,7 +106,8 @@ export default function Home() {
       const quoteRes = await fetch(`/api/stock/quote?symbol=${sym}`);
       if (!quoteRes.ok) {
         const errorData = await quoteRes.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || 'Failed to fetch quote');
+        const stockTicker = sym.replace('.JK', '');
+        throw new Error(`Failed to fetch data for ${stockTicker}. The stock may be delisted, suspended, or not available on Yahoo Finance.`);
       }
       const quoteData = await quoteRes.json();
       setStockQuote(quoteData);
@@ -118,14 +119,16 @@ export default function Home() {
       if (!historicalRes.ok) {
         const errorData = await historicalRes.json().catch(() => ({ error: 'Unknown error' }));
         console.error('Historical API error:', errorData);
-        throw new Error(errorData.error || errorData.details || 'Failed to fetch historical data');
+        const stockTicker = sym.replace('.JK', '');
+        throw new Error(`Failed to fetch historical data for ${stockTicker}. The stock may not have data available for the ${int} timeframe.`);
       }
       const historicalData = await historicalRes.json();
 
       // Check if we have valid data
       if (!historicalData.data || historicalData.data.length === 0) {
         console.warn('No historical data available for:', sym, 'interval:', int);
-        throw new Error('No data available for this symbol and timeframe');
+        const stockTicker = sym.replace('.JK', '');
+        throw new Error(`No data available for ${stockTicker} at ${int} timeframe. Try a different timeframe or stock.`);
       }
 
       setChartData(historicalData.data);

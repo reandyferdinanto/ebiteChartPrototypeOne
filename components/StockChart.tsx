@@ -742,25 +742,47 @@ export default function StockChart({ data }: StockChartProps) {
         )}
       </div>
 
-      {/* Trading Signals Panel - Compact Glassmorphism */}
+      {/* Trading Signals Panel - Wyckoff + VSA + VCP */}
       {indicators && showIndicators.signals && (
         <div className="backdrop-blur-xl bg-white/5 border-b border-white/10 p-2 md:p-3">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <svg className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex-1 min-w-0 space-y-1">
+              {/* VSA Signal */}
+              <div className="flex items-center gap-2">
+                <svg className="w-3 h-3 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-xs text-gray-400">Trading Signal</p>
+                <p className="text-xs text-white font-semibold truncate">{indicators.signals.bandar}</p>
               </div>
-              <p className="text-xs md:text-sm text-white font-semibold truncate">{indicators.signals.bandar}</p>
-              {(showIndicators.candlePower || showIndicators.momentum) && (
-                <p className="text-xs text-gray-400 mt-1 truncate">{indicators.candlePowerAnalysis}</p>
+              {/* Wyckoff Phase */}
+              {indicators.signals.wyckoffPhase && indicators.signals.wyckoffPhase !== '⬜ Analisis...' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 flex-shrink-0">Wyckoff:</span>
+                  <p className="text-xs text-gray-200 truncate">{indicators.signals.wyckoffPhase}</p>
+                </div>
+              )}
+              {/* VCP Status */}
+              {indicators.signals.vcpStatus && indicators.signals.vcpStatus !== '⬜ Tidak Aktif' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-orange-400 flex-shrink-0">VCP:</span>
+                  <p className="text-xs text-orange-200 truncate">{indicators.signals.vcpStatus}</p>
+                </div>
+              )}
+              {/* Candle Power + EVR */}
+              {showIndicators.candlePower && (
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-gray-300 truncate">{indicators.candlePowerAnalysis}</p>
+                  {indicators.signals.evrScore !== 0 && (
+                    <span className={`text-xs font-mono flex-shrink-0 ${indicators.signals.evrScore > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      EVR:{indicators.signals.evrScore > 0 ? '+' : ''}{indicators.signals.evrScore}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
             <button
               onClick={() => setShowIndicators(prev => ({ ...prev, signals: false }))}
-              className="text-gray-400 hover:text-red-400 text-xs px-1 backdrop-blur-md bg-white/5 rounded-lg"
+              className="text-gray-400 hover:text-red-400 px-1 backdrop-blur-md bg-white/5 rounded-lg flex-shrink-0"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

@@ -1,991 +1,571 @@
-// Indicator calculation utilities for stock charts
+﻿// ============================================================================
+// EBITE CHART - ADVANCED TECHNICAL ENGINE
+// Wyckoff Theory + Volume Spread Analysis (VSA) + Volatility Contraction (VCP)
+// Research-grade quantitative algorithm for institutional footprint detection
+// ============================================================================
 
 export interface ChartData {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume?: number;
+  time: number; open: number; high: number; low: number; close: number; volume?: number;
 }
-
-export interface MovingAverageData {
-  time: number;
-  value: number;
-}
-
-export interface HistogramData {
-  time: number;
-  value: number;
-  color: string;
-}
-
+export interface MovingAverageData { time: number; value: number; }
+export interface HistogramData { time: number; value: number; color: string; }
 export interface MarkerData {
-  time: number;
-  position: 'aboveBar' | 'belowBar';
-  color: string;
-  shape: 'arrowUp' | 'arrowDown' | 'circle';
-  text: string;
+  time: number; position: 'aboveBar' | 'belowBar'; color: string;
+  shape: 'arrowUp' | 'arrowDown' | 'circle'; text: string;
 }
-
-export interface FibonacciData {
-  f382: MovingAverageData[];
-  f500: MovingAverageData[];
-  f618: MovingAverageData[];
-}
-
-export interface SupportResistanceZone {
-  level: number;
-  top: number;
-  bottom: number;
-  startIndex: number;
-  type: 'support' | 'resistance';
-}
-
-export interface SupportResistanceData {
-  zones: SupportResistanceZone[];
-}
-
+export interface FibonacciData { f382: MovingAverageData[]; f500: MovingAverageData[]; f618: MovingAverageData[]; }
+export interface SupportResistanceZone { level: number; top: number; bottom: number; startIndex: number; type: 'support' | 'resistance'; }
+export interface SupportResistanceData { zones: SupportResistanceZone[]; }
+export interface RMVData { time: number; value: number; color: string; }
 export interface IndicatorResult {
-  ma5: MovingAverageData[];
-  ma20: MovingAverageData[];
-  ma50: MovingAverageData[];
-  ma200: MovingAverageData[];
-  momentum: HistogramData[];
-  awesomeOscillator: HistogramData[];
-  fibonacci: FibonacciData;
+  ma5: MovingAverageData[]; ma20: MovingAverageData[]; ma50: MovingAverageData[]; ma200: MovingAverageData[];
+  momentum: HistogramData[]; awesomeOscillator: HistogramData[]; fibonacci: FibonacciData;
   supportResistance: SupportResistanceData;
-  candlePowerMarkers: MarkerData[];
-  candlePowerAnalysis: string;
-  vsaMarkers: MarkerData[];
-  signals: {
-    bandar: string;
-  };
+  candlePowerMarkers: MarkerData[]; candlePowerAnalysis: string;
+  vsaMarkers: MarkerData[]; rmvData: RMVData[];
+  signals: { bandar: string; wyckoffPhase: string; vcpStatus: string; evrScore: number; };
 }
 
-// Calculate Moving Average
+// ============================================================================
+// UTILITY: MOVING AVERAGE
+// ============================================================================
 export function calculateMA(data: ChartData[], period: number): MovingAverageData[] {
   const result: MovingAverageData[] = [];
-
   for (let i = period - 1; i < data.length; i++) {
     let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) {
-      sum += data[j].close;
-    }
-    result.push({
-      time: data[i].time,
-      value: sum / period
-    });
+    for (let j = i - period + 1; j <= i; j++) sum += data[j].close;
+    result.push({ time: data[i].time, value: sum / period });
   }
-
   return result;
 }
 
-// Calculate Momentum Indicator (MACD-like histogram)
+// ============================================================================
+// UTILITY: ATR (True Range normalization base for VSA + RMV)
+// ============================================================================
+export function calculateATR(data: ChartData[], period: number = 14): number[] {
+  const tr: number[] = new Array(data.length).fill(0);
+  const atr: number[] = new Array(data.length).fill(0);
+  for (let i = 0; i < data.length; i++) {
+    tr[i] = i === 0 ? data[i].high - data[i].low :
+      Math.max(data[i].high - data[i].low, Math.abs(data[i].high - data[i-1].close), Math.abs(data[i].low - data[i-1].close));
+  }
+  let sum = 0;
+  for (let i = 0; i < period && i < data.length; i++) sum += tr[i];
+  if (period <= data.length) atr[period - 1] = sum / period;
+  for (let i = period; i < data.length; i++) atr[i] = (atr[i-1] * (period - 1) + tr[i]) / period;
+  return atr;
+}
+
+function calculateVolumeSMA(data: ChartData[], period: number = 20): number[] {
+  const result: number[] = new Array(data.length).fill(0);
+  for (let i = period - 1; i < data.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += (data[j].volume || 0);
+    result[i] = sum / period;
+  }
+  return result;
+}
+
+// ============================================================================
+// MOMENTUM HISTOGRAM
+// ============================================================================
 export function calculateMomentum(data: ChartData[], period: number = 20): HistogramData[] {
   const result: HistogramData[] = [];
-
   for (let i = 0; i < data.length; i++) {
-    if (i < period) {
-      result.push({ time: data[i].time, value: 0, color: 'rgba(0,0,0,0)' });
-    } else {
-      const closes = data.slice(i - period, i).map(d => d.close);
-      const sma = closes.reduce((a, b) => a + b) / period;
-
-      const highs = data.slice(i - period, i).map(d => d.high);
-      const lows = data.slice(i - period, i).map(d => d.low);
-      const highestHigh = Math.max(...highs);
-      const lowestLow = Math.min(...lows);
-
-      const value = data[i].close - ((highestHigh + lowestLow) / 2 + sma) / 2;
-      const prevValue = result[i - 1].value;
-
-      const color = value >= 0
-        ? (value > prevValue ? '#00b894' : '#55efc4')
-        : (value < prevValue ? '#d63031' : '#ff7675');
-
-      result.push({ time: data[i].time, value, color });
-    }
+    if (i < period) { result.push({ time: data[i].time, value: 0, color: 'rgba(0,0,0,0)' }); continue; }
+    const closes = data.slice(i - period, i).map(d => d.close);
+    const sma = closes.reduce((a, b) => a + b) / period;
+    const hi = Math.max(...data.slice(i - period, i).map(d => d.high));
+    const lo = Math.min(...data.slice(i - period, i).map(d => d.low));
+    const value = data[i].close - ((hi + lo) / 2 + sma) / 2;
+    const prev = result[i - 1].value;
+    const color = value >= 0 ? (value > prev ? '#00b894' : '#55efc4') : (value < prev ? '#d63031' : '#ff7675');
+    result.push({ time: data[i].time, value, color });
   }
-
   return result;
 }
 
-// Calculate Awesome Oscillator
+// ============================================================================
+// AWESOME OSCILLATOR
+// ============================================================================
 export function calculateAO(data: ChartData[]): HistogramData[] {
   const result: HistogramData[] = [];
-  const medians = data.map(d => (d.high + d.low) / 2);
-
+  const meds = data.map(d => (d.high + d.low) / 2);
   for (let i = 0; i < data.length; i++) {
-    if (i < 33) {
-      result.push({ time: data[i].time, value: 0, color: 'rgba(0,0,0,0)' });
-    } else {
-      let sum5 = 0;
-      for (let j = i - 4; j <= i; j++) {
-        sum5 += medians[j];
-      }
-
-      let sum34 = 0;
-      for (let j = i - 33; j <= i; j++) {
-        sum34 += medians[j];
-      }
-
-      const aoValue = (sum5 / 5) - (sum34 / 34);
-      const prevAoValue = result[i - 1].value;
-      const color = aoValue >= prevAoValue ? '#00b894' : '#d63031';
-
-      result.push({ time: data[i].time, value: aoValue, color });
-    }
+    if (i < 33) { result.push({ time: data[i].time, value: 0, color: 'rgba(0,0,0,0)' }); continue; }
+    let s5 = 0, s34 = 0;
+    for (let j = i - 4; j <= i; j++) s5 += meds[j];
+    for (let j = i - 33; j <= i; j++) s34 += meds[j];
+    const v = (s5 / 5) - (s34 / 34);
+    result.push({ time: data[i].time, value: v, color: v >= result[i-1].value ? '#00b894' : '#d63031' });
   }
-
   return result;
 }
 
-// Calculate Fibonacci Retracement Levels
+// ============================================================================
+// FIBONACCI RETRACEMENT
+// ============================================================================
 export function calculateFibonacci(data: ChartData[], lookback: number = 100): FibonacciData {
   const N = data.length;
-  const fiboLookback = Math.min(lookback, N);
-
-  let recentHigh = -Infinity;
-  let recentLow = Infinity;
-
-  for (let i = N - fiboLookback; i < N; i++) {
-    if (data[i].high > recentHigh) recentHigh = data[i].high;
-    if (data[i].low < recentLow) recentLow = data[i].low;
+  const lb = Math.min(lookback, N);
+  let hi = -Infinity, lo = Infinity;
+  for (let i = N - lb; i < N; i++) { if (data[i].high > hi) hi = data[i].high; if (data[i].low < lo) lo = data[i].low; }
+  const diff = hi - lo;
+  const f382Data: MovingAverageData[] = [], f500Data: MovingAverageData[] = [], f618Data: MovingAverageData[] = [];
+  for (let i = N - lb; i < N; i++) {
+    f382Data.push({ time: data[i].time, value: hi - 0.382 * diff });
+    f500Data.push({ time: data[i].time, value: hi - 0.500 * diff });
+    f618Data.push({ time: data[i].time, value: hi - 0.618 * diff });
   }
-
-  const diff = recentHigh - recentLow;
-  const f382 = recentHigh - (0.382 * diff);
-  const f500 = recentHigh - (0.500 * diff);
-  const f618 = recentHigh - (0.618 * diff);
-
-  const f382Data: MovingAverageData[] = [];
-  const f500Data: MovingAverageData[] = [];
-  const f618Data: MovingAverageData[] = [];
-
-  for (let i = N - fiboLookback; i < N; i++) {
-    f382Data.push({ time: data[i].time, value: f382 });
-    f500Data.push({ time: data[i].time, value: f500 });
-    f618Data.push({ time: data[i].time, value: f618 });
-  }
-
   return { f382: f382Data, f500: f500Data, f618: f618Data };
 }
 
+// ============================================================================
+// WYCKOFF PHASE DETECTOR
+// Composite Man theory: Accumulation → Markup → Distribution → Markdown
+// ============================================================================
+interface WyckoffResult { phase: 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MARKDOWN' | 'UNKNOWN'; event: string; confidence: number; }
 
-// Detect VSA (Volume Spread Analysis) patterns with enhanced accuracy
-export function detectVSA(data: ChartData[]): { markers: MarkerData[]; signal: string } {
-  const markers: MarkerData[] = [];
-  const N = data.length;
-  let latestSignal = '⬜ Netral';
-
-  // Calculate MA for trend context
-  const ma20Values = calculateMA(data, 20);
-  const ma50Values = calculateMA(data, 50);
-
-  for (let i = 40; i < N; i++) {
-    // Calculate 20-period volume average
-    let volSum = 0;
-    let spreadSum = 0;
-    for (let j = i - 20; j < i; j++) {
-      volSum += data[j].volume || 0;
-      spreadSum += (data[j].high - data[j].low);
-    }
-    const volAvg = volSum / 20;
-    const spreadAvg = spreadSum / 20;
-
-    const volRatio = (data[i].volume || 0) / (volAvg || 1);
-    const spread = data[i].high - data[i].low;
-    const spreadRatio = spread / (spreadAvg || 1);
-    const body = Math.abs(data[i].close - data[i].open);
-    const isGreen = data[i].close >= data[i].open;
-
-    // Get MA values for trend context
-    const ma20Index = i - 19;
-    const ma50Index = i - 49;
-    let ma20 = data[i].close;
-    let ma50 = data[i].close;
-
-    if (ma20Index >= 0 && ma20Index < ma20Values.length) {
-      ma20 = ma20Values[ma20Index].value;
-    }
-    if (ma50Index >= 0 && ma50Index < ma50Values.length) {
-      ma50 = ma50Values[ma50Index].value;
-    }
-
-    // Calculate buying/selling pressure over 10 periods
-    let buyVol = 0;
-    let sellVol = 0;
-    for (let k = i - 9; k <= i; k++) {
-      if (data[k].close > data[k].open) buyVol += data[k].volume || 0;
-      else if (data[k].close < data[k].open) sellVol += data[k].volume || 0;
-    }
-    const accRatio = buyVol / (sellVol || 1);
-
-    // Get highs and trend info
-    const highs = data.slice(0, i + 1).map(d => d.high);
-
-    // MA positioning (for context)
-    const aboveMA20 = data[i].close > ma20;
-    const aboveMA50 = data[i].close > ma50;
-    const maUptrend = ma20 > ma50;
-
-    // VCP DETECTION - More lenient for visibility
-    // Just check if near recent highs and contracting
-    const last30High = Math.max(...highs.slice(-30));
-    const last52WeekHigh = Math.max(...highs.slice(-250)); // ~1 year of data
-    const isNearRecentHigh = data[i].close > (last30High * 0.85); // Within 15% of 30-day high
-
-    // Calculate volatility contraction
-    let spread5Sum = 0;
-    let vol5Sum = 0;
-    let spread20Sum = 0;
-    let vol20Sum = 0;
-
-    for (let j = Math.max(0, i - 4); j <= i; j++) {
-      spread5Sum += (data[j].high - data[j].low);
-      vol5Sum += (data[j].volume || 0);
-    }
-    for (let j = i - 19; j <= i; j++) {
-      spread20Sum += (data[j].high - data[j].low);
-      vol20Sum += (data[j].volume || 0);
-    }
-
-    const spread5Avg = spread5Sum / 5;
-    const spread20Avg = spread20Sum / 20;
-    const vol5Avg = vol5Sum / 5;
-    const vol20Avg = vol20Sum / 20;
-
-    // Volatility contracting (more lenient)
-    const isVolatilityContraction = spread5Avg < (spread20Avg * 0.75); // < 75% (not 65%)
-    const isVolumeContraction = vol5Avg < (vol20Avg * 0.80); // < 80% (not 75%)
-
-    // Basic VCP = Near highs + contraction (LENIENT for visibility)
-    const isVCP = isNearRecentHigh &&
-                  isVolatilityContraction &&
-                  isVolumeContraction;
-
-    // DRY UP DETECTION - More lenient (should show frequently)
-    // Low volume support test
-    const lowerWick = Math.min(data[i].open, data[i].close) - data[i].low;
-    const isDryUp = (volRatio < 0.65) && // < 65% volume (more lenient)
-                    (body < spread * 0.5) && // Small body (more lenient)
-                    (accRatio > 0.85); // Buying > selling (more lenient)
-
-    // ICEBERG DETECTION - More lenient (should show frequently)
-    // High volume but tight spread
-    const isIceberg = (volRatio > 1.2) && // > 1.2x volume (more lenient)
-                      (spreadRatio < 0.75) && // Tight spread
-                      (accRatio > 1.1); // Some buying pressure (more lenient)
-
-    // DISTRIBUTION DETECTION - Keep this one strict
-    const isDistribution = (!isGreen && volRatio > 1.5 && accRatio < 0.5);
-
-    // SNIPER ENTRY - VERY STRICT (only best setups)
-    // Must meet ALL these criteria
-    const isNearAllTimeHigh = data[i].close > (last52WeekHigh * 0.90); // 90% of 52-week
-    const hasSupport = (data[i].low <= ma20 * 1.02) && (data[i].close > ma20 * 0.98);
-
-    let priceRangeSum = 0;
-    for (let j = i - 4; j <= i; j++) {
-      priceRangeSum += Math.abs(data[j].high - data[j].low) / data[j].close;
-    }
-    const avgPriceRange = priceRangeSum / 5;
-    const isTightPrice = avgPriceRange < 0.03; // < 3% daily range
-
-    const isSignificantVCContraction = spread5Avg < (spread20Avg * 0.65); // < 65% (tight)
-    const isStrictVolumeContraction = vol5Avg < (vol20Avg * 0.75); // < 75%
-
-    // SNIPER = Perfect VCP + Perfect DRY UP + Perfect trend
-    const isSniperEntry = isNearAllTimeHigh && // 90% of 52-week high
-                          aboveMA20 &&
-                          aboveMA50 &&
-                          maUptrend &&
-                          isSignificantVCContraction &&
-                          isStrictVolumeContraction &&
-                          isTightPrice &&
-                          (volRatio < 0.50) && // Very low volume
-                          (accRatio > 1.2) && // Strong buying
-                          hasSupport;
-
-    // SCALP SNIPER ENTRY - For intraday (5m, 15m, 1h)
-    // Detects EARLY MOMENTUM for scalping - catch stocks starting to move!
-
-    // Calculate momentum
-    let momentum = 0;
-    if (i >= 10) {
-      momentum = ((data[i].close - data[i - 10].close) / data[i - 10].close) * 100;
-    }
-
-    // Momentum characteristics
-    let recentMom = 0;
-    let prevMom = 0;
-    if (i >= 7) {
-      recentMom = ((data[i].close - data[i - 3].close) / data[i - 3].close) * 100;
-      prevMom = ((data[i - 3].close - data[i - 6].close) / data[i - 6].close) * 100;
-    }
-    const momentumAccelerating = recentMom > prevMom && recentMom > 0.3;
-
-    // Volume increasing
-    let recentVolAvg = 0;
-    let prevVolAvg = 0;
-    for (let j = Math.max(0, i - 2); j <= i; j++) recentVolAvg += (data[j].volume || 0);
-    for (let j = Math.max(0, i - 5); j < Math.max(0, i - 2); j++) prevVolAvg += (data[j].volume || 0);
-    recentVolAvg /= 3;
-    prevVolAvg /= 3;
-    const volumeIncreasing = recentVolAvg > prevVolAvg * 1.1;
-
-    // Calculate close position within the candle range
-    const closePosition = spread > 0 ? (data[i].close - data[i].low) / spread : 0.5;
-
-    // SCALP SNIPER = Early momentum (0.5-3%) + Volume confirm (1.2-3x) + Above MA
-    const earlyMomentum = momentum > 0.5 && momentum < 3;
-    const volumeConfirm = volRatio > 1.2 && volRatio < 3;
-    const priceStrength = closePosition > 0.5; // Decent close position (close near high)
-    const buyingPressure = accRatio > 1.0;
-
-    const isScalpSniper = earlyMomentum &&
-                          volumeConfirm &&
-                          aboveMA20 &&
-                          (momentumAccelerating || volumeIncreasing) &&
-                          buyingPressure &&
-                          priceStrength;
-
-    // Add markers for last 100 candles (increased from 30 for better visibility)
-    if (i >= N - 100) {
-      let markerObj: MarkerData | null = null;
-
-      // Debug logging for last 10 candles
-      if (i >= N - 10) {
-        console.log(`Candle ${i}: VCP=${isVCP} DryUp=${isDryUp} Iceberg=${isIceberg} Sniper=${isSniperEntry} Vol=${volRatio.toFixed(2)} Acc=${accRatio.toFixed(2)}`);
-      }
-
-      // SNIPER ENTRY = Perfect setup (MOST RESTRICTIVE - for daily/weekly)
-      if (isSniperEntry) {
-        markerObj = {
-          time: data[i].time,
-          position: 'belowBar',
-          color: '#ff9f43',
-          shape: 'arrowUp',
-          text: '🎯 SNIPER'
-        };
-        if (i === N - 1) latestSignal = '🎯 SNIPER ENTRY';
-      }
-      // SCALP SNIPER = Intraday sniper entry (momentum before markup)
-      else if (isScalpSniper) {
-        markerObj = {
-          time: data[i].time,
-          position: 'belowBar',
-          color: '#ffd700',
-          shape: 'arrowUp',
-          text: '⚡ SCALP SNIPER'
-        };
-        if (i === N - 1) latestSignal = '⚡ SCALP SNIPER (Momentum Building)';
-      }
-      // VCP + ICEBERG (Strong accumulation in base)
-      else if (isVCP && isIceberg) {
-        markerObj = {
-          time: data[i].time,
-          position: 'belowBar',
-          color: '#00cec9',
-          shape: 'arrowUp',
-          text: '🧊 VCP ICEBERG'
-        };
-        if (i === N - 1) latestSignal = '🧊 VCP ICEBERG';
-      }
-      // VCP BASE (Building base, wait for breakout)
-      else if (isVCP) {
-        markerObj = {
-          time: data[i].time,
-          position: 'belowBar',
-          color: '#a29bfe',
-          shape: 'arrowUp',
-          text: '📉 VCP BASE'
-        };
-        if (i === N - 1) latestSignal = '📉 VCP BASE';
-      }
-      // DISTRIBUTION (Danger - selling detected)
-      else if (isDistribution) {
-        markerObj = {
-          time: data[i].time,
-          position: 'aboveBar',
-          color: '#d63031',
-          shape: 'arrowDown',
-          text: '🩸 DISTRIBUSI'
-        };
-        if (i === N - 1) latestSignal = '🩸 DISTRIBUSI (Waspada)';
-      }
-      // DRY UP alone (Low volume support test anywhere)
-      else if (isDryUp) {
-        markerObj = {
-          time: data[i].time,
-          position: 'belowBar',
-          color: '#0984e3',
-          shape: 'arrowUp',
-          text: '🥷 DRY UP'
-        };
-        if (i === N - 1) latestSignal = '🥷 DRY UP (Support Test)';
-      }
-      // ICEBERG alone (Hidden accumulation)
-      else if (isIceberg) {
-        markerObj = {
-          time: data[i].time,
-          position: 'belowBar',
-          color: '#00cec9',
-          shape: 'arrowUp',
-          text: '🧊 ICEBERG'
-        };
-        if (i === N - 1) latestSignal = '🧊 ICEBERG (Hidden Activity)';
-      }
-
-      if (markerObj) markers.push(markerObj);
-    }
+function detectWyckoffPhase(data: ChartData[], i: number, volSMA: number[]): WyckoffResult {
+  if (i < 50) return { phase: 'UNKNOWN', event: 'Insufficient data', confidence: 0 };
+  let hiP = -Infinity, loP = Infinity, avgVol = 0;
+  for (let j = Math.max(0, i - 50); j <= i; j++) {
+    if (data[j].high > hiP) hiP = data[j].high;
+    if (data[j].low < loP) loP = data[j].low;
+    avgVol += (data[j].volume || 0);
   }
-
-  return { markers, signal: latestSignal };
+  avgVol /= Math.min(50, i + 1);
+  const rng = hiP - loP;
+  const relPos = rng > 0 ? (data[i].close - loP) / rng : 0.5;
+  const sp = data[i].high - data[i].low;
+  const volRatio = (data[i].volume || 0) / (volSMA[i] || avgVol || 1);
+  const closePos = sp > 0 ? (data[i].close - data[i].low) / sp : 0.5;
+  let maSlope = 0;
+  if (i >= 25) {
+    let s1 = 0, s2 = 0;
+    for (let j = i - 4; j <= i; j++) s1 += data[j].close;
+    for (let j = i - 24; j <= i - 20; j++) s2 += data[j].close;
+    maSlope = (s1 / 5) - (s2 / 5);
+  }
+  if (relPos < 0.30 && maSlope >= -0.5) {
+    if (closePos > 0.5 && volRatio < 0.8) return { phase: 'ACCUMULATION', event: 'No Supply Test', confidence: 82 };
+    if (closePos < 0.3 && volRatio > 1.8) return { phase: 'ACCUMULATION', event: 'Selling Climax (SC)', confidence: 80 };
+    return { phase: 'ACCUMULATION', event: 'Base Building', confidence: 65 };
+  }
+  if (relPos >= 0.30 && relPos <= 0.75 && maSlope > 0) {
+    if (volRatio > 1.3 && closePos > 0.65 && data[i].close >= data[i].open) return { phase: 'MARKUP', event: 'Sign of Strength (SOS)', confidence: 82 };
+    if (volRatio < 0.7 && closePos > 0.4) return { phase: 'MARKUP', event: 'Last Point of Support (LPS)', confidence: 76 };
+    return { phase: 'MARKUP', event: 'Uptrend Continuation', confidence: 65 };
+  }
+  if (relPos > 0.70 && maSlope <= 0) {
+    if (volRatio > 2.0 && closePos < 0.3) return { phase: 'DISTRIBUTION', event: 'Buying Climax (BC)', confidence: 87 };
+    if (volRatio > 1.3 && closePos < 0.4) return { phase: 'DISTRIBUTION', event: 'Upthrust (UT)', confidence: 76 };
+    return { phase: 'DISTRIBUTION', event: 'Distribution Phase', confidence: 62 };
+  }
+  if (relPos < 0.40 && maSlope < 0) {
+    if (volRatio > 1.5 && closePos < 0.3 && data[i].close < data[i].open) return { phase: 'MARKDOWN', event: 'Sign of Weakness (SOW)', confidence: 78 };
+    return { phase: 'MARKDOWN', event: 'Downtrend', confidence: 62 };
+  }
+  return { phase: 'UNKNOWN', event: 'Transitional', confidence: 40 };
 }
 
+// ============================================================================
+// VSA SIGNAL CLASSIFIER
+// Williams 3-variable matrix: Spread (Result) / Volume (Effort) / Close Position
+// Detects anomalous Effort vs Result divergences (Wyckoff Law 3)
+// ============================================================================
+interface VSASignalResult {
+  type: 'SC' | 'BC' | 'ND' | 'NS' | 'UT' | 'SV' | 'EVR_POS' | 'EVR_NEG' | null;
+  label: string; color: string; position: 'aboveBar' | 'belowBar'; shape: 'arrowUp' | 'arrowDown' | 'circle'; strength: number;
+}
 
-// Calculate Candle Power - PREDICTIVE NEXT CANDLE DIRECTION
-// ✅ Analyzes CURRENT candle to predict NEXT candle's movement
-//
-// PREDICTION LOGIC:
-// 1. Setup Quality: Is the current candle creating a good setup?
-// 2. Momentum: Will the trend continue or reverse?
-// 3. Volume Context: Is there follow-through potential?
-// 4. Support/Resistance: Where is price relative to key levels?
-//
-// SCORE MEANING (NEXT CANDLE PREDICTION):
-// 90+ = Very High probability next candle GREEN (strong setup completed)
-// 75-89 = High probability next candle GREEN (good setup)
-// 60-74 = Moderate probability next candle GREEN (okay setup)
-// 40-59 = Neutral (could go either way)
-// 25-39 = Moderate probability next candle RED (weak/distribution)
-// 10-24 = High probability next candle RED (bearish setup)
-// 0-9 = Very High probability next candle RED (panic/collapse)
-//
-// KEY PRINCIPLE: Score reflects NEXT CANDLE probability, not current candle quality
+function classifyVSASignal(data: ChartData[], i: number, atr14: number[], volSMA: number[]): VSASignalResult {
+  const cur = data[i], p1 = data[i - 1], p2 = data[i - 2];
+  const sp = cur.high - cur.low;
+  const atr = atr14[i] || sp || 1;
+  const avgVol = volSMA[i] || (cur.volume || 1);
+  const nSpread = sp / atr;                                      // Normalized spread (Result)
+  const vRatio = (cur.volume || 0) / avgVol;                     // Volume ratio (Effort)
+  const cPos = sp > 0 ? (cur.close - cur.low) / sp : 0.5;        // Close position
+  const isGreen = cur.close >= cur.open;
+  const evr = nSpread - vRatio;                                   // EVR Score
+
+  // Selling Climax: ultra-wide down, ultra-high vol, closes middle/upper
+  if (nSpread > 2.0 && vRatio > 2.5 && cPos > 0.40 && !isGreen)
+    return { type: 'SC', label: 'SC', color: '#00b894', position: 'belowBar', shape: 'arrowUp', strength: Math.min(100, 70 + (vRatio - 2.5) * 10) };
+  // Buying Climax: ultra-wide up, ultra-high vol, closes middle/lower
+  if (nSpread > 2.0 && vRatio > 2.5 && cPos < 0.60 && isGreen)
+    return { type: 'BC', label: 'BC', color: '#e74c3c', position: 'aboveBar', shape: 'arrowDown', strength: Math.min(100, 70 + (vRatio - 2.5) * 10) };
+  // Upthrust: liquidity trap, wide range, close at bottom
+  if (nSpread > 1.5 && vRatio > 1.5 && cPos < 0.30)
+    return { type: 'UT', label: 'UT', color: '#e17055', position: 'aboveBar', shape: 'arrowDown', strength: Math.min(100, 60 + (vRatio - 1.5) * 15) };
+  // No Demand: higher high, narrow spread, volume drying up both prev bars
+  if (cur.high > p1.high && nSpread < 1.0 && (cur.volume||0) < (p1.volume||0) && (cur.volume||0) < (p2.volume||0) && cPos <= 0.55)
+    return { type: 'ND', label: 'ND', color: '#fdcb6e', position: 'aboveBar', shape: 'arrowDown', strength: Math.min(100, 50 + (1.0 - nSpread) * 30) };
+  // No Supply: lower low, narrow spread, volume drying up both prev bars
+  if (cur.low < p1.low && nSpread < 1.0 && (cur.volume||0) < (p1.volume||0) && (cur.volume||0) < (p2.volume||0) && cPos >= 0.45)
+    return { type: 'NS', label: 'NS', color: '#74b9ff', position: 'belowBar', shape: 'arrowUp', strength: Math.min(100, 50 + (1.0 - nSpread) * 30) };
+  // Stopping Volume: high vol wide down bar but closes HIGH (smart money enters)
+  if (nSpread > 1.5 && vRatio > 1.5 && cPos > 0.55 && !isGreen)
+    return { type: 'SV', label: 'SV', color: '#00cec9', position: 'belowBar', shape: 'arrowUp', strength: Math.min(100, 60 + (vRatio - 1.5) * 15) };
+  // EVR Anomaly: high effort, narrow result (absorption or hidden activity)
+  if (evr < -0.8 && vRatio > 1.5) {
+    if (isGreen) return { type: 'EVR_NEG', label: 'ABS', color: '#fd79a8', position: 'aboveBar', shape: 'arrowDown', strength: Math.min(100, 40 + Math.abs(evr) * 15) };
+    else return { type: 'EVR_POS', label: 'SOS', color: '#6c5ce7', position: 'belowBar', shape: 'arrowUp', strength: Math.min(100, 55 + Math.abs(evr) * 12) };
+  }
+  return { type: null, label: '', color: '', position: 'aboveBar', shape: 'circle', strength: 0 };
+}
+
+// ============================================================================
+// RMV (Relative Measured Volatility) INDEX
+// Formula: RMV = (ATR5_now - Min(ATR5,20)) / (Max(ATR5,20) - Min(ATR5,20)) × 100
+// RMV ≤ 15 = Extreme compression → VCP Pivot forming
+// ============================================================================
+function calculateRMV(atr5: number[], i: number, lookback: number = 20): number {
+  if (i < lookback) return 50;
+  let minV = Infinity, maxV = -Infinity;
+  for (let j = Math.max(0, i - lookback + 1); j <= i; j++) {
+    const v = atr5[j];
+    if (v > 0) { if (v < minV) minV = v; if (v > maxV) maxV = v; }
+  }
+  if (maxV === minV || maxV === -Infinity) return 50;
+  return Math.max(0, Math.min(100, ((atr5[i] - minV) / (maxV - minV)) * 100));
+}
+
+// ============================================================================
+// VCP STRUCTURE DETECTOR (Minervini + Wyckoff Cause & Effect)
+// Detects: C1 > C2 > C3... (each contraction < 60% of previous)
+// Pivot: RMV ≤ 15 + Volume Dry-Up < 75% of 50-bar avg
+// ============================================================================
+interface VCPResult { isValid: boolean; contractionCount: number; currentRMV: number; isPivotReady: boolean; isVolumeConfirmed: boolean; label: string; }
+
+function detectVCPStructure(data: ChartData[], i: number, atr5: number[], _volSMA: number[]): VCPResult {
+  const empty: VCPResult = { isValid: false, contractionCount: 0, currentRMV: 50, isPivotReady: false, isVolumeConfirmed: false, label: '' };
+  if (i < 60) return empty;
+
+  // Verify uptrend (above MA50 = Wyckoff Phase 2)
+  let ma50s = 0;
+  for (let j = i - 49; j <= i; j++) ma50s += data[j].close;
+  if (data[i].close < (ma50s / 50) * 0.97) return empty;
+
+  // Find swing pivots in 60-bar window
+  const start = Math.max(0, i - 60);
+  const sHighs: { index: number; price: number }[] = [];
+  const sLows: { index: number; price: number }[] = [];
+
+  for (let j = start + 2; j <= i - 2; j++) {
+    if (data[j].high > data[j-1].high && data[j].high > data[j-2].high && data[j].high > data[j+1].high && data[j].high > data[j+2].high)
+      sHighs.push({ index: j, price: data[j].high });
+    if (data[j].low < data[j-1].low && data[j].low < data[j-2].low && data[j].low < data[j+1].low && data[j].low < data[j+2].low)
+      sLows.push({ index: j, price: data[j].low });
+  }
+  if (sHighs.length < 1 || sLows.length < 1) return empty;
+
+  // Calculate contraction depths
+  const contractions: number[] = [];
+  for (const sh of sHighs) {
+    const nl = sLows.find(sl => sl.index > sh.index);
+    if (nl) {
+      const depth = (sh.price - nl.price) / sh.price * 100;
+      if (depth > 2 && depth < 50) contractions.push(depth);
+    }
+  }
+  if (contractions.length < 2) return empty;
+
+  // Validate progressive contraction (Minervini condition: each < previous)
+  let validCount = 1;
+  for (let c = 1; c < contractions.length; c++) {
+    if (contractions[c] < contractions[c - 1]) validCount++;
+    else break;
+  }
+  if (validCount < 2) return empty;
+
+  const currentRMV = calculateRMV(atr5, i, 20);
+  let vol5 = 0, vol50 = 0;
+  for (let j = i - 4; j <= i; j++) vol5 += (data[j].volume || 0);
+  for (let j = Math.max(0, i - 49); j <= i; j++) vol50 += (data[j].volume || 0);
+  const isVolumeConfirmed = (vol5 / 5) < (vol50 / Math.min(50, i + 1)) * 0.75;
+  const isPivotReady = currentRMV <= 15;
+  let label = `VCP T${validCount}`;
+  if (isPivotReady) label = `VCP PIVOT (RMV:${Math.round(currentRMV)})`;
+  else if (isVolumeConfirmed) label = `VCP BASE T${validCount}`;
+
+  return { isValid: true, contractionCount: validCount, currentRMV, isPivotReady, isVolumeConfirmed, label };
+}
+
+// ============================================================================
+// CANDLE POWER ENGINE (Wyckoff + VSA + VCP Integrated)
+// Predicts NEXT candle direction — score = probability next candle is bullish
+// 90+ = Near certain up | 50 = Neutral | < 25 = Near certain down
+// ============================================================================
 export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]; analysis: string } {
   const markers: MarkerData[] = [];
   const N = data.length;
-  let latestPower = 50;
-  let latestAnalysis = '';
+  let latestPower = 50, latestAnalysis = 'Insufficient data';
+  if (N < 50) return { markers, analysis: latestAnalysis };
 
-  // Calculate MA values for positioning analysis
-  const ma20Values = calculateMA(data, 20);
-  const ma50Values = calculateMA(data, 50);
+  const atr14 = calculateATR(data, 14);
+  const volSMA20 = calculateVolumeSMA(data, 20);
+  const ma20v = calculateMA(data, 20);
+  const ma50v = calculateMA(data, 50);
 
-  for (let i = 40; i < N; i++) {
-    // Calculate 20-period averages (baseline for comparison)
-    let volSum = 0;
-    let spreadSum = 0;
-    for (let j = i - 20; j < i; j++) {
-      volSum += data[j].volume || 0;
-      spreadSum += data[j].high - data[j].low;
+  for (let i = 50; i < N; i++) {
+    const cur = data[i];
+    const sp = cur.high - cur.low;
+    const body = Math.abs(cur.close - cur.open);
+    const atr = atr14[i] || sp || 1;
+    const avgVol = volSMA20[i] || (cur.volume || 1);
+    const vRatio = (cur.volume || 0) / avgVol;
+    const nSp = sp / atr;
+    const cPos = sp > 0 ? (cur.close - cur.low) / sp : 0.5;
+    const isGreen = cur.close >= cur.open;
+    const ma20 = (i - 19 >= 0 && (i - 19) < ma20v.length) ? ma20v[i - 19].value : cur.close;
+    const ma50 = (i - 49 >= 0 && (i - 49) < ma50v.length) ? ma50v[i - 49].value : cur.close;
+
+    let bVol = 0, sVol = 0;
+    for (let k = Math.max(0, i - 9); k <= i; k++) {
+      if (data[k].close > data[k].open) bVol += (data[k].volume || 0);
+      else if (data[k].close < data[k].open) sVol += (data[k].volume || 0);
     }
-    const volAvg = volSum / 20;
-    const spreadAvg = spreadSum / 20;
+    const accR = bVol / (sVol || 1);
 
-    const current = data[i]; // Current candle being analyzed
-    const spread = current.high - current.low;
-    const body = Math.abs(current.close - current.open);
-    const volRatio = (current.volume || 0) / (volAvg || 1);
-    const spreadRatio = spread / (spreadAvg || 1);
-    const isGreen = current.close >= current.open;
+    const uWick = cur.high - Math.max(cur.open, cur.close);
+    const lWick = Math.min(cur.open, cur.close) - cur.low;
+    const isHammer = lWick > body * 1.2 && uWick < body * 0.6 && lWick / (sp || 1) > 0.5;
+    const isStar = uWick > body * 2 && lWick < body * 0.3 && cPos < 0.4;
+    const isSmallBody = body < sp * 0.3;
 
-    // Get MA values for current candle - handle array bounds properly
-    let ma20 = current.close;
-    let ma50 = current.close;
+    const abMA20 = cur.close > ma20, abMA50 = cur.close > ma50, maTrend = ma20 > ma50;
+    const inUp = abMA20 && abMA50 && maTrend, inDown = !abMA20 && !abMA50 && !maTrend;
+    const nearMA20 = cur.low <= ma20 * 1.02 && cur.low >= ma20 * 0.96 && cur.close > ma20 * 0.99;
 
-    // Find the correct MA index (MA arrays start from period-1)
-    const ma20Index = i - 19; // MA20 starts from index 19
-    const ma50Index = i - 49; // MA50 starts from index 49
+    const hiEff = vRatio > 1.3, loEff = vRatio < 0.65;
+    const wideR = nSp > 1.2, narrowR = nSp < 0.8;
+    const sDemand = accR > 1.5, mDemand = accR > 1.1, sSupply = accR < 0.6;
 
-    if (ma20Index >= 0 && ma20Index < ma20Values.length) {
-      ma20 = ma20Values[ma20Index].value;
+    let power = 50, reason = 'Neutral';
+
+    // P1: NO SUPPLY AT MA20 SUPPORT (Wyckoff best signal)
+    if (nearMA20 && loEff && !sSupply) {
+      if (sDemand) { power = 96; reason = 'No Supply + Demand at MA20 → Up'; }
+      else if (mDemand) { power = 88; reason = 'No Supply Test MA20 → Up'; }
+      else { power = 78; reason = 'Supply Dry-Up MA20 → Up'; }
     }
-    if (ma50Index >= 0 && ma50Index < ma50Values.length) {
-      ma50 = ma50Values[ma50Index].value;
+    // P2: WYCKOFF SPRING (low dips below MA, closes above = shakeout)
+    else if (cur.low < ma20 * 0.99 && cur.close > ma20 * 0.99 && isHammer) {
+      if (hiEff && sDemand) { power = 94; reason = 'Spring + HAKA → Strong Up'; }
+      else if (sDemand) { power = 88; reason = 'Wyckoff Spring → Up'; }
+      else if (mDemand) { power = 80; reason = 'Possible Spring → Up'; }
+      else { power = 60; reason = 'Weak Spring → Caution'; }
     }
-
-    // Calculate buy/sell pressure (accumulation/distribution)
-    let buyVol = 0;
-    let sellVol = 0;
-    for (let k = i - 9; k <= i; k++) {
-      if (data[k].close > data[k].open) buyVol += data[k].volume || 0;
-      else if (data[k].close < data[k].open) sellVol += data[k].volume || 0;
+    // P3: SIGN OF STRENGTH (wide up + high vol + close near top)
+    else if (isGreen && hiEff && wideR && cPos > 0.6) {
+      if (inUp && sDemand) { power = 90; reason = 'Wyckoff SOS → Up'; }
+      else if (inUp) { power = 78; reason = 'Sign of Strength → Up'; }
+      else if (sDemand) { power = 72; reason = 'SOS Reversal Area → Up'; }
+      else { power = 60; reason = 'Possible SOS → Neutral'; }
     }
-    const accRatio = buyVol / (sellVol || 1);
-
-    // ENHANCED CANDLE ANALYSIS dengan fokus pada pola hammer di MA20
-
-    // 1. Calculate candle components relative to MA dengan lebih detail
-    const upperWick = current.high - Math.max(current.open, current.close);
-    const lowerWick = Math.min(current.open, current.close) - current.low;
-    const bodyPosition = spread > 0 ? (current.close - current.low) / spread : 0.5;
-    const bodySize = Math.abs(current.close - current.open);
-    const wickRatio = spread > 0 ? lowerWick / spread : 0;
-
-    // 2. MA positioning analysis yang lebih presisi
-    const closeAboveMA20 = current.close > ma20;
-    const closeAboveMA50 = current.close > ma50;
-    const openAboveMA20 = current.open > ma20;
-    const bodyAboveMA20 = Math.min(current.open, current.close) > ma20;
-    const bodyAboveMA50 = Math.min(current.open, current.close) > ma50;
-
-    // CRITICAL: Deteksi tail menyentuh MA20 tapi body di atas
-    const tailTouchesMA20 = current.low <= ma20 * 1.005 && current.low >= ma20 * 0.995; // 0.5% tolerance
-    const tailBelowMA20 = current.low < ma20;
-    const tailBelowMA50 = current.low < ma50;
-
-    // 3. Enhanced pattern detection dengan fokus pada reversal patterns
-    const isHammer = (lowerWick > bodySize * 1.2) && (upperWick < bodySize * 0.6) && (wickRatio > 0.5);
-    const isInvertedHammer = (upperWick > bodySize * 1.5) && (lowerWick < bodySize * 0.5);
-    const isDoji = bodySize < spread * 0.2; // Lebih liberal untuk doji detection
-    const isShootingStar = (upperWick > bodySize * 2) && (lowerWick < bodySize * 0.3) && (bodyPosition < 0.4);
-
-    // Additional pattern for red candle dengan long tail (LAJU case)
-    const isRedWithLongTail = !isGreen && (lowerWick > bodySize * 1.0) && (wickRatio > 0.4);
-
-    // 4. Volume analysis context yang lebih detail
-    const highVolume = volRatio > 1.3;
-    const veryHighVolume = volRatio > 2.0;
-    const lowVolume = volRatio < 0.7;
-    const normalVolume = volRatio >= 0.7 && volRatio <= 1.3;
-
-    // 5. Volatility analysis - distinguish cooldown vs dump
-    const isLowSpread = spreadRatio < 0.8;
-    const isHighSpread = spreadRatio > 1.2;
-
-    // Calculate 5-period volatility trend
-    let recentSpreadSum = 0;
-    let prevSpreadSum = 0;
-    for (let j = 0; j < 5; j++) {
-      if (i - j >= 0) recentSpreadSum += (data[i - j].high - data[i - j].low);
-      if (i - j - 5 >= 0) prevSpreadSum += (data[i - j - 5].high - data[i - j - 5].low);
+    // P4: SIGN OF WEAKNESS / UPTHRUST
+    else if (!isGreen && hiEff && nSp > 1.5 && cPos < 0.35) {
+      if (isStar && inUp) { power = 12; reason = 'Upthrust → Down'; }
+      else if (inDown && sSupply) { power = 15; reason = 'SOW Continues → Down'; }
+      else if (sSupply) { power = 22; reason = 'Heavy Selling → Down'; }
+      else { power = 40; reason = 'Wide Down → Caution'; }
     }
-    const volatilityDecreasing = (recentSpreadSum / 5) < (prevSpreadSum / 5);
-
-    // =========================================================================
-    // WYCKOFF + VSA + VCP INTEGRATED CANDLE POWER CALCULATION
-    // =========================================================================
-    // PREDICTIVE NEXT CANDLE POWER SCORE
-    // Based on: What setup does this candle CREATE for tomorrow?
-    // =========================================================================
-    let power = 50;
-    let reason = 'Neutral';
-
-    // KEY INSIGHT: Current candle quality matters LESS than the setup it creates
-    // A bad-looking candle (red, low volume) can create an EXCELLENT setup
-    // A good-looking candle (green, high volume) might exhaust the move
-
-    // VOLUME CONTEXT
-    const isHighEffort = volRatio > 1.3;
-    const isLowEffort = volRatio < 0.7;
-    const isNarrowResult = spreadRatio < 0.8;
-    const isWideResult = spreadRatio > 1.2;
-
-    // DEMAND/SUPPLY
-    const strongDemand = accRatio > 1.5;
-    const moderateDemand = accRatio > 1.1;
-    const strongSupply = accRatio < 0.6;
-    const moderateSupply = accRatio < 0.9;
-
-    // TREND CONTEXT
-    const inUptrend = (current.close > ma20 && current.close > ma50 && ma20 > ma50);
-    const inDowntrend = (current.close < ma20 && current.close < ma50 && ma20 < ma50);
-    const nearMA20Support = (current.low <= ma20 * 1.03) && (current.close >= ma20 * 0.97);
-
-    // PATTERN CONTEXT
-    const hasLowerWick = lowerWick > bodySize * 0.8;
-    const hasUpperWick = upperWick > bodySize * 1.5;
-    const isSmallBody = bodySize < spread * 0.3;
-
-    // =========================================================================
-    // PREDICTIVE SCORING: What will NEXT candle likely do?
-    // =========================================================================
-
-    // SCENARIO 1: HAMMER/TEST AT SUPPORT = Next candle likely GREEN
-    // Current: Red/small candle with tail at MA20
-    // Next: High probability bounce
-    if (nearMA20Support && hasLowerWick) {
-      if (isLowEffort && moderateDemand) {
-        // NO SUPPLY test = Very bullish for tomorrow
-        power = 95;
-        reason = '🎯 NO SUPPLY Test → Next: Strong Up';
-      } else if (isLowEffort && !strongSupply) {
-        // Dry up test = Bullish for tomorrow
-        power = 88;
-        reason = '🥷 Dry Up Test → Next: Likely Up';
-      } else if (isHighEffort && strongDemand) {
-        // Spring/Shakeout = Very bullish for tomorrow
-        power = 92;
-        reason = '🌱 Spring → Next: Strong Up';
-      } else if (moderateDemand) {
-        // Decent test = Bullish for tomorrow
-        power = 78;
-        reason = '✅ Support Test → Next: Likely Up';
-      } else if (strongSupply) {
-        // Failed test = Bearish
-        power = 30;
-        reason = '❌ Failed Test → Next: Down';
-      } else {
-        power = 65;
-        reason = '⏳ Support Test → Next: Neutral';
-      }
+    // P5: STOPPING VOLUME (high vol + narrow result = absorption)
+    else if (hiEff && narrowR && sDemand) {
+      if (!isGreen && cur.close > ma20 * 0.99) { power = 92; reason = 'Stopping Volume → Up'; }
+      else if (nearMA20) { power = 85; reason = 'Volume Absorption MA20 → Up'; }
+      else { power = 70; reason = 'Effort Absorbed → Up'; }
     }
-
-    // SCENARIO 2: EXHAUSTION CANDLE AFTER RUN = Next candle likely RED
-    // Current: High volume green candle far from support
-    // Next: Likely pullback/reversal
-    else if (isGreen && isHighEffort && isWideResult && !nearMA20Support) {
-      if (current.close > ma20 * 1.1 && strongSupply) {
-        // Climactic buying far from support = Exhaustion
-        power = 15;
-        reason = '🔴 Buying Climax → Next: Down';
-      } else if (current.close > ma20 * 1.08 && moderateSupply) {
-        // Possible exhaustion
-        power = 35;
-        reason = '⚠️ Possible Top → Next: Likely Down';
-      } else if (strongDemand && inUptrend) {
-        // Still strong demand in uptrend = Continue
-        power = 72;
-        reason = '💪 Strong Demand → Next: Up Likely';
-      } else {
-        power = 55;
-        reason = '📊 High Volume → Next: Neutral';
-      }
+    // P6: HIDDEN DISTRIBUTION (high effort, narrow result, selling dominates in uptrend)
+    else if (hiEff && narrowR && sSupply && inUp) { power = 25; reason = 'Hidden Distribution → Down Risk'; }
+    // P7: NO SUPPLY (VSA - red candle, very low vol = sellers gone)
+    else if (!isGreen && loEff && cPos > 0.45) {
+      if (abMA20 && mDemand) { power = 85; reason = 'No Supply → Up'; }
+      else if (nearMA20) { power = 80; reason = 'No Supply at MA20 → Up'; }
+      else if (abMA50) { power = 72; reason = 'No Supply → Up Likely'; }
+      else { power = 60; reason = 'Low Supply → Neutral'; }
     }
-
-    // SCENARIO 3: DRY UP CANDLE = Next candle can go either way BUT setup is forming
-    // Current: Low volume, small candle
-    // Next: If at support = up, if after run = consolidation
-    else if (isLowEffort && isSmallBody) {
-      if (nearMA20Support && moderateDemand) {
-        // Dry up AT support = Bullish
-        power = 82;
-        reason = '🥷 Dry Up Support → Next: Up';
-      } else if (inUptrend && moderateDemand) {
-        // Dry up IN uptrend = Healthy pullback, continue up
-        power = 70;
-        reason = '📈 Healthy Pause → Next: Up Likely';
-      } else if (!isGreen && current.close < ma20 * 0.95) {
-        // Dry up BELOW support = Weak
-        power = 38;
-        reason = '💤 Weak Dry Up → Next: Down Risk';
-      } else {
-        power = 60;
-        reason = '😴 Low Volume → Next: Neutral';
-      }
+    // P8: NO DEMAND (VSA - green candle, very low vol = buyers weak)
+    else if (isGreen && loEff && cPos < 0.55) {
+      if (!abMA20) { power = 35; reason = 'No Demand → Down Risk'; }
+      else if (inDown) { power = 28; reason = 'No Demand in Downtrend → Down'; }
+      else { power = 45; reason = 'Low Demand → Caution'; }
     }
-
-    // SCENARIO 4: DISTRIBUTION/SELLING = Next candle likely RED
-    // Current: High volume red candle or shooting star
-    // Next: Likely continue down
-    else if (!isGreen && isHighEffort && strongSupply) {
-      if (hasUpperWick && current.close > ma20) {
-        // Shooting star with distribution = Very bearish
-        power = 12;
-        reason = '⭐ Shooting Star → Next: Down';
-      } else if (isWideResult) {
-        // Wide range selling = Bearish continuation
-        power = 22;
-        reason = '🩸 Heavy Selling → Next: Down';
-      } else {
-        // Narrow range high volume selling = Possible bottom
-        power = 48;
-        reason = '🛑 Selling Volume → Next: Neutral';
-      }
+    // P9: EFFORTLESS ADVANCE (low vol but green = pro buying)
+    else if (isGreen && inUp && loEff && cPos > 0.55) { power = 82; reason = 'Effortless Advance → Up'; }
+    // P10: HEALTHY UPTREND CONTINUATION
+    else if (isGreen && inUp && mDemand) { power = 68; reason = 'Uptrend Continuation → Up'; }
+    // P11: SHOOTING STAR (distribution)
+    else if (isStar && vRatio > 1.5) { power = 18; reason = 'Shooting Star → Down'; }
+    // P12: DOWNTREND CONTINUATION
+    else if (!isGreen && inDown && sSupply) { power = 20; reason = 'Downtrend Continues → Down'; }
+    // P13: CONSOLIDATION
+    else if (isSmallBody) {
+      power = (abMA20 && mDemand) ? 60 : (!abMA20 ? 42 : 52);
+      reason = 'Consolidation → Neutral';
     }
+    else { power = isGreen ? 55 : 45; reason = isGreen ? 'Green → Neutral' : 'Red → Neutral'; }
 
-    // SCENARIO 5: BULLISH CONTINUATION = Next candle likely GREEN
-    // Current: Green candle with good volume in uptrend
-    // Next: Likely continue
-    else if (isGreen && inUptrend && (moderateDemand || strongDemand)) {
-      if (isHighEffort && isWideResult) {
-        // Strong day but might need pause
-        power = 65;
-        reason = '📈 Strong Day → Next: Pause/Up';
-      } else if (isLowEffort || isNarrowResult) {
-        // Effortless advance = Very bullish
-        power = 85;
-        reason = '🚀 Effortless Rise → Next: Up';
-      } else {
-        power = 68;
-        reason = '📈 Uptrend → Next: Up Likely';
-      }
-    }
-
-    // SCENARIO 6: BEARISH CONTINUATION = Next candle likely RED
-    // Current: Red candle in downtrend
-    // Next: Likely continue down
-    else if (!isGreen && inDowntrend && (moderateSupply || strongSupply)) {
-      if (isHighEffort && isWideResult) {
-        // Panic selling = Might be near bottom
-        power = 42;
-        reason = '📉 Panic Sell → Next: Bounce?';
-      } else {
-        power = 28;
-        reason = '📉 Downtrend → Next: Down Likely';
-      }
-    }
-
-    // SCENARIO 7: CONSOLIDATION = Next candle 50/50
-    // Current: Small candle, normal volume
-    // Next: Could go either way
-    else if (isSmallBody && !isHighEffort && !isLowEffort) {
-      if (current.close > ma20) {
-        power = 58;
-        reason = '⏸️ Consolidating → Next: Slight Up';
-      } else {
-        power = 45;
-        reason = '⏸️ Consolidating → Next: Slight Down';
-      }
-    }
-
-    // DEFAULT: Neutral
-    else {
-      if (isGreen) {
-        power = 55;
-        reason = '🟢 Green Day → Next: Neutral';
-      } else {
-        power = 45;
-        reason = '🔴 Red Day → Next: Neutral';
-      }
-    }
-
-    // Ensure bounds
+    if (inUp && power > 60) power = Math.min(100, power + 3);
+    if (inDown && power < 40) power = Math.max(0, power - 3);
+    if (vRatio > 3.0 && sDemand && isGreen) power = Math.min(100, power + 5);
+    if (vRatio > 3.0 && sSupply && !isGreen) power = Math.max(0, power - 5);
     power = Math.max(0, Math.min(100, Math.round(power)));
+    latestPower = power; latestAnalysis = reason;
 
-    latestPower = power;
-    latestAnalysis = reason;
+    const col = power >= 90 ? '#00b894' : power >= 75 ? '#55efc4' : power >= 60 ? '#a4de6c' :
+      power >= 50 ? '#ffd700' : power >= 40 ? '#ff8c00' : power >= 25 ? '#d63031' : '#8b0000';
 
-    // Enhanced color coding based on predictive score (NEXT CANDLE probability)
-    let color = '#808080';
-    if (power >= 90) {
-      color = '#00b894'; // Dark green - Very high probability next candle green
-    } else if (power >= 75) {
-      color = '#55efc4'; // Light green - High probability next candle green
-    } else if (power >= 60) {
-      color = '#a4de6c'; // Yellow-green - Moderate probability next candle green
-    } else if (power >= 50) {
-      color = '#ffd700'; // Gold - Neutral (50/50)
-    } else if (power >= 40) {
-      color = '#ff8c00'; // Orange - Moderate probability next candle red
-    } else if (power >= 25) {
-      color = '#d63031'; // Red - High probability next candle red
-    } else if (power >= 10) {
-      color = '#8b0000'; // Dark red - Very high probability next candle red
-    } else {
-      color = '#4a0000'; // Very dark red - Extreme bearish next candle
-    }
-
-    // Only add markers for the LAST 5 CANDLES (most recent, most actionable)
-    if (i >= N - 5) {
-      markers.push({
-        time: current.time,
-        position: 'aboveBar',
-        color: color,
-        shape: 'circle',
-        text: power.toString()
-      });
-    }
+    if (i >= N - 5 && !markers.find(m => m.time === cur.time))
+      markers.push({ time: cur.time, position: 'aboveBar', color: col, shape: 'circle', text: power.toString() });
   }
-
   return { markers, analysis: `Power: ${latestPower} (${latestAnalysis})` };
 }
 
-// Calculate Support and Resistance Zones
-// Based on pivot highs and pivot lows with ATR-based zones
+// ============================================================================
+// UNIFIED VSA + VCP + WYCKOFF DETECTOR
+// ============================================================================
+export function detectVSA(data: ChartData[]): {
+  markers: MarkerData[]; signal: string; rmvData: RMVData[];
+  wyckoffPhase: string; vcpStatus: string; evrScore: number;
+} {
+  const markers: MarkerData[] = [], rmvData: RMVData[] = [];
+  const N = data.length;
+  let latestSignal = '⬜ Netral', latestWyckoff = '⬜ Analisis...', latestVCP = '⬜ Tidak Aktif', latestEVR = 0;
+  if (N < 50) return { markers, signal: latestSignal, rmvData, wyckoffPhase: latestWyckoff, vcpStatus: latestVCP, evrScore: 0 };
+
+  const atr14 = calculateATR(data, 14);
+  const atr5 = calculateATR(data, 5);
+  const volSMA20 = calculateVolumeSMA(data, 20);
+
+  for (let i = 42; i < N; i++) {
+    const cur = data[i];
+    const atr = atr14[i] || 1;
+    const avgVol = volSMA20[i] || (cur.volume || 1);
+
+    // ── VSA SIGNALS (last 60 bars) ──────────────────────────────────────────
+    if (i >= N - 60) {
+      const vsaSig = classifyVSASignal(data, i, atr14, volSMA20);
+      if (vsaSig.type !== null) {
+        markers.push({ time: cur.time, position: vsaSig.position, color: vsaSig.color, shape: vsaSig.shape, text: vsaSig.label });
+        if (i >= N - 3) {
+          const names: Record<string, string> = {
+            'SC': '🟢 Selling Climax - Akumulasi Institusi',
+            'BC': '🔴 Buying Climax - Distribusi',
+            'UT': '🔴 Upthrust - Jebakan Bullish',
+            'ND': '🟡 No Demand - Kenaikan Palsu',
+            'NS': '🟢 No Supply - Tekanan Jual Habis',
+            'SV': '🟢 Stopping Volume - Smart Money Masuk',
+            'EVR_POS': '🟢 Absorption Bullish (Akumulasi)',
+            'EVR_NEG': '🔴 Absorption Bearish (Distribusi)',
+          };
+          latestSignal = names[vsaSig.type] || latestSignal;
+        }
+      }
+    }
+
+    // ── VCP STRUCTURE (last 60 bars) ────────────────────────────────────────
+    const vcpR = detectVCPStructure(data, i, atr5, volSMA20);
+    if (vcpR.isValid && i >= N - 60) {
+      if (vcpR.isPivotReady && !markers.find(m => m.time === cur.time)) {
+        markers.push({ time: cur.time, position: 'belowBar', color: '#ff9f43', shape: 'arrowUp', text: 'PIVOT' });
+        if (i >= N - 5) latestSignal = `🎯 VCP PIVOT READY (RMV:${Math.round(vcpR.currentRMV)})`;
+      } else if (vcpR.isVolumeConfirmed && i >= N - 30 && !markers.find(m => m.time === cur.time)) {
+        markers.push({ time: cur.time, position: 'belowBar', color: '#a29bfe', shape: 'arrowUp', text: `T${vcpR.contractionCount}` });
+      }
+      if (i === N - 1) latestVCP = vcpR.label;
+    }
+
+    // Standard DRY UP / ICEBERG / DISTRIBUTION (when no VCP)
+    if (!vcpR.isValid && i >= N - 60) {
+      const sp = cur.high - cur.low;
+      const body = Math.abs(cur.close - cur.open);
+      const vR = (cur.volume || 0) / avgVol;
+      const spR = sp / (atr || 1);
+      let bV = 0, sV = 0;
+      for (let k = Math.max(0, i - 9); k <= i; k++) {
+        if (data[k].close > data[k].open) bV += (data[k].volume || 0);
+        else if (data[k].close < data[k].open) sV += (data[k].volume || 0);
+      }
+      const accR = bV / (sV || 1);
+      const nearHi = cur.close > Math.max(...data.slice(Math.max(0, i - 30), i + 1).map(d => d.high)) * 0.85;
+      const isDryUp = vR < 0.65 && body < sp * 0.5 && accR > 0.85;
+      const isIce = vR > 1.2 && spR < 0.75 && accR > 1.1;
+      const isDist = cur.close < cur.open && vR > 1.5 && accR < 0.5;
+      if (!markers.find(m => m.time === cur.time)) {
+        if (isIce && nearHi) { markers.push({ time: cur.time, position: 'belowBar', color: '#00cec9', shape: 'arrowUp', text: '🧊 ICE' }); if (i === N-1) latestSignal = '🧊 Iceberg (Hidden Accumulation)'; }
+        else if (isDryUp && nearHi) { markers.push({ time: cur.time, position: 'belowBar', color: '#0984e3', shape: 'arrowUp', text: '🥷 DRY' }); if (i === N-1) latestSignal = '🥷 Dry Up (Supply Exhaustion)'; }
+        else if (isDist) { markers.push({ time: cur.time, position: 'aboveBar', color: '#d63031', shape: 'arrowDown', text: '🩸 DIST' }); if (i === N-1) latestSignal = '🩸 Distribusi (Institutional Selling)'; }
+      }
+    }
+
+    // ── RMV HISTOGRAM ────────────────────────────────────────────────────────
+    if (i >= 20) {
+      const rmv = calculateRMV(atr5, i, 20);
+      const sp = cur.high - cur.low;
+      const vR = (cur.volume || 0) / avgVol;
+      if (i === N - 1) latestEVR = Math.round(((sp / (atr || 1)) - vR) * 100) / 100;
+      const rmvColor = rmv <= 10 ? 'rgba(33,150,243,1.0)' : rmv <= 15 ? 'rgba(33,150,243,0.85)' : rmv <= 25 ? 'rgba(100,181,246,0.6)' : rmv <= 40 ? 'rgba(150,150,150,0.4)' : 'rgba(100,100,100,0.25)';
+      rmvData.push({ time: cur.time, value: rmv, color: rmvColor });
+    }
+
+    // ── WYCKOFF PHASE ────────────────────────────────────────────────────────
+    if (i >= N - 3) {
+      const wy = detectWyckoffPhase(data, i, volSMA20);
+      const icons: Record<string, string> = { ACCUMULATION: '🟢', MARKUP: '🚀', DISTRIBUTION: '🔴', MARKDOWN: '📉', UNKNOWN: '⬜' };
+      latestWyckoff = `${icons[wy.phase]} ${wy.phase}: ${wy.event} (${wy.confidence}%)`;
+    }
+  }
+
+  return { markers, signal: latestSignal, rmvData, wyckoffPhase: latestWyckoff, vcpStatus: latestVCP, evrScore: latestEVR };
+}
+
+// ============================================================================
+// SUPPORT & RESISTANCE ZONES (Pivot-based + ATR zones)
+// ============================================================================
 export function calculateSupportResistance(
-  data: ChartData[],
-  pivotLeft: number = 7,
-  pivotRight: number = 7,
-  atrLength: number = 14,
-  zoneMult: number = 0.25,
-  maxStore: number = 60
+  data: ChartData[], pivotLeft = 7, pivotRight = 7, atrLen = 14, zoneMult = 0.25, maxStore = 60
 ): SupportResistanceData {
   const N = data.length;
   const zones: SupportResistanceZone[] = [];
-
-  if (N < pivotLeft + pivotRight + atrLength) {
-    return { zones };
-  }
-
-  // Calculate ATR
-  const atrValues: number[] = [];
-  for (let i = 0; i < N; i++) {
-    if (i === 0) {
-      atrValues.push(data[i].high - data[i].low);
-    } else {
-      const tr = Math.max(
-        data[i].high - data[i].low,
-        Math.abs(data[i].high - data[i - 1].close),
-        Math.abs(data[i].low - data[i - 1].close)
-      );
-
-      if (i < atrLength) {
-        const sum = atrValues.slice(0, i).reduce((a, b) => a + b, 0) + tr;
-        atrValues.push(sum / (i + 1));
-      } else {
-        const prevATR = atrValues[i - 1];
-        const smoothedATR = (prevATR * (atrLength - 1) + tr) / atrLength;
-        atrValues.push(smoothedATR);
-      }
-    }
-  }
-
-  const currentATR = atrValues[N - 1];
-  const zoneHalf = currentATR * zoneMult;
-
-  // Detect pivot highs and lows
-  interface Pivot {
-    value: number;
-    index: number;
-  }
-
-  const pivotHighs: Pivot[] = [];
-  const pivotLows: Pivot[] = [];
-
+  if (N < pivotLeft + pivotRight + atrLen) return { zones };
+  const atrV = calculateATR(data, atrLen);
+  const half = atrV[N - 1] * zoneMult;
+  interface Pivot { value: number; index: number; }
+  const pHi: Pivot[] = [], pLo: Pivot[] = [];
   for (let i = pivotLeft; i < N - pivotRight; i++) {
-    // Check for pivot high
-    let isPivotHigh = true;
-    for (let j = i - pivotLeft; j < i; j++) {
-      if (data[j].high >= data[i].high) {
-        isPivotHigh = false;
-        break;
-      }
+    let isH = true, isL = true;
+    for (let j = i - pivotLeft; j <= i + pivotRight; j++) {
+      if (j === i) continue;
+      if (data[j].high >= data[i].high) isH = false;
+      if (data[j].low <= data[i].low) isL = false;
     }
-    if (isPivotHigh) {
-      for (let j = i + 1; j <= i + pivotRight; j++) {
-        if (data[j].high >= data[i].high) {
-          isPivotHigh = false;
-          break;
-        }
-      }
-    }
-    if (isPivotHigh) {
-      pivotHighs.push({ value: data[i].high, index: i });
-    }
-
-    // Check for pivot low
-    let isPivotLow = true;
-    for (let j = i - pivotLeft; j < i; j++) {
-      if (data[j].low <= data[i].low) {
-        isPivotLow = false;
-        break;
-      }
-    }
-    if (isPivotLow) {
-      for (let j = i + 1; j <= i + pivotRight; j++) {
-        if (data[j].low <= data[i].low) {
-          isPivotLow = false;
-          break;
-        }
-      }
-    }
-    if (isPivotLow) {
-      pivotLows.push({ value: data[i].low, index: i });
-    }
+    if (isH) pHi.push({ value: data[i].high, index: i });
+    if (isL) pLo.push({ value: data[i].low, index: i });
   }
-
-  // Keep only recent pivots
-  const recentPivotHighs = pivotHighs.slice(-maxStore);
-  const recentPivotLows = pivotLows.slice(-maxStore);
-
-  const currentPrice = data[N - 1].close;
-
-  // Filter pivots: resistances above price, supports below price
-  const resistanceCandidates = recentPivotHighs
-    .filter(p => p.value > currentPrice)
-    .sort((a, b) => a.value - b.value); // Sort ascending (nearest first)
-
-  const supportCandidates = recentPivotLows
-    .filter(p => p.value < currentPrice)
-    .sort((a, b) => b.value - a.value); // Sort descending (nearest first)
-
-  // Take nearest 2 resistances
-  const res1 = resistanceCandidates[0];
-  const res2 = resistanceCandidates[1];
-
-  // Take nearest 2 supports
-  const sup1 = supportCandidates[0];
-  const sup2 = supportCandidates[1];
-
-  // Create zone objects
-  if (res1) {
-    zones.push({
-      level: res1.value,
-      top: res1.value + zoneHalf,
-      bottom: res1.value - zoneHalf,
-      startIndex: res1.index,
-      type: 'resistance'
-    });
-  }
-
-  if (res2) {
-    zones.push({
-      level: res2.value,
-      top: res2.value + zoneHalf,
-      bottom: res2.value - zoneHalf,
-      startIndex: res2.index,
-      type: 'resistance'
-    });
-  }
-
-  if (sup1) {
-    zones.push({
-      level: sup1.value,
-      top: sup1.value + zoneHalf,
-      bottom: sup1.value - zoneHalf,
-      startIndex: sup1.index,
-      type: 'support'
-    });
-  }
-
-  if (sup2) {
-    zones.push({
-      level: sup2.value,
-      top: sup2.value + zoneHalf,
-      bottom: sup2.value - zoneHalf,
-      startIndex: sup2.index,
-      type: 'support'
-    });
-  }
-
+  const curP = data[N - 1].close;
+  const res = pHi.slice(-maxStore).filter(p => p.value > curP).sort((a, b) => a.value - b.value);
+  const sup = pLo.slice(-maxStore).filter(p => p.value < curP).sort((a, b) => b.value - a.value);
+  [res[0], res[1]].forEach(r => { if (r) zones.push({ level: r.value, top: r.value + half, bottom: r.value - half, startIndex: r.index, type: 'resistance' }); });
+  [sup[0], sup[1]].forEach(s => { if (s) zones.push({ level: s.value, top: s.value + half, bottom: s.value - half, startIndex: s.index, type: 'support' }); });
   return { zones };
 }
 
-// Calculate all indicators
+// ============================================================================
+// MAIN AGGREGATOR
+// ============================================================================
 export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
-  const ma5 = calculateMA(data, 5);
-  const ma20 = calculateMA(data, 20);
-  const ma50 = calculateMA(data, 50);
-  const ma200 = calculateMA(data, 200);
-
-  const momentum = calculateMomentum(data, 20);
-  const awesomeOscillator = calculateAO(data);
-  const fibonacci = calculateFibonacci(data, 100);
-
-  const vsaResult = detectVSA(data);
-  const candlePowerResult = calculateCandlePower(data);
+  const ma5 = calculateMA(data, 5), ma20 = calculateMA(data, 20), ma50 = calculateMA(data, 50), ma200 = calculateMA(data, 200);
+  const momentum = calculateMomentum(data, 20), awesomeOscillator = calculateAO(data), fibonacci = calculateFibonacci(data, 100);
   const supportResistance = calculateSupportResistance(data);
-
+  const vsaResult = detectVSA(data);
+  const cpResult = calculateCandlePower(data);
   return {
-    ma5,
-    ma20,
-    ma50,
-    ma200,
-    momentum,
-    awesomeOscillator,
-    fibonacci,
-    supportResistance,
-    candlePowerMarkers: candlePowerResult.markers,
-    candlePowerAnalysis: candlePowerResult.analysis,
-    vsaMarkers: vsaResult.markers,
-    signals: {
-      bandar: vsaResult.signal
-    }
+    ma5, ma20, ma50, ma200, momentum, awesomeOscillator, fibonacci, supportResistance,
+    candlePowerMarkers: cpResult.markers, candlePowerAnalysis: cpResult.analysis,
+    vsaMarkers: vsaResult.markers, rmvData: vsaResult.rmvData,
+    signals: { bandar: vsaResult.signal, wyckoffPhase: vsaResult.wyckoffPhase, vcpStatus: vsaResult.vcpStatus, evrScore: vsaResult.evrScore }
   };
 }
-
