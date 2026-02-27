@@ -5,32 +5,33 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface CalmdownResult {
+interface ScalpResult {
   symbol: string;
   price: number;
-  change: number;
   changePercent: number;
-  gainFromBase: number;
-  cooldownBars: number;
+  timeframe: '5m' | '15m';
+  runGainPct: number;
+  runBars: number;
+  calmBars: number;
+  pullbackPct: number;
   sellVolRatio: number;
   accRatio: number;
+  volRatio: number;
   cppScore: number;
   cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
   powerScore: number;
   rmv: number;
-  volRatio: number;
-  momentum10: number;
-  ma20: number;
-  ma50: number;
-  cooldownVSA: string;
+  aboveMA20: boolean;
+  aboveMA50: boolean;
+  vsaSignal: string;
   grade: 'A+' | 'A' | 'B';
-  entryType: 'SNIPER' | 'BREAKOUT' | 'WATCH';
-  reason: string;
+  entryType: 'SNIPER' | 'WATCH';
   stopLoss: number;
   target: number;
+  reason: string;
 }
 
-// ── Liquid stocks ─────────────────────────────────────────────────────────────
+// ── Liquid stocks (need liquidity for 5m/15m) ────────────────────────────────
 const LIQUID_STOCKS = [
   'BBCA','BBRI','BMRI','BBNI','BBTN','BJBR','BJTM','PNBN','BDMN','BNGA',
   'ASII','TLKM','UNVR','ICBP','INDF','HMSP','GGRM','KLBF','SIDO','MYOR',
@@ -38,13 +39,12 @@ const LIQUID_STOCKS = [
   'BSDE','SMRA','CTRA','PWON','LPKR','WIKA','PTPP','WSKT','TOTL','ADHI',
   'EXCL','ISAT','LINK','TOWR','TBIG','DCII','EMTK','MNCN','SCMA',
   'AMRT','LPPF','MAPI','ERAA','ACES','RALS','SOCI','GOOD','CPIN',
-  'HEAL','MIKA','KLBF','KAEF','DVLA','TSPC','PEHA',
+  'HEAL','MIKA','KAEF','DVLA','TSPC','PEHA',
   'ARTO','GOTO','BUKA','BREN','TPIA','AKRA','UNTR','SRTG','INKP','TKIM',
   'FIRE','LAJU','BULL','NCKL','CPRO','EDGE','FILM','BEER','BOGA','DNET',
   'UVCR','LAND','KOTA','MDLN','LPCK','PANI','PGAS','JSMR','SMGR','INTP',
 ];
 
-// ── All IDX stocks ─────────────────────────────────────────────────────────────
 const ALL_INDONESIAN_STOCKS = [
   'AADI','AALI','ABBA','ABDA','ABMM','ACES','ACRO','ACST','ADCP','ADES',
   'ADHI','ADMF','ADMG','ADMR','ADRO','AEGS','AGAR','AGII','AGRO','AGRS',
@@ -55,93 +55,92 @@ const ALL_INDONESIAN_STOCKS = [
   'ASBI','ASDM','ASGR','ASHA','ASII','ASJT','ASLC','ASLI','ASMI','ASPI',
   'ASPR','ASRI','ASRM','ASSA','ATAP','ATIC','ATLA','AUTO','AVIA','AWAN',
   'AXIO','AYAM','AYLS','BABP','BABY','BACA','BAIK','BAJA','BALI','BANK',
-  'BAPA','BAPI','BATA','BATR','BAUT','BAYU','BBCA','BBHI','BBKP','BBLD',
-  'BBMD','BBNI','BBRI','BBRM','BBSI','BBSS','BBTN','BBYB','BCAP','BCIC',
-  'BCIP','BDKR','BDMN','BEBS','BEEF','BEER','BEKS','BELI','BELL','BESS',
-  'BEST','BFIN','BGTG','BHAT','BHIT','BIKA','BIKE','BIMA','BINA','BINO',
-  'BIPI','BIPP','BIRD','BISI','BJBR','BJTM','BKDP','BKSL','BKSW','BLES',
-  'BLOG','BLTA','BLTZ','BLUE','BMAS','BMBL','BMHS','BMRI','BMSR','BMTR',
-  'BNBA','BNBR','BNGA','BNII','BNLI','BOAT','BOBA','BOGA','BOLA','BOLT',
-  'BOSS','BPFI','BPII','BPTR','BRAM','BREN','BRIS','BRMS','BRNA','BRPT',
-  'BRRC','BSBK','BSDE','BSIM','BSML','BSSR','BSWD','BTEK','BTEL','BTON',
-  'BTPN','BTPS','BUAH','BUDI','BUKA','BUKK','BULL','BUMI','BUVA','BVIC',
-  'BWPT','BYAN','CAKK','CAMP','CANI','CARE','CARS','CASA','CASH','CASS',
-  'CBDK','CBMF','CBPE','CBRE','CBUT','CCSI','CDIA','CEKA','CENT','CFIN',
-  'CGAS','CHEK','CHEM','CHIP','CINT','CITA','CITY','CLAY','CLEO','CLPI',
-  'CMNP','CMNT','CMPP','CMRY','CNKO','CNMA','CNTB','CNTX','COAL','COCO',
-  'COIN','COWL','CPIN','CPRI','CPRO','CRAB','CRSN','CSAP','CSIS','CSMI',
-  'CSRA','CTBN','CTRA','CTTH','CUAN','CYBR','DAAZ','DADA','DART','DATA',
-  'DAYA','DCII','DEAL','DEFI','DEPO','DEWA','DEWI','DFAM','DGIK','DGNS',
-  'DGWG','DIGI','DILD','DIVA','DKFT','DKHH','DLTA','DMAS','DMMX','DMND',
-  'DNAR','DNET','DOID','DOOH','DOSS','DPNS','DPUM','DRMA','DSFI','DSNG',
-  'DSSA','DUCK','DUTI','DVLA','DWGL','DYAN','EAST','ECII','EDGE','EKAD',
-  'ELIT','ELPI','ELSA','ELTY','EMAS','EMDE','EMTK','ENAK','ENRG','ENVY',
-  'ENZO','EPAC','EPMT','ERAA','ERAL','ERTX','ESIP','ESSA','ESTA','ESTI',
-  'ETWA','EURO','EXCL','FAPA','FAST','FASW','FILM','FIMP','FIRE','FISH',
-  'FITT','FLMC','FMII','FOLK','FOOD','FORE','FORU','FPNI','FUJI','FUTR',
-  'FWCT','GAMA','GDST','GDYR','GEMA','GEMS','GGRM','GGRP','GHON','GIAA',
-  'GJTL','GLOB','GLVA','GMFI','GMTD','GOLD','GOLF','GOLL','GOOD','GOTO',
-  'GPRA','GPSO','GRIA','GRPH','GRPM','GSMF','GTBO','GTRA','GTSI',
-  'GULA','GUNA','GWSA','GZCO','HADE','HAIS','HAJJ','HALO','HATM','HBAT',
-  'HDFA','HDIT','HEAL','HELI','HERO','HEXA','HGII','HILL','HITS','HKMU',
-  'HMSP','HOKI','HOME','HOMI','HOPE','HOTL','HRME','HRTA','HRUM','HUMI',
-  'HYGN','IATA','IBFN','IBOS','IBST','ICBP','ICON','IDEA','IDPR','IFII',
-  'IFSH','IGAR','IIKP','IKAI','IKAN','IKBI','IKPM','IMAS','IMJS','IMPC',
-  'INAF','INAI','INCF','INCI','INCO','INDF','INDO','INDR','INDS','INDX',
-  'INDY','INET','INKP','INOV','INPC','INPP','INPS','INRU','INTA','INTD',
-  'INTP','IOTF','IPAC','IPCC','IPCM','IPOL','IPPE','IPTV','IRRA','IRSX',
-  'ISAP','ISAT','ISEA','ISSP','ITIC','ITMA','ITMG','JARR','JAST','JATI',
-  'JAWA','JAYA','JECC','JGLE','JIHD','JKON','JMAS','JPFA','JRPT','JSKY',
-  'JSMR','JSPT','JTPE','KAEF','KAQI','KARW','KAYU','KBAG','KBLI','KBLM',
-  'KBLV','KBRI','KDSI','KDTN','KEEN','KEJU','KETR','KIAS','KICI','KIJA',
-  'KING','KINO','KIOS','KJEN','KKES','KKGI','KLAS','KLBF','KLIN','KMDS',
-  'KMTR','KOBX','KOCI','KOIN','KOKA','KONI','KOPI','KOTA','KPIG','KRAS',
-  'KREN','KRYA','KSIX','KUAS','LABA','LABS','LAJU','LAND','LAPD','LCGP',
-  'LCKM','LEAD','LFLO','LIFE','LINK','LION','LIVE','LMAS','LMAX','LMPI',
-  'LMSH','LOPI','LPCK','LPGI','LPIN','LPKR','LPLI','LPPF','LPPS','LRNA',
-  'LSIP','LTLS','LUCK','LUCY','MABA','MAGP','MAHA','MAIN','MANG','MAPA',
-  'MAPB','MAPI','MARI','MARK','MASB','MAXI','MAYA','MBAP','MBMA','MBSS',
-  'MBTO','MCAS','MCOL','MCOR','MDIA','MDIY','MDKA','MDKI','MDLA','MDLN',
-  'MDRN','MEDC','MEDS','MEGA','MEJA','MENN','MERI','MERK','META','MFMI',
-  'MGLV','MGNA','MGRO','MHKI','MICE','MIDI','MIKA','MINA','MINE','MIRA',
-  'MITI','MKAP','MKNT','MKPI','MKTR','MLBI','MLIA','MLPL','MLPT','MMIX',
-  'MMLP','MNCN','MOLI','MORA','MPIX','MPMX','MPOW','MPPA','MPRO','MPXL',
-  'MRAT','MREI','MSIE','MSIN','MSJA','MSKY','MSTI','MTDL','MTEL','MTFN',
-  'MTLA','MTMH','MTPS','MTRA','MTSM','MTWI','MUTU','MYOH','MYOR','MYTX',
-  'NAIK','NANO','NASA','NASI','NATO','NAYZ','NCKL','NELY','NEST','NETV',
-  'NFCX','NICE','NICK','NICL','NIKL','NINE','NIRO','NISP','NOBU','NPGF',
-  'NRCA','NSSS','NTBK','NUSA','NZIA','OASA','OBAT','OBMD','OCAP','OILS',
-  'OKAS','OLIV','OMED','OMRE','OPMS','PACK','PADA','PADI','PALM','PAMG',
-  'PANI','PANR','PANS','PART','PBID','PBRX','PBSA','PCAR','PDES','PDPP',
-  'PEGE','PEHA','PEVE','PGAS','PGEO','PGJO','PGLI','PGUN','PICO','PIPA',
-  'PJAA','PJHB','PKPK','PLAN','PLAS','PLIN','PMJS','PMMP','PMUI','PNBN',
-  'PNBS','PNGO','PNIN','PNLF','PNSE','POLA','POLI','POLL','POLU','POLY',
-  'POOL','PORT','POSA','POWR','PPGL','PPRE','PPRI','PPRO','PRAY','PRDA',
-  'PRIM','PSAB','PSAT','PSDN','PSGO','PSKT','PSSI','PTBA','PTDU','PTIS',
-  'PTMP','PTMR','PTPP','PTPS','PTPW','PTRO','PTSN','PTSP','PUDP','PURA',
-  'PURE','PURI','PWON','PYFA','PZZA','RAAM','RAFI','RAJA','RALS','RANC',
-  'RATU','RBMS','RCCC','RDTX','REAL','RELF','RELI','RGAS','RICY','RIGS',
-  'RIMO','RISE','RLCO','RMKE','RMKO','ROCK','RODA','RONY','ROTI','RSCH',
-  'RSGK','RUIS','RUNS','SAFE','SAGE','SAME','SAMF','SAPX','SATU','SBAT',
-  'SBMA','SCCO','SCMA','SCNP','SCPI','SDMU','SDPC','SDRA','SEMA','SFAN',
-  'SGER','SGRO','SHID','SHIP','SICO','SIDO','SILO','SIMA','SIMP','SINI',
-  'SIPD','SKBM','SKLT','SKRN','SKYB','SLIS','SMAR','SMBR','SMCB','SMDM',
-  'SMDR','SMGA','SMGR','SMIL','SMKL','SMKM','SMLE','SMMA','SMMT','SMRA',
-  'SMRU','SMSM','SNLK','SOCI','SOFA','SOHO','SOLA','SONA','SOSS','SOTS',
-  'SOUL','SPMA','SPRE','SPTO','SQMI','SRAJ','SRIL','SRSN','SRTG','SSIA',
-  'SSMS','SSTM','STAA','STAR','STRK','STTP','SUGI','SULI','SUNI','SUPA',
-  'SUPR','SURE','SURI','SWAT','SWID','TALF','TAMA','TAMU','TAPG','TARA',
-  'TAXI','TAYS','TBIG','TBLA','TBMS','TCID','TCPI','TDPM','TEBE','TECH',
-  'TELE','TFAS','TFCO','TGKA','TGRA','TGUK','TIFA','TINS','TIRA','TIRT',
-  'TKIM','TLDN','TLKM','TMAS','TMPO','TNCA','TOBA','TOOL','TOPS','TOSK',
-  'TOTL','TOTO','TOWR','TOYS','TPIA','TPMA','TRAM','TRGU','TRIL','TRIM',
-  'TRIN','TRIO','TRIS','TRJA','TRON','TRST','TRUE','TRUK','TRUS','TSPC',
-  'TUGU','TYRE','UANG','UCID','UDNG','UFOE','ULTJ','UNIC','UNIQ','UNIT',
-  'UNSP','UNTD','UNTR','UNVR','URBN','UVCR','VAST','VERN','VICI','VICO',
-  'VINS','VISI','VIVA','VKTR','VOKS','VRNA','VTNY','WAPO','WEGE','WEHA',
-  'WGSH','WICO','WIDI','WIFI','WIIM','WIKA','WINE','WINR','WINS','WIRG',
-  'WMPP','WMUU','WOMF','WOOD','WOWS','WSBP','WSKT','WTON','YELO','YOII',
-  'YPAS','YULE','YUPI','ZATA','ZBRA','ZINC','ZONE','ZYRX',
+  'BBCA','BBHI','BBKP','BBLD','BBMD','BBNI','BBRI','BBRM','BBSI','BBSS',
+  'BBTN','BBYB','BCAP','BCIC','BCIP','BDKR','BDMN','BEBS','BEEF','BEER',
+  'BEKS','BELI','BELL','BESS','BEST','BFIN','BGTG','BHAT','BHIT','BIKA',
+  'BIKE','BIMA','BINA','BINO','BIPI','BIPP','BIRD','BISI','BJBR','BJTM',
+  'BKDP','BKSL','BKSW','BLES','BLOG','BLTA','BLTZ','BLUE','BMAS','BMBL',
+  'BMHS','BMRI','BMSR','BMTR','BNBA','BNBR','BNGA','BNII','BNLI','BOAT',
+  'BOBA','BOGA','BOLA','BOLT','BOSS','BPFI','BPII','BPTR','BRAM','BREN',
+  'BRIS','BRMS','BRNA','BRPT','BRRC','BSBK','BSDE','BSIM','BSML','BSSR',
+  'BSWD','BTEK','BTEL','BTON','BTPN','BTPS','BUAH','BUDI','BUKA','BUKK',
+  'BULL','BUMI','BUVA','BVIC','BWPT','BYAN','CAKK','CAMP','CANI','CARE',
+  'CARS','CASA','CASH','CASS','CBDK','CBMF','CBPE','CBRE','CBUT','CCSI',
+  'CDIA','CEKA','CENT','CFIN','CGAS','CHEK','CHEM','CHIP','CINT','CITA',
+  'CITY','CLAY','CLEO','CLPI','CMNP','CMNT','CMPP','CMRY','CNKO','CNMA',
+  'CNTB','CNTX','COAL','COCO','COIN','COWL','CPIN','CPRI','CPRO','CRAB',
+  'CRSN','CSAP','CSIS','CSMI','CSRA','CTBN','CTRA','CTTH','CUAN','CYBR',
+  'DAAZ','DADA','DART','DATA','DAYA','DCII','DEAL','DEFI','DEPO','DEWA',
+  'DEWI','DFAM','DGIK','DGNS','DGWG','DIGI','DILD','DIVA','DKFT','DKHH',
+  'DLTA','DMAS','DMMX','DMND','DNAR','DNET','DOID','DOOH','DOSS','DPNS',
+  'DPUM','DRMA','DSFI','DSNG','DSSA','DUCK','DUTI','DVLA','DWGL','DYAN',
+  'EAST','ECII','EDGE','EKAD','ELIT','ELPI','ELSA','ELTY','EMAS','EMDE',
+  'EMTK','ENAK','ENRG','ENVY','ENZO','EPAC','EPMT','ERAA','ERAL','ERTX',
+  'ESIP','ESSA','ESTA','ESTI','ETWA','EURO','EXCL','FAPA','FAST','FASW',
+  'FILM','FIMP','FIRE','FISH','FITT','FLMC','FMII','FOLK','FOOD','FORE',
+  'FORU','FPNI','FUJI','FUTR','FWCT','GAMA','GDST','GDYR','GEMA','GEMS',
+  'GGRM','GGRP','GHON','GIAA','GJTL','GLOB','GLVA','GMFI','GMTD','GOLD',
+  'GOLF','GOLL','GOOD','GOTO','GPRA','GPSO','GRIA','GRPH','GRPM','GSMF',
+  'GTBO','GTRA','GTSI','GULA','GUNA','GWSA','GZCO','HADE','HAIS','HAJJ',
+  'HALO','HATM','HBAT','HDFA','HDIT','HEAL','HELI','HERO','HEXA','HGII',
+  'HILL','HITS','HKMU','HMSP','HOKI','HOME','HOMI','HOPE','HOTL','HRME',
+  'HRTA','HRUM','HUMI','HYGN','IATA','IBFN','IBOS','IBST','ICBP','ICON',
+  'IDEA','IDPR','IFII','IFSH','IGAR','IIKP','IKAI','IKAN','IKBI','IKPM',
+  'IMAS','IMJS','IMPC','INAF','INAI','INCF','INCI','INCO','INDF','INDO',
+  'INDR','INDS','INDX','INDY','INET','INKP','INOV','INPC','INPP','INPS',
+  'INRU','INTA','INTD','INTP','IOTF','IPAC','IPCC','IPCM','IPOL','IPPE',
+  'IPTV','IRRA','IRSX','ISAP','ISAT','ISEA','ISSP','ITIC','ITMA','ITMG',
+  'JARR','JAST','JATI','JAWA','JAYA','JECC','JGLE','JIHD','JKON','JMAS',
+  'JPFA','JRPT','JSKY','JSMR','JSPT','JTPE','KAEF','KAQI','KARW','KAYU',
+  'KBAG','KBLI','KBLM','KBLV','KBRI','KDSI','KDTN','KEEN','KEJU','KETR',
+  'KIAS','KICI','KIJA','KING','KINO','KIOS','KJEN','KKES','KKGI','KLAS',
+  'KLBF','KLIN','KMDS','KMTR','KOBX','KOCI','KOIN','KOKA','KONI','KOPI',
+  'KOTA','KPIG','KRAS','KREN','KRYA','KSIX','KUAS','LABA','LABS','LAJU',
+  'LAND','LAPD','LCGP','LCKM','LEAD','LFLO','LIFE','LINK','LION','LIVE',
+  'LMAS','LMAX','LMPI','LMSH','LOPI','LPCK','LPGI','LPIN','LPKR','LPLI',
+  'LPPF','LPPS','LRNA','LSIP','LTLS','LUCK','LUCY','MABA','MAGP','MAHA',
+  'MAIN','MANG','MAPA','MAPB','MAPI','MARI','MARK','MASB','MAXI','MAYA',
+  'MBAP','MBMA','MBSS','MBTO','MCAS','MCOL','MCOR','MDIA','MDIY','MDKA',
+  'MDKI','MDLA','MDLN','MDRN','MEDC','MEDS','MEGA','MEJA','MENN','MERI',
+  'MERK','META','MFMI','MGLV','MGNA','MGRO','MHKI','MICE','MIDI','MIKA',
+  'MINA','MINE','MIRA','MITI','MKAP','MKNT','MKPI','MKTR','MLBI','MLIA',
+  'MLPL','MLPT','MMIX','MMLP','MNCN','MOLI','MORA','MPIX','MPMX','MPOW',
+  'MPPA','MPRO','MPXL','MRAT','MREI','MSIE','MSIN','MSJA','MSKY','MSTI',
+  'MTDL','MTEL','MTFN','MTLA','MTMH','MTPS','MTRA','MTSM','MTWI','MUTU',
+  'MYOH','MYOR','MYTX','NAIK','NANO','NASA','NASI','NATO','NAYZ','NCKL',
+  'NELY','NEST','NETV','NFCX','NICE','NICK','NICL','NIKL','NINE','NIRO',
+  'NISP','NOBU','NPGF','NRCA','NSSS','NTBK','NUSA','NZIA','OASA','OBAT',
+  'OBMD','OCAP','OILS','OKAS','OLIV','OMED','OMRE','OPMS','PACK','PADA',
+  'PADI','PALM','PAMG','PANI','PANR','PANS','PART','PBID','PBRX','PBSA',
+  'PCAR','PDES','PDPP','PEGE','PEHA','PEVE','PGAS','PGEO','PGJO','PGLI',
+  'PGUN','PICO','PIPA','PJAA','PJHB','PKPK','PLAN','PLAS','PLIN','PMJS',
+  'PMMP','PMUI','PNBN','PNBS','PNGO','PNIN','PNLF','PNSE','POLA','POLI',
+  'POLL','POLU','POLY','POOL','PORT','POSA','POWR','PPGL','PPRE','PPRI',
+  'PPRO','PRAY','PRDA','PRIM','PSAB','PSAT','PSDN','PSGO','PSKT','PSSI',
+  'PTBA','PTDU','PTIS','PTMP','PTMR','PTPP','PTPS','PTPW','PTRO','PTSN',
+  'PTSP','PUDP','PURA','PURE','PURI','PWON','PYFA','PZZA','RAAM','RAFI',
+  'RAJA','RALS','RANC','RATU','RBMS','RCCC','RDTX','REAL','RELF','RELI',
+  'RGAS','RICY','RIGS','RIMO','RISE','RLCO','RMKE','RMKO','ROCK','RODA',
+  'RONY','ROTI','RSCH','RSGK','RUIS','RUNS','SAFE','SAGE','SAME','SAMF',
+  'SAPX','SATU','SBAT','SBMA','SCCO','SCMA','SCNP','SCPI','SDMU','SDPC',
+  'SDRA','SEMA','SFAN','SGER','SGRO','SHID','SHIP','SICO','SIDO','SILO',
+  'SIMA','SIMP','SINI','SIPD','SKBM','SKLT','SKRN','SKYB','SLIS','SMAR',
+  'SMBR','SMCB','SMDM','SMDR','SMGA','SMGR','SMIL','SMKL','SMKM','SMLE',
+  'SMMA','SMMT','SMRA','SMRU','SMSM','SNLK','SOCI','SOFA','SOHO','SOLA',
+  'SONA','SOSS','SOTS','SOUL','SPMA','SPRE','SPTO','SQMI','SRAJ','SRIL',
+  'SRSN','SRTG','SSIA','SSMS','SSTM','STAA','STAR','STRK','STTP','SUGI',
+  'SULI','SUNI','SUPA','SUPR','SURE','SURI','SWAT','SWID','TALF','TAMA',
+  'TAMU','TAPG','TARA','TAXI','TAYS','TBIG','TBLA','TBMS','TCID','TCPI',
+  'TDPM','TEBE','TECH','TELE','TFAS','TFCO','TGKA','TGRA','TGUK','TIFA',
+  'TINS','TIRA','TIRT','TKIM','TLDN','TLKM','TMAS','TMPO','TNCA','TOBA',
+  'TOOL','TOPS','TOSK','TOTL','TOTO','TOWR','TOYS','TPIA','TPMA','TRAM',
+  'TRGU','TRIL','TRIM','TRIN','TRIO','TRIS','TRJA','TRON','TRST','TRUE',
+  'TRUK','TRUS','TSPC','TUGU','TYRE','UANG','UCID','UDNG','UFOE','ULTJ',
+  'UNIC','UNIQ','UNIT','UNSP','UNTD','UNTR','UNVR','URBN','UVCR','VAST',
+  'VERN','VICI','VICO','VINS','VISI','VIVA','VKTR','VOKS','VRNA','VTNY',
+  'WAPO','WEGE','WEHA','WGSH','WICO','WIDI','WIFI','WIIM','WIKA','WINE',
+  'WINR','WINS','WIRG','WMPP','WMUU','WOMF','WOOD','WOWS','WSBP','WSKT',
+  'WTON','YELO','YOII','YPAS','YULE','YUPI','ZATA','ZBRA','ZINC','ZONE','ZYRX',
 ];
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
@@ -168,13 +167,11 @@ function calcCPP(C: number[], O: number[], H: number[], L: number[], V: number[]
   for (let k = 0; k < 10; k++) vsum += V[i - k];
   const vma = vsum / 10 || 1;
   let score = 0;
-  const lb = 5;
-  for (let j = 0; j < lb; j++) {
+  for (let j = 0; j < 5; j++) {
     const k = i - j;
     const rng = H[k] - L[k] || 0.0001;
     const cbd = (C[k] - O[k]) / rng;
-    const vam = V[k] / vma;
-    score += cbd * vam * ((lb - j) / lb);
+    score += cbd * (V[k] / vma) * ((5 - j) / 5);
   }
   return score;
 }
@@ -189,19 +186,15 @@ function calcRMV(H: number[], L: number[], C: number[], i: number): number {
   return ((cur - mn) / (mx - mn)) * 100;
 }
 
-// ── Core screener: Already ran ≥5% from recent price, now in calmdown ────────
-// STRICT RULES:
-//  1. Current close ≥5% above a close within last 1–5 bars (the run already happened)
-//  2. Current close ≥ previous close (not falling today)
-//  3. Momentum10 > 0 (overall 10-day momentum is positive — not a -5% stock)
-//  4. Sell vol < 45% during calmdown (no distribution)
-//  5. Price holds ≥96% of the run peak (max 4% pullback)
-//  6. Above MA20
-//  7. AccRatio ≥ 1.0 (buyers still dominant)
-//  8. CPP not BEARISH
-//  Grading: only SNIPER (confirmed VSA) or WATCH (potential, needs confirmation)
-//  NO "BREAKOUT" label — if vol is low and no MA break, it's not a breakout
-function screenCalmdownAfterMarkup(data: any[]): Omit<CalmdownResult, 'symbol' | 'change' | 'changePercent'> | null {
+// ── Intraday Scalp Screener Core ──────────────────────────────────────────────
+// Analyzes 5m or 15m candles to find:
+//   PHASE 1: HAKA Spike — price up >=minGain% in <=8 bars, volume >=1.3× avg
+//   PHASE 2: Calmdown — 2-15 bars after spike, pullback <=45%, sell vol <55%
+//   PHASE 3: Power — CPP bullish, above MA20, acc > dist, RMV contracting
+function screenIntraday(
+  data: any[],
+  tf: '5m' | '15m'
+): Omit<ScalpResult, 'symbol' | 'price' | 'changePercent' | 'timeframe'> | null {
   const C: number[] = [], O: number[] = [], H: number[] = [], L: number[] = [], V: number[] = [];
   for (const d of data) {
     if (d.close !== null && d.volume > 0) {
@@ -209,213 +202,214 @@ function screenCalmdownAfterMarkup(data: any[]): Omit<CalmdownResult, 'symbol' |
     }
   }
   const n = C.length;
-  if (n < 60) return null;
+  const minBars = tf === '5m' ? 100 : 40;
+  if (n < minBars) return null;
 
   const i = n - 1;
+  const minSpikeGain = tf === '5m' ? 1.5 : 2.0;
+  const lookWindow = Math.min(30, n - 1);
 
-  const ma20val = calcSMA(C, 20, i);
-  const ma50val = calcSMA(C, 50, i);
+  let volSum30 = 0, spSum30 = 0;
+  for (let k = i - lookWindow + 1; k <= i; k++) {
+    volSum30 += V[k];
+    spSum30  += H[k] - L[k];
+  }
+  const volAvg30 = volSum30 / lookWindow;
+  const spAvg30  = spSum30  / lookWindow;
+
   const atr14   = calcATR(H, L, C, 14, i);
   const rmvVal  = calcRMV(H, L, C, i);
   const cppRaw  = calcCPP(C, O, H, L, V, i);
   const cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH' =
-    cppRaw > 0.5 ? 'BULLISH' : cppRaw < -0.5 ? 'BEARISH' : 'NEUTRAL';
+    cppRaw > 0.3 ? 'BULLISH' : cppRaw < -0.3 ? 'BEARISH' : 'NEUTRAL';
   const cppScore   = parseFloat(cppRaw.toFixed(2));
   const powerScore = Math.max(0, Math.min(100, Math.round(50 + (cppRaw / 1.5) * 45)));
+  const ma20val    = calcSMA(C, 20, i);
+  const ma50val    = calcSMA(C, 50, i);
 
-  // 20-bar averages
-  let volSum = 0, spSum = 0;
-  for (let k = i - 19; k <= i; k++) { volSum += V[k]; spSum += H[k] - L[k]; }
-  const volAvg20 = volSum / 20;
-  const spAvg20  = spSum  / 20;
-
-  // 10-bar buy/sell pressure
   let buyVol = 0, sellVolTen = 0;
-  for (let k = i - 9; k <= i; k++) {
+  for (let k = Math.max(0, i - 9); k <= i; k++) {
     if (C[k] > O[k]) buyVol += V[k];
     else if (C[k] < O[k]) sellVolTen += V[k];
   }
-  const accRatio   = buyVol / (sellVolTen || 1);
-  const volRatioI  = V[i] / (volAvg20 || 1);
-  const momentum10 = ((C[i] - C[i - 10]) / C[i - 10]) * 100;
+  const accRatio  = buyVol / (sellVolTen || 1);
+  const volRatioI = V[i] / (volAvg30 || 1);
 
-  // ── GATE 0: Basic direction checks ───────────────────────────────────────
-  // Stock must be positive over 10 days (not a -5% stock sneaking through)
-  if (momentum10 <= 0) return null;
-  // Today's close must be >= yesterday's close (not falling right now)
-  if (C[i] < C[i - 1]) return null;
-  // Must be above MA20 (uptrend structure)
-  if (C[i] < ma20val * 0.99) return null;
-  // AccRatio must show buyers are dominant
-  if (accRatio < 1.0) return null;
-  // CPP must not be bearish
+  // Gate 0: basic filters
   if (cppBias === 'BEARISH') return null;
+  if (C[i] < ma20val * 0.995) return null;
+  if (accRatio < 0.8) return null;
 
-  // ── GATE 1: Stock must be up ≥5% from a RECENT close (last 1–5 bars) ────
-  // Strategy: find the closest bar where the gain from that close is ≥5%.
-  // Use CLOSEST match (smallest lookback first) to ensure recency.
-  // Also: the stock must NOT have given back more than 4% from its run peak.
-  let baseIdx     = -1;
-  let gainFromBase = 0;
+  // Gate 1: find HAKA spike in last 25 bars
+  let spikeFoundAt = -1;
+  let spikeGain    = 0;
+  let spikeBars    = 0;
 
-  for (let lookback = 1; lookback <= 5; lookback++) {
-    const refIdx = i - lookback;
-    if (refIdx < 0) continue;
-    const gain = ((C[i] - C[refIdx]) / C[refIdx]) * 100;
-    if (gain >= 5) {
-      // Take the FIRST (most recent) one that qualifies
-      baseIdx      = refIdx;
-      gainFromBase = gain;
-      break;
+  for (let peakIdx = i - 2; peakIdx >= Math.max(0, i - 25); peakIdx--) {
+    const isLocalHigh = (peakIdx + 2 <= i)
+      ? H[peakIdx] >= H[peakIdx + 1] && H[peakIdx] >= H[peakIdx + 2]
+      : true;
+    if (!isLocalHigh) continue;
+
+    for (let baseIdx = peakIdx - 1; baseIdx >= Math.max(0, peakIdx - 8); baseIdx--) {
+      const gain = ((H[peakIdx] - L[baseIdx]) / (L[baseIdx] || 1)) * 100;
+      if (gain >= minSpikeGain) {
+        let spikeVol = 0;
+        const barCount = peakIdx - baseIdx + 1;
+        for (let k = baseIdx; k <= peakIdx; k++) spikeVol += V[k];
+        if ((spikeVol / barCount) >= volAvg30 * 1.3) {
+          spikeFoundAt = peakIdx;
+          spikeGain    = gain;
+          spikeBars    = barCount;
+          break;
+        }
+      }
     }
+    if (spikeFoundAt >= 0) break;
   }
 
-  // Hard fail: not up ≥5% from any of last 5 closes
-  if (baseIdx < 0 || gainFromBase < 5) return null;
+  if (spikeFoundAt < 0) return null;
 
-  // Find the HIGH point since baseIdx (peak of the run)
-  let runPeak = C[baseIdx];
-  for (let k = baseIdx + 1; k <= i; k++) {
-    if (H[k] > runPeak) runPeak = H[k];
-  }
-  // Must not have pulled back more than 4% from the run peak
-  const pullbackFromPeak = ((runPeak - C[i]) / runPeak) * 100;
-  if (pullbackFromPeak > 4) return null;
+  // Gate 2: calmdown state
+  const calmBars = i - spikeFoundAt;
+  if (calmBars < 2 || calmBars > 15) return null;
 
-  // How many bars since the base
-  const cooldownBars = i - baseIdx;
-  if (cooldownBars > 8) return null;
+  const spikeHighPrice = H[spikeFoundAt];
+  const spikeBasePrice = C[Math.max(0, spikeFoundAt - spikeBars)];
+  const spikePriceMove = spikeHighPrice - spikeBasePrice;
+  const retracement    = spikeHighPrice - C[i];
+  const pullbackPct    = spikePriceMove > 0 ? (retracement / spikePriceMove) * 100 : 100;
+  if (pullbackPct > 45) return null;
 
-  // ── GATE 2: Calmdown quality — no distribution ───────────────────────────
-  // Measure sell pressure in bars AFTER the base bar
   let cdSellVol = 0, cdTotalVol = 0, cdSpreadSum = 0;
-  const cdStart = baseIdx + 1 <= i ? baseIdx + 1 : i;
-  for (let k = cdStart; k <= i; k++) {
+  for (let k = spikeFoundAt + 1; k <= i; k++) {
     cdTotalVol  += V[k];
     cdSpreadSum += H[k] - L[k];
     if (C[k] < O[k]) cdSellVol += V[k];
   }
-  const sellVolRatio  = cdTotalVol > 0 ? cdSellVol / cdTotalVol : 0;
-  const avgCdSpread   = cooldownBars > 0 ? cdSpreadSum / Math.max(1, cooldownBars) : H[i] - L[i];
-  const baseBarSpread = H[baseIdx] - L[baseIdx];
-  const isVolContracting = avgCdSpread < baseBarSpread * 0.9 || avgCdSpread < spAvg20 * 0.85;
+  const sellVolRatio = cdTotalVol > 0 ? cdSellVol / cdTotalVol : 0;
+  const avgCdSpread  = calmBars > 0 ? cdSpreadSum / calmBars : H[i] - L[i];
+  if (sellVolRatio >= 0.55) return null;
 
-  // Sell vol during calmdown must be < 45%
-  if (cooldownBars > 0 && sellVolRatio >= 0.45) return null;
-  // Price must hold ≥96% of the base close (the run peak reference)
-  if (C[i] < C[baseIdx] * 0.96) return null;
+  const isSpreadContracting = avgCdSpread < spAvg30 * 0.9;
 
-  // ── GATE 3: Power confirmation ────────────────────────────────────────────
+  // Gate 3: power signals
   const hasPower1 = cppBias === 'BULLISH';
-  const hasPower2 = accRatio >= 1.3;
-  const hasPower3 = rmvVal <= 50;
-  const powerCount = [hasPower1, hasPower2, hasPower3].filter(Boolean).length;
+  const hasPower2 = accRatio >= 1.2;
+  const hasPower3 = rmvVal <= 55;
+  const hasPower4 = sellVolRatio < 0.35;
+  const hasPower5 = C[i] > ma20val && C[i] > ma50val;
+  const powerCount = [hasPower1, hasPower2, hasPower3, hasPower4, hasPower5].filter(Boolean).length;
   if (powerCount < 2) return null;
 
-  // ── VSA pattern on current candle ─────────────────────────────────────────
+  // VSA pattern on current bar
   const curSpread = H[i] - L[i];
   const curBody   = Math.abs(C[i] - O[i]);
   const isGreen   = C[i] >= O[i];
   const lWick     = Math.min(O[i], C[i]) - L[i];
   const uWick     = H[i] - Math.max(O[i], C[i]);
 
-  const isDryUp   = (!isGreen || curBody < curSpread * 0.3) && volRatioI <= 0.65 && accRatio > 0.8;
-  const isNSup    = !isGreen && curSpread < atr14 && volRatioI < 0.75 && accRatio > 1.0;
-  const isIceberg = volRatioI > 1.2 && (curSpread / (spAvg20 || 1)) < 0.75 && accRatio > 1.3;
-  const isHammer  = lWick > curBody * 1.2 && uWick < curBody * 0.6 && (lWick / (curSpread || 1)) > 0.45;
+  const isPinbar  = uWick > curBody * 2 && lWick < curBody * 0.5 && !isGreen;
+  if (isPinbar && (uWick / (curSpread || 1)) > 0.6) return null;
 
-  let cooldownVSA = 'NEUTRAL';
-  if (isDryUp)        cooldownVSA = 'DRY UP';
-  else if (isNSup)    cooldownVSA = 'NO SUPPLY';
-  else if (isIceberg) cooldownVSA = 'ICEBERG';
-  else if (isHammer)  cooldownVSA = 'HAMMER';
+  const isDryUp   = (!isGreen || curBody < curSpread * 0.3) && volRatioI <= 0.70;
+  const isNSup    = !isGreen && curSpread < atr14 && volRatioI < 0.80;
+  const isIceberg = volRatioI > 1.1 && (curSpread / (spAvg30 || 1)) < 0.80 && accRatio > 1.1;
+  const isHammer  = lWick > curBody && uWick < curBody * 0.8 && (lWick / (curSpread || 1)) > 0.4;
 
-  const hasBullVSA = cooldownVSA !== 'NEUTRAL';
-  const isVCPLike  = isVolContracting && rmvVal <= 45 && sellVolRatio < 0.35;
+  let vsaSignal = 'NEUTRAL';
+  if (isDryUp)        vsaSignal = 'DRY UP';
+  else if (isNSup)    vsaSignal = 'NO SUPPLY';
+  else if (isIceberg) vsaSignal = 'ICEBERG';
+  else if (isHammer)  vsaSignal = 'HAMMER';
 
-  // ── GRADING: only SNIPER or WATCH ─────────────────────────────────────────
-  // SNIPER = confirmed VSA signal + strong power (high conviction)
-  // WATCH  = no VSA confirmation yet, but structure is good (wait for entry)
-  // NO BREAKOUT label — volume/MA break not confirmed
+  const hasBullVSA    = ['DRY UP','NO SUPPLY','ICEBERG','HAMMER'].includes(vsaSignal);
+  const isVCPIntraday = isSpreadContracting && rmvVal <= 50 && sellVolRatio < 0.40;
+
+  // Grading
   let grade: 'A+' | 'A' | 'B';
-  let entryType: 'SNIPER' | 'BREAKOUT' | 'WATCH';
+  let entryType: 'SNIPER' | 'WATCH';
 
-  if (powerCount === 3 && hasBullVSA && isVCPLike) {
+  if (powerCount >= 4 && hasBullVSA && isVCPIntraday) {
     grade = 'A+'; entryType = 'SNIPER';
+  } else if (powerCount >= 3 && hasBullVSA) {
+    grade = 'A';  entryType = 'SNIPER';
+  } else if (powerCount >= 3 && isVCPIntraday) {
+    grade = 'A';  entryType = 'SNIPER';
   } else if (powerCount >= 2 && hasBullVSA) {
     grade = 'A';  entryType = 'SNIPER';
-  } else if (powerCount >= 2 && isVCPLike) {
-    // VCP structure but no VSA confirmation yet — watch for entry
+  } else if (powerCount >= 2 && isVCPIntraday) {
     grade = 'B';  entryType = 'WATCH';
-  } else if (powerCount >= 2 && cppBias === 'BULLISH' && accRatio >= 1.3 && momentum10 >= 5) {
-    // Strong momentum + buying pressure but no VSA — watch
+  } else if (powerCount >= 2 && cppBias === 'BULLISH') {
     grade = 'B';  entryType = 'WATCH';
   } else {
     return null;
   }
 
-  // ── Reason string ──────────────────────────────────────────────────────────
+  const calmMins = calmBars * (tf === '5m' ? 5 : 15);
   const parts: string[] = [
-    `+${gainFromBase.toFixed(1)}% (${cooldownBars === 0 ? 'today' : cooldownBars + 'd ago'})`,
-    `Peak pullback ${pullbackFromPeak.toFixed(1)}%`,
+    `Spike +${spikeGain.toFixed(1)}% in ${spikeBars} bars`,
+    `Calm ${calmMins}min (${calmBars} bars)`,
+    `Pullback ${pullbackPct.toFixed(0)}% of spike`,
     `Sell vol ${Math.round(sellVolRatio * 100)}%`,
   ];
-  if (hasBullVSA)            parts.push(cooldownVSA);
-  if (isVCPLike)             parts.push(`VCP RMV=${Math.round(rmvVal)}`);
+  if (hasBullVSA)            parts.push(vsaSignal);
+  if (isVCPIntraday)         parts.push(`VCP RMV=${Math.round(rmvVal)}`);
   if (cppBias === 'BULLISH') parts.push(`CPP +${cppScore}`);
-  if (accRatio >= 1.3)       parts.push(`Acc ${accRatio.toFixed(1)}x`);
-  parts.push(`Mtm +${momentum10.toFixed(1)}%`);
+  if (accRatio >= 1.2)       parts.push(`Acc ${accRatio.toFixed(1)}x`);
 
-  const slMult = isVCPLike ? 1.0 : 1.3;
-  const tpMult = grade === 'A+' ? 3.5 : grade === 'A' ? 3.0 : 2.5;
+  const calmLow  = Math.min(...C.slice(spikeFoundAt + 1, i + 1));
+  const tpMult   = grade === 'A+' ? 2.5 : grade === 'A' ? 2.0 : 1.5;
 
   return {
-    price: C[i],
-    gainFromBase,
-    cooldownBars,
+    runGainPct:  spikeGain,
+    runBars:     spikeBars,
+    calmBars,
+    pullbackPct,
     sellVolRatio,
     accRatio,
+    volRatio:    volRatioI,
     cppScore,
     cppBias,
     powerScore,
-    rmv: rmvVal,
-    volRatio: volRatioI,
-    momentum10,
-    ma20: ma20val,
-    ma50: ma50val,
-    cooldownVSA,
+    rmv:         rmvVal,
+    aboveMA20:   C[i] > ma20val,
+    aboveMA50:   C[i] > ma50val,
+    vsaSignal,
     grade,
     entryType,
-    reason: parts.join(' · '),
-    stopLoss: parseFloat((C[i] - atr14 * slMult).toFixed(0)),
+    stopLoss: parseFloat((calmLow - atr14 * 0.5).toFixed(0)),
     target:   parseFloat((C[i] + atr14 * tpMult).toFixed(0)),
+    reason:   parts.join(' · '),
   };
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── Main Component ─────────────────────────────────────────────────────────────
 export default function ScalpScreener() {
   const router = useRouter();
-  const [results, setResults]         = useState<CalmdownResult[]>([]);
-  const [loading, setLoading]         = useState(false);
-  const [progress, setProgress]       = useState(0);
+  const [results, setResults]           = useState<ScalpResult[]>([]);
+  const [loading, setLoading]           = useState(false);
+  const [progress, setProgress]         = useState(0);
   const [scannedCount, setScannedCount] = useState(0);
-  const [stockMode, setStockMode]     = useState<'LIQUID' | 'ALL'>('LIQUID');
-  const [sortBy, setSortBy]           = useState<'grade' | 'gain' | 'power' | 'cpp'>('grade');
-  const [filterGrade, setFilterGrade] = useState<'ALL' | 'A+' | 'A' | 'B'>('ALL');
+  const [tfMode, setTfMode]             = useState<'5m' | '15m'>('15m');
+  const [stockMode, setStockMode]       = useState<'LIQUID' | 'ALL'>('LIQUID');
+  const [sortBy, setSortBy]             = useState<'grade' | 'power' | 'spike' | 'calm'>('grade');
+  const [filterGrade, setFilterGrade]   = useState<'ALL' | 'A+' | 'A' | 'B'>('ALL');
   const abortRef = useRef(false);
 
   const stockList = stockMode === 'LIQUID' ? LIQUID_STOCKS : ALL_INDONESIAN_STOCKS;
+  const tfRange   = tfMode === '5m' ? '20d' : '60d';
 
-  const doSort = (arr: CalmdownResult[], by: string): CalmdownResult[] =>
+  const doSort = (arr: ScalpResult[], by: string): ScalpResult[] =>
     [...arr].sort((a, b) => {
       if (by === 'grade') {
-        const g = { 'A+': 0, 'A': 1, 'B': 2 };
+        const g: Record<string, number> = { 'A+': 0, 'A': 1, 'B': 2 };
         const d = g[a.grade] - g[b.grade];
         return d !== 0 ? d : b.cppScore - a.cppScore;
       }
-      if (by === 'gain')  return b.gainFromBase - a.gainFromBase;
       if (by === 'power') return b.powerScore - a.powerScore;
-      return b.cppScore - a.cppScore;
+      if (by === 'spike') return b.runGainPct - a.runGainPct;
+      return a.calmBars - b.calmBars; // calm: fewer = more urgent
     });
 
   const startScan = async () => {
@@ -424,33 +418,37 @@ export default function ScalpScreener() {
     setProgress(0);
     setScannedCount(0);
     abortRef.current = false;
-    const found: CalmdownResult[] = [];
+    const found: ScalpResult[] = [];
     let scanned = 0;
 
     for (let idx = 0; idx < stockList.length; idx++) {
       if (abortRef.current) break;
       const ticker = stockList[idx];
       try {
-        const symbol = `${ticker}.JK`;
-        const histRes = await fetch(`/api/stock/historical?symbol=${symbol}&interval=1d&range=1y`);
+        const symbol  = `${ticker}.JK`;
+        const histRes = await fetch(`/api/stock/historical?symbol=${symbol}&interval=${tfMode}&range=${tfRange}`);
         if (!histRes.ok) { setProgress(Math.round(((idx + 1) / stockList.length) * 100)); continue; }
         const histData = await histRes.json();
         const candles  = histData.candles ?? histData.data ?? [];
-        if (candles.length < 60) { setProgress(Math.round(((idx + 1) / stockList.length) * 100)); continue; }
+        const minReq   = tfMode === '5m' ? 100 : 40;
+        if (candles.length < minReq) { setProgress(Math.round(((idx + 1) / stockList.length) * 100)); continue; }
+
         scanned++;
         setScannedCount(scanned);
 
-        const analysis = screenCalmdownAfterMarkup(candles);
+        const analysis = screenIntraday(candles, tfMode);
         if (analysis) {
           const qRes = await fetch(`/api/stock/quote?symbol=${symbol}`);
           const q    = qRes.ok ? await qRes.json() : null;
-          const result: CalmdownResult = {
+          const result: ScalpResult = {
             ...analysis,
-            symbol: ticker,
-            price:         q?.regularMarketPrice ?? q?.price ?? analysis.price,
-            change:        q?.regularMarketChange ?? q?.change ?? 0,
+            symbol,
+            price:         q?.regularMarketPrice ?? q?.price ?? candles[candles.length - 1]?.close ?? 0,
             changePercent: q?.regularMarketChangePercent ?? q?.changePercent ?? 0,
+            timeframe:     tfMode,
           };
+          // Use ticker without .JK for display
+          result.symbol = ticker;
           found.push(result);
           setResults(doSort([...found], sortBy));
         }
@@ -460,14 +458,9 @@ export default function ScalpScreener() {
     setLoading(false);
   };
 
-  const stopScan = () => { abortRef.current = true; setLoading(false); };
-
-  const handleSort = (by: typeof sortBy) => {
-    setSortBy(by);
-    setResults(prev => doSort(prev, by));
-  };
-
-  const filtered = filterGrade === 'ALL' ? results : results.filter(r => r.grade === filterGrade);
+  const stopScan  = () => { abortRef.current = true; setLoading(false); };
+  const handleSort = (by: typeof sortBy) => { setSortBy(by); setResults(prev => doSort(prev, by)); };
+  const filtered  = filterGrade === 'ALL' ? results : results.filter(r => r.grade === filterGrade);
 
   const gradeCfg = {
     'A+': { bg: 'bg-emerald-500/15', border: 'border-emerald-500/50', text: 'text-emerald-300', badge: 'bg-emerald-600' },
@@ -475,9 +468,15 @@ export default function ScalpScreener() {
     'B':  { bg: 'bg-yellow-500/10',  border: 'border-yellow-500/30',  text: 'text-yellow-300',  badge: 'bg-yellow-600' },
   };
   const vsaColor: Record<string, string> = {
-    'DRY UP':'text-cyan-400', 'NO SUPPLY':'text-cyan-400',
-    'ICEBERG':'text-blue-400', 'HAMMER':'text-yellow-400', 'NEUTRAL':'text-gray-500',
+    'DRY UP':    'text-cyan-400',
+    'NO SUPPLY': 'text-cyan-400',
+    'ICEBERG':   'text-blue-400',
+    'HAMMER':    'text-yellow-400',
+    'NEUTRAL':   'text-gray-500',
   };
+  const barsPerDay = tfMode === '5m' ? 78 : 26;
+  const tfLabel    = tfMode === '5m' ? '5 menit' : '15 menit';
+  const minGainLbl = tfMode === '5m' ? '1.5' : '2';
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -487,58 +486,66 @@ export default function ScalpScreener() {
           <div className="flex items-center gap-3">
             <Link href="/" className="text-gray-400 hover:text-white text-sm flex items-center gap-1">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/>
               </svg>
               Chart
             </Link>
             <span className="text-gray-600">/</span>
-            <span className="text-white font-semibold text-sm">Scalp Screener</span>
+            <span className="text-white font-semibold text-sm">⚡ Scalp Screener</span>
           </div>
           <div className="flex gap-3 text-sm">
-            <Link href="/analysis" className="text-gray-400 hover:text-white">Analysis</Link>
-            <Link href="/vcp-screener" className="text-gray-400 hover:text-white">VCP</Link>
+            <Link href="/analysis"       className="text-gray-400 hover:text-white">Analysis</Link>
+            <Link href="/vcp-screener"   className="text-gray-400 hover:text-white">VCP</Link>
+            <Link href="/swing-screener" className="text-gray-400 hover:text-white">Swing</Link>
           </div>
         </div>
       </nav>
 
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
+
         {/* Header */}
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <span>🚀</span> Markup Calmdown Screener
+            <span>⚡</span> Intraday Scalp Screener
+            <span className="text-sm font-normal bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full border border-yellow-500/30">
+              {tfLabel} candles
+            </span>
           </h1>
           <p className="text-gray-400 text-sm mt-1">
-            Stocks already <span className="text-emerald-400 font-medium">up ≥5% from last price</span> — now cooling down with low sell pressure &amp; power to continue
+            Mencari saham yang baru saja <span className="text-yellow-400 font-medium">markup agresif (HAKA spike)</span> di
+            timeframe {tfLabel}, sekarang <span className="text-cyan-400">cooldown sehat</span> — siap untuk leg naik berikutnya.
+            Target hold: <span className="text-white font-medium">30 menit – 2 jam</span>.
           </p>
         </div>
 
         {/* Strategy explainer */}
-        <div className="bg-blue-900/20 border border-blue-500/20 rounded-xl p-4">
-          <div className="text-blue-300 font-medium text-sm mb-3">📖 Filter Logic (3 Gates)</div>
+        <div className="bg-indigo-900/20 border border-indigo-500/20 rounded-xl p-4">
+          <div className="text-indigo-300 font-medium text-sm mb-3">
+            📖 Screener Logic — {barsPerDay} candle/hari di {tfLabel} timeframe
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-gray-300">
             <div className="flex gap-2">
-              <span className="text-emerald-400 font-bold text-base shrink-0">①</span>
+              <span className="text-yellow-400 font-bold text-lg shrink-0">①</span>
               <div>
-                <div className="text-white font-medium mb-0.5">Already Up ≥5% (Last 1–5 bars)</div>
-                Current close must be ≥5% above a close within the last 5 trading days.
-                The run has already happened — we&apos;re not trying to catch it, we&apos;re riding the continuation.
+                <div className="text-white font-medium mb-0.5">HAKA Spike Terdeteksi</div>
+                Harga naik ≥{minGainLbl}% dalam ≤8 candle {tfLabel} disertai volume ≥1.3× rata-rata.
+                Ini markup agresif institusi — bukan noise biasa.
               </div>
             </div>
             <div className="flex gap-2">
-              <span className="text-yellow-400 font-bold text-base shrink-0">②</span>
+              <span className="text-cyan-400 font-bold text-lg shrink-0">②</span>
               <div>
-                <div className="text-white font-medium mb-0.5">Healthy Calmdown (Not Distribution)</div>
-                Sell vol &lt;45% during calmdown. Price holds &gt;96% of the run peak.
-                Must be above MA20. Today&apos;s close ≥ yesterday (not falling). Momentum10 must be <span className="text-emerald-400">positive</span>.
+                <div className="text-white font-medium mb-0.5">Calmdown Sehat (Napas)</div>
+                2–15 candle setelah spike peak. Pullback ≤45% dari spike move.
+                Sell vol &lt;55%, spread menyempit — saham konsolidasi, bukan distribusi.
               </div>
             </div>
             <div className="flex gap-2">
-              <span className="text-cyan-400 font-bold text-base shrink-0">③</span>
+              <span className="text-emerald-400 font-bold text-lg shrink-0">③</span>
               <div>
-                <div className="text-white font-medium mb-0.5">Power + Signal</div>
-                <span className="text-orange-300">🎯 SNIPER</span> = VSA confirmation (Dry Up / No Supply / Iceberg / Hammer) + strong power.
-                <span className="text-purple-300 ml-1">👁️ WATCH</span> = VCP structure forming but no VSA signal yet — wait for entry confirmation.
-                <span className="text-red-400 ml-1">No BREAKOUT</span> = never shown without vol + MA break.
+                <div className="text-white font-medium mb-0.5">Power Masih Kuat</div>
+                CPP bullish + di atas MA20 + akumulasi dominan + RMV mengecil.
+                VSA signal (Dry Up / No Supply / Iceberg) = sniper entry.
               </div>
             </div>
           </div>
@@ -546,12 +553,22 @@ export default function ScalpScreener() {
 
         {/* Controls */}
         <div className="flex flex-wrap gap-2 items-center">
-          {/* Mode */}
+          {/* Timeframe */}
+          <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
+            {(['5m','15m'] as const).map(tf => (
+              <button key={tf} onClick={() => { setTfMode(tf); setResults([]); setScannedCount(0); }}
+                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-colors ${tfMode === tf ? 'bg-yellow-500 text-gray-900' : 'text-gray-400 hover:text-white'}`}>
+                {tf === '5m' ? '⚡' : '🕒'} {tf}
+              </button>
+            ))}
+          </div>
+
+          {/* Stock mode */}
           <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
             {(['LIQUID','ALL'] as const).map(m => (
               <button key={m} onClick={() => setStockMode(m)}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${stockMode === m ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
-                {m === 'LIQUID' ? `⚡ Liquid (${LIQUID_STOCKS.length})` : `📊 All IDX (${ALL_INDONESIAN_STOCKS.length})`}
+                {m === 'LIQUID' ? `⚡ Liquid (${LIQUID_STOCKS.length})` : `📊 All (${ALL_INDONESIAN_STOCKS.length})`}
               </button>
             ))}
           </div>
@@ -568,30 +585,20 @@ export default function ScalpScreener() {
 
           {/* Sort */}
           <select value={sortBy} onChange={e => handleSort(e.target.value as typeof sortBy)}
-            className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+            className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-3 py-2 focus:outline-none">
             <option value="grade">Sort: Grade</option>
-            <option value="gain">Sort: Gain %</option>
             <option value="power">Sort: Power Score</option>
-            <option value="cpp">Sort: CPP Score</option>
+            <option value="spike">Sort: Spike Size</option>
+            <option value="calm">Sort: Most Recent</option>
           </select>
 
           {/* Scan / Stop */}
           <button onClick={loading ? stopScan : startScan}
-            className={`flex items-center gap-2 px-5 py-2 rounded-lg font-medium text-sm transition-colors ml-auto ${loading ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'} text-white`}>
+            className={`flex items-center gap-2 px-5 py-2 rounded-lg font-bold text-sm transition-colors ml-auto ${loading ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-yellow-500 hover:bg-yellow-400 text-gray-900'}`}>
             {loading ? (
-              <>
-                <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                Stop
-              </>
+              <><svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>Stop</>
             ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                </svg>
-                Start Scan
-              </>
+              <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Scan {tfMode}</>
             )}
           </button>
         </div>
@@ -601,26 +608,22 @@ export default function ScalpScreener() {
           <div className="bg-gray-800/60 rounded-xl p-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-gray-300">
-                Scanning <span className="text-white">{stockList.length}</span> stocks…
-                <span className="text-emerald-400 ml-2">{scannedCount} checked</span>
+                Scanning <span className="text-yellow-400 font-bold">{tfMode}</span> — {scannedCount}/{stockList.length} stocks
               </span>
               <span className="text-gray-400">{progress}%</span>
             </div>
             <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-500 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+              <div className="h-full bg-yellow-500 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}/>
             </div>
-            {results.length > 0 && (
-              <div className="text-xs text-emerald-400">✓ {results.length} setups found so far</div>
-            )}
+            {results.length > 0 && <div className="text-xs text-emerald-400">⚡ {results.length} scalp setups found</div>}
           </div>
         )}
 
-        {/* Results summary */}
+        {/* Results count */}
         {!loading && results.length > 0 && (
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="text-sm text-gray-400">
-              <span className="text-white font-bold">{filtered.length}</span> stocks already up ≥5% with power to continue
-              {filterGrade !== 'ALL' && <span className="text-gray-500"> (Grade {filterGrade})</span>}
+              <span className="text-white font-bold">{filtered.length}</span> intraday scalp setups ({tfMode})
             </div>
             <div className="flex gap-2 text-xs">
               {(['A+','A','B'] as const).map(g => {
@@ -633,34 +636,46 @@ export default function ScalpScreener() {
           </div>
         )}
 
-        {/* Empty state */}
+        {/* Empty after scan */}
         {!loading && results.length === 0 && scannedCount > 0 && (
           <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl p-10 text-center">
             <div className="text-4xl mb-3">🔍</div>
-            <div className="text-white font-medium text-lg">No setups found today</div>
-            <div className="text-gray-400 text-sm mt-1.5">{scannedCount} stocks analyzed. No stock is up ≥5% from last 5 bars with valid calmdown. Try again tomorrow or switch to All IDX.</div>
-          </div>
-        )}
-
-        {/* Initial empty state */}
-        {!loading && results.length === 0 && scannedCount === 0 && (
-          <div className="bg-gray-800/30 border border-gray-700/40 rounded-xl p-10 text-center">
-            <div className="text-5xl mb-4">🚀</div>
-            <div className="text-white font-medium text-lg">Ready to scan</div>
+            <div className="text-white font-medium text-lg">Tidak ada scalp setup saat ini</div>
             <div className="text-gray-400 text-sm mt-1.5 max-w-md mx-auto">
-              Click <span className="text-emerald-400">Start Scan</span> to find stocks already up <span className="text-emerald-400">≥5%</span> from last price, now cooling down with low sell volume — ready for the next leg up.
+              {scannedCount} saham dianalisis candle {tfMode}. Tidak ada HAKA spike + calmdown valid.
+              Coba timeframe <span className="text-yellow-400">{tfMode === '5m' ? '15m' : '5m'}</span> atau tunggu market lebih aktif.
             </div>
           </div>
         )}
 
-        {/* Results grid */}
+        {/* Initial state */}
+        {!loading && results.length === 0 && scannedCount === 0 && (
+          <div className="bg-gray-800/30 border border-gray-700/40 rounded-xl p-10 text-center">
+            <div className="text-5xl mb-4">⚡</div>
+            <div className="text-white font-medium text-xl">Scalp Screener Siap</div>
+            <div className="text-gray-400 text-sm mt-2 max-w-lg mx-auto">
+              Klik <span className="text-yellow-400 font-bold">Scan {tfMode}</span> untuk menemukan saham dengan
+              <span className="text-yellow-400"> HAKA spike</span> di candle {tfLabel} yang sedang
+              <span className="text-cyan-400"> cooldown</span> dengan volume jual rendah.
+            </div>
+            <div className="mt-4 flex flex-wrap justify-center gap-3 text-xs text-gray-500">
+              <span className="bg-gray-800 px-3 py-1.5 rounded-full">📊 {barsPerDay} candle {tfMode}/hari IDX</span>
+              <span className="bg-gray-800 px-3 py-1.5 rounded-full">🎯 Spike ≥{minGainLbl}% dalam ≤8 candle</span>
+              <span className="bg-gray-800 px-3 py-1.5 rounded-full">⏱️ Calmdown 2–15 candle setelah spike</span>
+              <span className="bg-gray-800 px-3 py-1.5 rounded-full">🔋 Min 2 dari 5 power signals</span>
+            </div>
+          </div>
+        )}
+
+        {/* Results */}
         {filtered.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map(r => {
-              const cfg = gradeCfg[r.grade];
-              const rrRatio = r.stopLoss && r.target && r.price > r.stopLoss
+              const cfg     = gradeCfg[r.grade];
+              const rrRatio = r.price > r.stopLoss
                 ? Math.abs(r.target - r.price) / Math.abs(r.price - r.stopLoss)
                 : null;
+              const calmMins = r.calmBars * (r.timeframe === '5m' ? 5 : 15);
 
               return (
                 <div key={r.symbol} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4 space-y-3 hover:shadow-lg transition-all`}>
@@ -670,13 +685,10 @@ export default function ScalpScreener() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-white font-bold text-lg">{r.symbol}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-bold text-white ${cfg.badge}`}>{r.grade}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
-                          r.entryType === 'SNIPER'
-                            ? 'bg-orange-500/15 border-orange-500/30 text-orange-300'
-                            : 'bg-purple-500/15 border-purple-500/30 text-purple-300'
-                        }`}>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${r.entryType === 'SNIPER' ? 'bg-orange-500/15 border-orange-500/30 text-orange-300' : 'bg-purple-500/15 border-purple-500/30 text-purple-300'}`}>
                           {r.entryType === 'SNIPER' ? '🎯 Sniper' : '👁️ Watch'}
                         </span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 font-mono">{r.timeframe}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-white font-medium">Rp {r.price.toLocaleString('id-ID')}</span>
@@ -686,57 +698,76 @@ export default function ScalpScreener() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-emerald-400 font-bold text-xl">+{r.gainFromBase.toFixed(1)}%</div>
-                      <div className="text-gray-500 text-xs">already up</div>
+                      <div className="text-yellow-400 font-bold text-lg">+{r.runGainPct.toFixed(1)}%</div>
+                      <div className="text-gray-500 text-xs">spike ({r.runBars} bars)</div>
                     </div>
                   </div>
 
-                  {/* Core metrics */}
-                  <div className="grid grid-cols-3 gap-1.5 text-center">
+                  {/* Spike → Calm → Next visual */}
+                  <div className="bg-gray-900/60 rounded-lg p-2.5 grid grid-cols-3 gap-1 text-center text-xs">
+                    <div>
+                      <div className="text-gray-500 mb-0.5">📈 Spike</div>
+                      <div className="text-yellow-300 font-bold">+{r.runGainPct.toFixed(1)}%</div>
+                      <div className="text-gray-600">{r.runBars} bars</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-500 mb-0.5">🌙 Calm</div>
+                      <div className="text-cyan-300 font-bold">{calmMins}min</div>
+                      <div className="text-gray-600">{r.calmBars} bars</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-500 mb-0.5">🎯 Signal</div>
+                      <div className={`font-bold ${r.cppBias === 'BULLISH' ? 'text-emerald-400' : 'text-gray-300'}`}>
+                        {r.cppBias === 'BULLISH' ? '🚀 GO' : '⏳ WAIT'}
+                      </div>
+                      <div className="text-gray-600">CPP {r.cppScore > 0 ? '+' : ''}{r.cppScore}</div>
+                    </div>
+                  </div>
+
+                  {/* Metrics row */}
+                  <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
                     <div className="bg-gray-900/60 rounded-lg p-2">
-                      <div className="text-gray-500 text-xs">Calm Since</div>
-                      <div className="text-white font-bold">{r.cooldownBars === 0 ? 'Today' : r.cooldownBars + 'd'}</div>
-                      <div className={`text-xs ${r.sellVolRatio < 0.3 ? 'text-emerald-400' : r.sellVolRatio < 0.4 ? 'text-yellow-400' : 'text-orange-400'}`}>
-                        sell {Math.round(r.sellVolRatio * 100)}%
+                      <div className="text-gray-500">Pullback</div>
+                      <div className={`font-bold ${r.pullbackPct < 25 ? 'text-emerald-400' : r.pullbackPct < 38 ? 'text-yellow-400' : 'text-orange-400'}`}>
+                        {r.pullbackPct.toFixed(0)}%
                       </div>
                     </div>
                     <div className="bg-gray-900/60 rounded-lg p-2">
-                      <div className="text-gray-500 text-xs">CPP</div>
-                      <div className={`font-bold ${r.cppBias === 'BULLISH' ? 'text-emerald-400' : r.cppBias === 'BEARISH' ? 'text-red-400' : 'text-gray-300'}`}>
-                        {r.cppScore > 0 ? '+' : ''}{r.cppScore}
+                      <div className="text-gray-500">Sell Vol</div>
+                      <div className={`font-bold ${r.sellVolRatio < 0.25 ? 'text-emerald-400' : r.sellVolRatio < 0.40 ? 'text-yellow-400' : 'text-orange-400'}`}>
+                        {Math.round(r.sellVolRatio * 100)}%
                       </div>
-                      <div className="text-gray-500 text-xs">{r.cppBias.slice(0,4)}</div>
                     </div>
                     <div className="bg-gray-900/60 rounded-lg p-2">
-                      <div className="text-gray-500 text-xs">Power</div>
-                      <div className={`font-bold ${r.powerScore >= 70 ? 'text-emerald-400' : r.powerScore >= 55 ? 'text-yellow-400' : 'text-gray-300'}`}>
+                      <div className="text-gray-500">Power</div>
+                      <div className={`font-bold ${r.powerScore >= 70 ? 'text-emerald-400' : 'text-yellow-400'}`}>
                         {r.powerScore}
                       </div>
-                      <div className="text-gray-500 text-xs">RMV {Math.round(r.rmv)}</div>
                     </div>
                   </div>
 
-                  {/* VSA + Acc + Mom */}
+                  {/* VSA + MA + Acc */}
                   <div className="flex items-center justify-between text-xs px-0.5">
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500">VSA</span>
-                      <span className={`font-semibold ${vsaColor[r.cooldownVSA] || 'text-gray-400'}`}>{r.cooldownVSA}</span>
+                    <div>
+                      <span className="text-gray-500">VSA </span>
+                      <span className={`font-semibold ${vsaColor[r.vsaSignal] ?? 'text-gray-400'}`}>{r.vsaSignal}</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500">Acc</span>
+                    <div>
+                      <span className="text-gray-500">MA </span>
+                      <span className={`font-semibold ${r.aboveMA20 ? 'text-emerald-400' : 'text-red-400'}`}>{r.aboveMA20 ? '✓' : '✗'}20 </span>
+                      <span className={`font-semibold ${r.aboveMA50 ? 'text-emerald-400' : 'text-red-400'}`}>{r.aboveMA50 ? '✓' : '✗'}50</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Acc </span>
                       <span className={`font-semibold ${r.accRatio >= 1.5 ? 'text-emerald-400' : r.accRatio >= 1.0 ? 'text-yellow-400' : 'text-red-400'}`}>{r.accRatio.toFixed(1)}x</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500">Mom</span>
-                      <span className={`font-semibold ${r.momentum10 > 0 ? 'text-emerald-400' : 'text-orange-400'}`}>{r.momentum10 > 0 ? '+' : ''}{r.momentum10.toFixed(1)}%</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500">Vol</span>
-                      <span className={`font-semibold ${r.volRatio > 1.2 ? 'text-emerald-400' : r.volRatio < 0.6 ? 'text-cyan-400' : 'text-gray-300'}`}>{r.volRatio.toFixed(1)}x</span>
+                    <div>
+                      <span className="text-gray-500">RMV </span>
+                      <span className={`font-semibold ${r.rmv <= 30 ? 'text-emerald-400' : r.rmv <= 50 ? 'text-yellow-400' : 'text-gray-300'}`}>{Math.round(r.rmv)}</span>
                     </div>
                   </div>
 
-                  {/* SL / TP */}
+                  {/* SL / R:R / TP */}
                   <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
                     <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-1.5">
                       <div className="text-red-400 font-medium">Stop Loss</div>
@@ -744,10 +775,8 @@ export default function ScalpScreener() {
                     </div>
                     <div className="bg-gray-800/60 rounded-lg p-1.5 flex flex-col items-center justify-center">
                       {rrRatio ? (
-                        <>
-                          <div className="text-gray-500">R:R</div>
-                          <div className={`font-bold ${rrRatio >= 2.5 ? 'text-emerald-400' : rrRatio >= 1.5 ? 'text-yellow-400' : 'text-orange-400'}`}>1:{rrRatio.toFixed(1)}</div>
-                        </>
+                        <><div className="text-gray-500">R:R</div>
+                        <div className={`font-bold ${rrRatio >= 2 ? 'text-emerald-400' : rrRatio >= 1.5 ? 'text-yellow-400' : 'text-orange-400'}`}>1:{rrRatio.toFixed(1)}</div></>
                       ) : <span className="text-gray-600">—</span>}
                     </div>
                     <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-1.5">
@@ -756,26 +785,24 @@ export default function ScalpScreener() {
                     </div>
                   </div>
 
-                  {/* Reason tag */}
-                  <div className="text-xs text-gray-400 bg-gray-900/50 rounded-lg px-2.5 py-2 leading-relaxed">
-                    {r.reason}
-                  </div>
+                  {/* Reason */}
+                  <div className="text-xs text-gray-400 bg-gray-900/50 rounded-lg px-2.5 py-2 leading-relaxed">{r.reason}</div>
 
                   {/* Buttons */}
                   <div className="flex gap-2">
-                    <button onClick={() => router.push(`/?symbol=${r.symbol}&timeframe=1d`)}
-                      className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5">
+                    <button onClick={() => router.push(`/?symbol=${r.symbol}&timeframe=${r.timeframe}`)}
+                      className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-gray-900 text-xs py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/>
                       </svg>
-                      View Chart
+                      Chart {r.timeframe}
                     </button>
                     <button onClick={() => router.push(`/analysis?symbol=${r.symbol}`)}
                       className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                       </svg>
-                      Deep Analysis
+                      Analisis
                     </button>
                   </div>
                 </div>
@@ -786,29 +813,36 @@ export default function ScalpScreener() {
 
         {/* Legend */}
         <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl p-4 text-xs space-y-3">
-          <div className="text-gray-500 font-medium uppercase tracking-wide">Grade Criteria</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="text-gray-500 font-medium uppercase tracking-wide">Panduan Grade & Signal</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-gray-300">
             <div>
-              <div className="text-emerald-400 font-bold mb-1">A+ — Sniper</div>
-              <div className="text-gray-400">All 3 power signals + bullish VSA + VCP-like compression (RMV≤35, sell vol&lt;35%). Highest confidence.</div>
+              <div className="text-emerald-400 font-bold mb-1">A+ — Sniper Entry</div>
+              <div className="text-gray-400">4-5 power signals + VSA + VCP intraday. Entry langsung, SL di bawah calmdown low.</div>
             </div>
             <div>
-              <div className="text-cyan-400 font-bold mb-1">A — Sniper</div>
-              <div className="text-gray-400">2 power signals + bullish VSA or VCP compression. Strong continuation probability.</div>
+              <div className="text-cyan-400 font-bold mb-1">A — Sniper / High Prob</div>
+              <div className="text-gray-400">3+ power + VSA atau spread kontraksi. Entry saat candle konfirmasi hijau + volume.</div>
             </div>
             <div>
-              <div className="text-yellow-400 font-bold mb-1">B — Breakout Watch</div>
-              <div className="text-gray-400">2 power signals + CPP bullish. Wait for next-candle volume spike to confirm entry.</div>
+              <div className="text-yellow-400 font-bold mb-1">B — Watch / Siap Entry</div>
+              <div className="text-gray-400">2 power + CPP bullish. Tunggu 1 candle konfirmasi sebelum masuk.</div>
             </div>
           </div>
           <div className="pt-2 border-t border-gray-700/50 grid grid-cols-2 sm:grid-cols-4 gap-2 text-gray-400">
-            <div><span className="text-cyan-400 font-medium">DRY UP</span> — low vol pullback, no sellers left</div>
-            <div><span className="text-cyan-400 font-medium">NO SUPPLY</span> — supply exhausted on red bar</div>
-            <div><span className="text-blue-400 font-medium">ICEBERG</span> — hidden accumulation in calmdown</div>
-            <div><span className="text-yellow-400 font-medium">HAMMER</span> — rejection of lows, demand at support</div>
+            <div><span className="text-cyan-400 font-medium">DRY UP</span> — volume mengering, seller habis</div>
+            <div><span className="text-cyan-400 font-medium">NO SUPPLY</span> — candle merah vol rendah</div>
+            <div><span className="text-blue-400 font-medium">ICEBERG</span> — akumulasi tersembunyi</div>
+            <div><span className="text-yellow-400 font-medium">HAMMER</span> — ekor panjang, demand kuat</div>
+          </div>
+          <div className="pt-2 border-t border-gray-700/50 text-gray-500">
+            <span className="text-white font-medium">⚠️</span> Screener ini menggunakan data historis {tfMode} dari Yahoo Finance.
+            IDX market open 09:00–15:00 WIB. Konfirmasi dengan volume real-time sebelum entry.
+            Untuk swing 1–5 hari gunakan <Link href="/swing-screener" className="text-blue-400 underline">Swing Screener</Link>.
           </div>
         </div>
+
       </div>
     </div>
   );
 }
+
