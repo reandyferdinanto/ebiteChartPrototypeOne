@@ -265,8 +265,6 @@ async function analyzeStockVCP(symbol: string): Promise<VCPCandidate | null> {
     const volRatio  = curVol / (volAvg20 || 1);
     const spreadRatio = spread / (spreadAvg20 || 1);
     const closePos  = spread > 0 ? (curClose - curLow) / spread : 0.5;
-    const upperWick = curHigh - Math.max(curOpen, curClose);
-    const lowerWick = Math.min(curOpen, curClose) - curLow;
 
     // ── Buying / Selling Pressure (last 10 bars) ─────────────────────────
     let buyVol = 0, sellVol = 0;

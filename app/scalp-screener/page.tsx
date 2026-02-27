@@ -419,7 +419,7 @@ export default function ScalpScreener() {
     if (!entry) return { entry: null };
 
     // Signal label
-    let signal = '';
+    let signal: string;
     if (isSniper)             signal = isVCPPivot ? '🎯 SCALP SNIPER (VCP Pivot)' : '🎯 SCALP SNIPER';
     else if (isBreakout)      signal = '⚡ SCALP BREAKOUT';
     else if (isSellingClimax) signal = '🟢 Selling Climax (SC)';
