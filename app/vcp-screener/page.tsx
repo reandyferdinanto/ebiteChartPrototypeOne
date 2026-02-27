@@ -227,16 +227,31 @@ export default function VCPScreener() {
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
             <Link
-              href="/manual-screener"
-              className="bg-yellow-700 hover:bg-yellow-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
+              href="/analysis"
+              className="backdrop-blur-md bg-violet-600/30 hover:bg-violet-600/50 border border-violet-500/40 px-3 md:px-4 py-2 rounded-lg transition text-xs md:text-sm text-center flex items-center gap-1.5 font-semibold"
             >
-              🔬 Manual Test
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              Analysis
+            </Link>
+            <Link
+              href="/scalp-screener"
+              className="backdrop-blur-md bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 px-3 md:px-4 py-2 rounded-lg transition text-xs md:text-sm text-center flex items-center gap-1.5 font-semibold"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Scalp
             </Link>
             <Link
               href="/"
-              className="backdrop-blur-md bg-black/30 hover:bg-gray-600 px-3 md:px-4 py-2 rounded transition text-xs md:text-sm text-center"
+              className="backdrop-blur-md bg-black/30 hover:bg-gray-600 border border-white/10 px-3 md:px-4 py-2 rounded-lg transition text-xs md:text-sm text-center flex items-center gap-1.5"
             >
-              ← Back to Chart
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Chart
             </Link>
           </div>
         </div>
