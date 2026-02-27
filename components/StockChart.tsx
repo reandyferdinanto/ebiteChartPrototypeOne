@@ -746,65 +746,133 @@ export default function StockChart({ data }: StockChartProps) {
       {indicators && showIndicators.signals && (
         <div className="backdrop-blur-xl bg-white/5 border-b border-white/10 p-2 md:p-3">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0 space-y-1">
-              {/* VSA Signal */}
-              <div className="flex items-center gap-2">
-                <svg className="w-3 h-3 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-xs text-white font-semibold truncate">{indicators.signals.bandar}</p>
+            <div className="flex-1 min-w-0 space-y-2">
+
+              {/* ── Row 1: Signals ────────────────────────────────────────── */}
+              <div className="flex flex-wrap gap-x-3 gap-y-1 items-center">
+                {indicators.signals.bandar && indicators.signals.bandar !== '⬜ Netral' && (
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-white">
+                    <svg className="w-3 h-3 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {indicators.signals.bandar}
+                  </span>
+                )}
+                {indicators.signals.wyckoffPhase && indicators.signals.wyckoffPhase !== '⬜ Analisis...' && (
+                  <span className="text-xs text-gray-300">
+                    <span className="text-gray-500">Wyckoff: </span>{indicators.signals.wyckoffPhase}
+                  </span>
+                )}
+                {indicators.signals.vcpStatus && indicators.signals.vcpStatus !== '⬜ Tidak Aktif' && (
+                  <span className="text-xs text-orange-300">
+                    <span className="text-orange-500">VCP: </span>{indicators.signals.vcpStatus}
+                  </span>
+                )}
               </div>
-              {/* Wyckoff Phase */}
-              {indicators.signals.wyckoffPhase && indicators.signals.wyckoffPhase !== '⬜ Analisis...' && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 flex-shrink-0">Wyckoff:</span>
-                  <p className="text-xs text-gray-200 truncate">{indicators.signals.wyckoffPhase}</p>
-                </div>
-              )}
-              {/* VCP Status */}
-              {indicators.signals.vcpStatus && indicators.signals.vcpStatus !== '⬜ Tidak Aktif' && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-orange-400 flex-shrink-0">VCP:</span>
-                  <p className="text-xs text-orange-200 truncate">{indicators.signals.vcpStatus}</p>
-                </div>
-              )}
-              {/* Candle Power + CPP Prediction */}
-              {showIndicators.candlePower && (
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-purple-400 flex-shrink-0">Power:</span>
-                    <p className="text-xs text-gray-300 truncate">{indicators.candlePowerAnalysis}</p>
-                  </div>
-                  {indicators.signals.cppScore !== undefined && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400 flex-shrink-0">Next Candle:</span>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                        indicators.signals.cppBias === 'BULLISH'
-                          ? 'bg-green-500/20 text-green-300 border border-green-500/40'
-                          : indicators.signals.cppBias === 'BEARISH'
-                          ? 'bg-red-500/20 text-red-300 border border-red-500/40'
-                          : 'bg-gray-500/20 text-gray-300 border border-gray-500/40'
-                      }`}>
-                        {indicators.signals.cppBias === 'BULLISH' ? '📈 BULLISH' : indicators.signals.cppBias === 'BEARISH' ? '📉 BEARISH' : '➡️ NEUTRAL'}
-                      </span>
-                      <span className={`text-xs font-mono flex-shrink-0 ${
-                        indicators.signals.cppScore > 0 ? 'text-green-400' : indicators.signals.cppScore < 0 ? 'text-red-400' : 'text-gray-400'
-                      }`}>
-                        CPP:{indicators.signals.cppScore > 0 ? '+' : ''}{indicators.signals.cppScore}
-                      </span>
-                      {indicators.signals.evrScore !== 0 && (
-                        <span className={`text-xs font-mono flex-shrink-0 ${indicators.signals.evrScore > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          EVR:{indicators.signals.evrScore > 0 ? '+' : ''}{indicators.signals.evrScore}
-                        </span>
-                      )}
-                    </div>
+
+              {/* ── Row 2: Candle Power + Next Candle ────────────────────── */}
+              {showIndicators.candlePower && indicators.signals.cppScore !== undefined && (
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="text-xs text-gray-400">
+                    Power: <span className="text-white font-mono font-bold">
+                      {indicators.candlePowerAnalysis.match(/Power: (\d+)/)?.[1] ?? '—'}
+                    </span>
+                  </span>
+                  <span className={`text-xs font-mono ${indicators.signals.cppScore > 0 ? 'text-green-400' : indicators.signals.cppScore < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    CPP {indicators.signals.cppScore > 0 ? '+' : ''}{indicators.signals.cppScore}
+                  </span>
+                  {indicators.signals.evrScore !== 0 && (
+                    <span className={`text-xs font-mono ${indicators.signals.evrScore > 0 ? 'text-cyan-400' : 'text-orange-400'}`}>
+                      EVR {indicators.signals.evrScore > 0 ? '+' : ''}{indicators.signals.evrScore}
+                    </span>
                   )}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                    indicators.signals.cppBias === 'BULLISH' ? 'bg-green-500/20 text-green-300 border-green-500/40'
+                    : indicators.signals.cppBias === 'BEARISH' ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                    : 'bg-gray-600/30 text-gray-300 border-gray-500/40'
+                  }`}>
+                    {indicators.signals.cppBias === 'BULLISH' ? '📈 Next: BULLISH'
+                     : indicators.signals.cppBias === 'BEARISH' ? '📉 Next: BEARISH'
+                     : '➡️ Next: NEUTRAL'}
+                  </span>
                 </div>
               )}
+
+              {/* ── Row 3: Legend ─────────────────────────────────────────── */}
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5 border-t border-white/5">
+                {([
+                  ['NS',    'text-blue-300',   'No Supply — penjual habis'],
+                  ['SC',    'text-green-300',  'Selling Climax — akumulasi institusi'],
+                  ['BC',    'text-red-300',    'Buying Climax — distribusi institusi'],
+                  ['UT',    'text-orange-300', 'Upthrust — jebakan breakout'],
+                  ['ND',    'text-yellow-300', 'No Demand — kenaikan palsu'],
+                  ['SV',    'text-cyan-300',   'Stopping Volume — smart money masuk'],
+                  ['ABS',   'text-pink-300',   'Absorption — distribusi tersembunyi'],
+                  ['SOS',   'text-purple-300', 'Sign of Strength — akumulasi tersembunyi'],
+                  ['T2/T3', 'text-violet-300', 'VCP Tightening — kontraksi volatilitas'],
+                  ['PIVOT', 'text-amber-300',  'VCP Pivot — breakout optimal (RMV≤15)'],
+                  ['CPP',   'text-gray-300',   'Cumulative Power Prediction'],
+                  ['EVR',   'text-gray-300',   'Effort vs Result anomaly'],
+                ] as [string, string, string][]).map(([abbr, color, desc]) => (
+                  <span key={abbr} className="text-xs flex items-center gap-1">
+                    <span className={`font-bold font-mono ${color}`}>{abbr}</span>
+                    <span className="text-gray-500 hidden sm:inline">= {desc}</span>
+                  </span>
+                ))}
+              </div>
+
+              {/* ── Row 4: KESIMPULAN ─────────────────────────────────────── */}
+              {(() => {
+                const bias   = indicators.signals.cppBias;
+                const cpp    = indicators.signals.cppScore ?? 0;
+                const evr    = indicators.signals.evrScore ?? 0;
+                const vsa    = indicators.signals.bandar ?? '';
+                const wyckoff= indicators.signals.wyckoffPhase ?? '';
+                const vcp    = indicators.signals.vcpStatus ?? '';
+
+                const isVSABull  = vsa.includes('🟢') || /NS|SC|SV|SOS|Iceberg|Dry Up/i.test(vsa);
+                const isVSABear  = vsa.includes('🔴') || /BC|UT|Distribusi|ABS/i.test(vsa);
+                const isWyBull   = /ACCUMULATION|MARKUP/.test(wyckoff);
+                const isWyBear   = /DISTRIBUTION|MARKDOWN/.test(wyckoff);
+                const isVCPReady = /PIVOT|BASE/.test(vcp);
+
+                const bullScore = (bias === 'BULLISH' ? 2 : 0) + (isVSABull ? 1 : 0) + (isWyBull ? 1 : 0) + (isVCPReady ? 1 : 0) + (evr > 0.3 ? 1 : 0);
+                const bearScore = (bias === 'BEARISH' ? 2 : 0) + (isVSABear ? 1 : 0) + (isWyBear ? 1 : 0);
+
+                let icon = '⬜', col = 'bg-gray-700/30 border-gray-600/30 text-gray-300', text = '';
+
+                if (bullScore >= 4) {
+                  icon = '🚀'; col = 'bg-green-900/30 border-green-600/30 text-green-200';
+                  text = `Sinyal KUAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp} momentum bullish kuat.${isVCPReady ? ' VCP pivot terbentuk, risiko/reward optimal.' : ''}${isVSABull ? ' VSA konfirmasi akumulasi institusi.' : ''} Pertimbangkan entry dengan stop di bawah support.`;
+                } else if (bullScore >= 2 && bearScore === 0) {
+                  icon = '🟢'; col = 'bg-green-900/20 border-green-700/30 text-green-300';
+                  text = `Sinyal MODERAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp}.${isVSABull ? ' VSA bullish.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup aktif.' : 'akumulasi.') : ''} Tunggu konfirmasi volume sebelum entry penuh.`;
+                } else if (bearScore >= 4) {
+                  icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
+                  text = `Sinyal KUAT JUAL — CPP ${cpp}.${isVSABear ? ' VSA distribusi institusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'markdown aktif.' : 'distribusi.') : ''} Hindari posisi baru, pertimbangkan cut loss.`;
+                } else if (bearScore >= 2 && bullScore === 0) {
+                  icon = '🟡'; col = 'bg-yellow-900/20 border-yellow-700/30 text-yellow-200';
+                  text = `Sinyal WASPADA — Momentum melemah (CPP ${cpp}).${isVSABear ? ' Ada tanda distribusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'downtrend.' : 'distribusi.') : ''} Kurangi posisi atau pasang trailing stop.`;
+                } else {
+                  icon = '⬜'; col = 'bg-gray-700/20 border-gray-600/30 text-gray-300';
+                  text = `Sinyal NETRAL — CPP ${cpp}, supply-demand seimbang.${isVCPReady ? ' VCP base terbentuk, pantau breakout dengan volume.' : ''} Tunggu sinyal tegas sebelum posisi baru.`;
+                }
+
+                return (
+                  <div className={`mt-1 rounded-lg border px-2 py-1.5 ${col}`}>
+                    <p className="text-xs leading-relaxed">
+                      <span className="font-bold mr-1">{icon} Kesimpulan:</span>{text}
+                    </p>
+                  </div>
+                );
+              })()}
+
             </div>
+
+            {/* Close button */}
             <button
               onClick={() => setShowIndicators(prev => ({ ...prev, signals: false }))}
-              className="text-gray-400 hover:text-red-400 px-1 backdrop-blur-md bg-white/5 rounded-lg flex-shrink-0"
+              className="text-gray-400 hover:text-red-400 px-1 backdrop-blur-md bg-white/5 rounded-lg flex-shrink-0 mt-0.5"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
