@@ -411,40 +411,221 @@ export default function VCPScreener() {
           renderCandidates()
         )}
 
-        {/* Legend */}
-        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl p-3 md:p-4">
-          <h3 className="font-semibold mb-3 text-sm md:text-base">📖 Pattern Guide — Wyckoff + VSA + CPP</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs md:text-sm mb-3">
-            <div className="bg-white/5 rounded p-2">
-              <span className="font-semibold text-yellow-300">🎯 Sniper Entry</span>
-              <p className="text-gray-400 mt-0.5">VCP Pivot (RMV≤15) + Dry Up + above MA + CPP bullish. Highest confidence setup.</p>
-            </div>
-            <div className="bg-white/5 rounded p-2">
-              <span className="font-semibold text-blue-300">📉 VCP Base</span>
-              <p className="text-gray-400 mt-0.5">Volatility Contraction Pattern near recent high. Minervini's base-building stage.</p>
-            </div>
-            <div className="bg-white/5 rounded p-2">
-              <span className="font-semibold text-cyan-300">🥷 Dry Up</span>
-              <p className="text-gray-400 mt-0.5">Wyckoff No Demand / No Supply. Low vol + small body = penjual habis.</p>
-            </div>
-            <div className="bg-white/5 rounded p-2">
-              <span className="font-semibold text-teal-300">🧊 Iceberg</span>
-              <p className="text-gray-400 mt-0.5">Tinggi volume, spread sempit. Akumulasi tersembunyi institusi (Wyckoff absorption).</p>
-            </div>
-            <div className="bg-white/5 rounded p-2">
-              <span className="font-semibold text-green-300">🟢 No Supply / Selling Climax</span>
-              <p className="text-gray-400 mt-0.5">Wyckoff VSA: SC = kapitulasi panik terserap institusi. NS = supply habis.</p>
-            </div>
-            <div className="bg-white/5 rounded p-2">
-              <span className="font-semibold text-purple-300">📈 CPP / Wyckoff</span>
-              <p className="text-gray-400 mt-0.5">CPP = Power Directional Index (prediksi candle besok). Wyckoff = fase pasar saat ini.</p>
+        {/* Pattern Guide — exact match with screener API logic */}
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl p-3 md:p-4 space-y-4">
+          <h3 className="font-semibold text-sm md:text-base flex items-center gap-2">
+            <span>📖</span> Pattern Guide — cara baca hasil screener
+          </h3>
+
+          {/* BUY patterns */}
+          <div>
+            <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">✅ BUY / Entry Setups</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 text-xs">
+
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-yellow-300">🎯 SNIPER ENTRY</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Syarat terpenuhi semua sekaligus:<br/>
+                  • Harga dekat high 30 hari (≥80%)<br/>
+                  • Spread 5 candle &lt;75% rata-rata<br/>
+                  • Volume 5 candle &lt;85% rata-rata<br/>
+                  • RMV ≤ 15 (kompresi volatilitas ekstrem)<br/>
+                  • Candle kecil + vol rendah (≤0.6×)<br/>
+                  • Di atas MA20 &amp; MA50 (uptrend)<br/>
+                  • Buying pressure &gt; selling (accRatio &gt;1.0)
+                </div>
+                <div className="text-yellow-400 font-semibold">⚡ Aksi: KUAT BELI – perfect VCP pivot</div>
+              </div>
+
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-orange-300">🎯 VCP DRY-UP</div>
+                <div className="text-gray-300 leading-relaxed">
+                  VCP Base + Dry Up (tanpa syarat RMV &amp; MA uptrend penuh):<br/>
+                  • Harga dekat high + spread/vol menyempit<br/>
+                  • Volume kering ≤0.6× rata-rata<br/>
+                  • Body candle kecil (&lt;30% spread)<br/>
+                  • Accumulation ratio &gt;0.8 (beli &gt; jual)
+                </div>
+                <div className="text-orange-400 font-semibold">🚀 Aksi: BELI – high probability setup</div>
+              </div>
+
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-green-300">🟢 Selling Climax (SC)</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Wyckoff kapitulasi publik diserap institusi:<br/>
+                  • Spread &gt;2× ATR (candle besar ke bawah)<br/>
+                  • Volume &gt;2.5× rata-rata 20 hari<br/>
+                  • Candle merah, close di &gt;40% dari bawah<br/>
+                  • Harga masih di atas MA20
+                </div>
+                <div className="text-green-400 font-semibold">🚀 Aksi: BELI – SC + akumulasi institusi</div>
+              </div>
+
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-cyan-300">🟢 No Supply (NS)</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Wyckoff VSA — penjual kehabisan amunisi:<br/>
+                  • Low baru tapi spread sempit (&lt;1× ATR)<br/>
+                  • Volume lebih kecil dari 2 candle sebelumnya<br/>
+                  • Harga di atas MA20
+                </div>
+                <div className="text-cyan-400 font-semibold">🛒 Aksi: BELI – supply habis, siap naik</div>
+              </div>
+
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-teal-300">🧊 VCP ICEBERG</div>
+                <div className="text-gray-300 leading-relaxed">
+                  VCP Base + akumulasi tersembunyi:<br/>
+                  • Harga dekat high + volatilitas menyempit<br/>
+                  • Volume &gt;1.2× tapi spread &lt;0.75× rata-rata<br/>
+                  • Institusi beli diam-diam (Wyckoff absorption)
+                </div>
+                <div className="text-teal-400 font-semibold">🚀 Aksi: BELI – strong hidden accumulation</div>
+              </div>
+
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-sky-300">🥷 DRY UP Kuat</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Dry Up dengan tekanan beli dominan:<br/>
+                  • Volume ≤0.6× rata-rata 20 hari<br/>
+                  • Body kecil atau candle merah tipis<br/>
+                  • accRatio &gt;1.5 (beli kuat vs jual)
+                </div>
+                <div className="text-sky-400 font-semibold">📍 Aksi: ENTRY – support test + buying pressure</div>
+              </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs border-t border-white/10 pt-2">
-            <div className="text-gray-400"><span className="text-green-400 font-bold">Score 90+</span> = Premium setup</div>
-            <div className="text-gray-400"><span className="text-blue-400 font-bold">Score 70-89</span> = Good setup</div>
-            <div className="text-gray-400"><span className="text-yellow-400 font-bold">CPP +</span> = Next candle bullish bias</div>
-            <div className="text-gray-400"><span className="text-cyan-400 font-bold">RMV≤15</span> = Extreme VCP pivot</div>
+
+          {/* WATCH patterns */}
+          <div>
+            <div className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">👀 WATCH / Monitor</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 text-xs">
+
+              <div className="bg-blue-950/30 border border-blue-500/20 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-blue-300">📍 VCP PIVOT (RMV xx)</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Titik pivot VCP terbentuk tapi belum dry up:<br/>
+                  • VCP Base terpenuhi<br/>
+                  • RMV ≤ 15 (kompresi volatilitas ekstrem)<br/>
+                  • Tunggu volume kering atau candle reversal
+                </div>
+                <div className="text-blue-400 font-semibold">⏳ Aksi: WATCH – tunggu dry up/breakout</div>
+              </div>
+
+              <div className="bg-blue-950/30 border border-blue-500/20 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-indigo-300">📉 VCP BASE</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Minervini VCP — base forming, belum pivot:<br/>
+                  • Harga dekat high 30 hari (&gt;80%)<br/>
+                  • Spread 5 candle &lt;75% rata-rata<br/>
+                  • Volume 5 candle &lt;85% rata-rata<br/>
+                  • RMV masih &gt;15, masih ada ruang kontraksi
+                </div>
+                <div className="text-indigo-400 font-semibold">⏳ Aksi: WATCH – base forming, belum entry</div>
+              </div>
+
+              <div className="bg-blue-950/30 border border-blue-500/20 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-gray-300">🥷 DRY UP</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Dry Up standar tanpa konfirmasi VCP:<br/>
+                  • Volume ≤0.6× rata-rata 20 hari<br/>
+                  • Body candle kecil atau tipis<br/>
+                  • accRatio &gt;0.8 (beli sedikit lebih dominan)
+                </div>
+                <div className="text-gray-400 font-semibold">📍 Aksi: ENTRY hati-hati – support test saja</div>
+              </div>
+
+              <div className="bg-blue-950/30 border border-blue-500/20 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-slate-300">🧊 ICEBERG</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Akumulasi tersembunyi tanpa VCP:<br/>
+                  • Volume &gt;1.2× rata-rata<br/>
+                  • Spread &lt;0.75× rata-rata (spread sempit)<br/>
+                  • Institusi beli tapi harga tertahan
+                </div>
+                <div className="text-slate-400 font-semibold">👀 Aksi: WATCH – hidden activity tanpa tren</div>
+              </div>
+
+              <div className="bg-blue-950/30 border border-blue-500/20 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-purple-300">📈 DEVELOPING</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Setup berkembang, belum memenuhi kriteria utama:<br/>
+                  • Score &gt;55 tapi tidak ada pola spesifik<br/>
+                  • Biasanya CPP bullish + di atas MA20
+                </div>
+                <div className="text-purple-400 font-semibold">⏳ Aksi: MONITOR – setup belum matang</div>
+              </div>
+            </div>
+          </div>
+
+          {/* AVOID patterns */}
+          <div>
+            <div className="text-xs font-bold text-red-400 uppercase tracking-wider mb-2">❌ HINDARI / Bearish</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <div className="bg-red-950/30 border border-red-500/20 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-red-300">🩸 DISTRIBUSI</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Institusi jual ke publik:<br/>
+                  • Candle merah + volume &gt;1.5× rata-rata<br/>
+                  • accRatio &lt;0.5 (jual sangat dominan)<br/>
+                  • Score dipotong −15 poin
+                </div>
+                <div className="text-red-400 font-semibold">❌ Aksi: HINDARI – distribusi aktif</div>
+              </div>
+              <div className="bg-red-950/30 border border-red-500/20 rounded-lg p-2.5 space-y-1">
+                <div className="font-bold text-orange-300">⚡ UPTHRUST</div>
+                <div className="text-gray-300 leading-relaxed">
+                  Wyckoff jebakan breakout palsu:<br/>
+                  • Spread &gt;1.5× ATR (candle besar)<br/>
+                  • Volume &gt;1.5× rata-rata<br/>
+                  • Close di bawah 30% dari bawah candle (ekor panjang atas)<br/>
+                  • Score dipotong −12 poin
+                </div>
+                <div className="text-orange-400 font-semibold">❌ Aksi: HINDARI – jebakan bullish</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Score & columns explained */}
+          <div className="border-t border-white/10 pt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div className="bg-white/5 rounded-lg p-2.5 space-y-1">
+              <div className="text-white font-semibold">📊 Score (0–100)</div>
+              <div className="space-y-0.5 text-gray-400">
+                <div><span className="text-emerald-400 font-bold">90+</span> = Premium (Sniper + CPP bullish kuat)</div>
+                <div><span className="text-blue-400 font-bold">80–89</span> = Good (VCP + pattern kuat)</div>
+                <div><span className="text-yellow-400 font-bold">70–79</span> = Decent (pattern ada, CPP ok)</div>
+                <div><span className="text-gray-400 font-bold">50–69</span> = Weak (hanya 1 sinyal)</div>
+              </div>
+              <div className="text-gray-500 text-xs mt-1">Formula: CPP×40% + VSA bonus + RMV bonus − penalty</div>
+            </div>
+            <div className="bg-white/5 rounded-lg p-2.5 space-y-1">
+              <div className="text-white font-semibold">📈 CPP (Power Candle)</div>
+              <div className="space-y-0.5 text-gray-400">
+                <div><span className="text-emerald-400">BULLISH</span> = CPP &gt; +0.5 (momentum naik 5 hari)</div>
+                <div><span className="text-gray-400">NEUTRAL</span> = CPP −0.5 s/d +0.5</div>
+                <div><span className="text-red-400">BEARISH</span> = CPP &lt; −0.5 (momentum turun)</div>
+              </div>
+              <div className="text-gray-500 text-xs mt-1">Weighted sum CBD×VAM 5 hari terakhir</div>
+            </div>
+            <div className="bg-white/5 rounded-lg p-2.5 space-y-1">
+              <div className="text-white font-semibold">🏛️ Wyckoff Phase</div>
+              <div className="space-y-0.5 text-gray-400">
+                <div><span className="text-emerald-400">MARKUP</span> = Close &gt; MA20 &amp; MA50, MA20&gt;MA50</div>
+                <div><span className="text-blue-400">ACCUMULATION</span> = Close dekat MA20 (±5%)</div>
+                <div><span className="text-red-400">MARKDOWN</span> = Close &lt; MA20 &amp; MA50</div>
+                <div><span className="text-yellow-400">DISTRIBUTION</span> = Close jauh di bawah MA</div>
+              </div>
+            </div>
+            <div className="bg-white/5 rounded-lg p-2.5 space-y-1">
+              <div className="text-white font-semibold">📉 RMV Index</div>
+              <div className="space-y-0.5 text-gray-400">
+                <div><span className="text-blue-400 font-bold">RMV ≤ 15</span> = Kompresi ekstrem → pivot siap</div>
+                <div><span className="text-cyan-400">RMV ≤ 30</span> = Kontraksi kuat → +12 score</div>
+                <div><span className="text-yellow-400">RMV ≤ 50</span> = Kontraksi sedang → +6 score</div>
+                <div><span className="text-gray-400">RMV &gt; 50</span> = Volatilitas normal, belum ketat</div>
+              </div>
+              <div className="text-gray-500 text-xs mt-1">ATR5 dinormalisasi 20 bar = 0–100</div>
+            </div>
           </div>
         </div>
       </div>

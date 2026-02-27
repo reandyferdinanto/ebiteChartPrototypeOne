@@ -420,40 +420,45 @@ export default function ScalpScreener() {
     abortRef.current = false;
     const found: ScalpResult[] = [];
     let scanned = 0;
+    // Deduplicate stock list to avoid duplicate React keys
+    const uniqueStocks = [...new Set(stockList)];
 
-    for (let idx = 0; idx < stockList.length; idx++) {
+    for (let idx = 0; idx < uniqueStocks.length; idx++) {
       if (abortRef.current) break;
-      const ticker = stockList[idx];
+      const ticker = uniqueStocks[idx];
       try {
         const symbol  = `${ticker}.JK`;
         const histRes = await fetch(`/api/stock/historical?symbol=${symbol}&interval=${tfMode}&range=${tfRange}`);
-        if (!histRes.ok) { setProgress(Math.round(((idx + 1) / stockList.length) * 100)); continue; }
+        if (!histRes.ok) { setProgress(Math.round(((idx + 1) / uniqueStocks.length) * 100)); continue; }
         const histData = await histRes.json();
         const candles  = histData.candles ?? histData.data ?? [];
         const minReq   = tfMode === '5m' ? 100 : 40;
-        if (candles.length < minReq) { setProgress(Math.round(((idx + 1) / stockList.length) * 100)); continue; }
+        if (candles.length < minReq) { setProgress(Math.round(((idx + 1) / uniqueStocks.length) * 100)); continue; }
 
         scanned++;
         setScannedCount(scanned);
 
         const analysis = screenIntraday(candles, tfMode);
         if (analysis) {
+          // Skip if symbol already in results (dedup guard)
+          if (found.some(f => f.symbol === ticker)) {
+            setProgress(Math.round(((idx + 1) / uniqueStocks.length) * 100));
+            continue;
+          }
           const qRes = await fetch(`/api/stock/quote?symbol=${symbol}`);
           const q    = qRes.ok ? await qRes.json() : null;
           const result: ScalpResult = {
             ...analysis,
-            symbol,
+            symbol:        ticker,
             price:         q?.regularMarketPrice ?? q?.price ?? candles[candles.length - 1]?.close ?? 0,
             changePercent: q?.regularMarketChangePercent ?? q?.changePercent ?? 0,
             timeframe:     tfMode,
           };
-          // Use ticker without .JK for display
-          result.symbol = ticker;
           found.push(result);
           setResults(doSort([...found], sortBy));
         }
       } catch { /* skip */ }
-      setProgress(Math.round(((idx + 1) / stockList.length) * 100));
+      setProgress(Math.round(((idx + 1) / uniqueStocks.length) * 100));
     }
     setLoading(false);
   };
@@ -670,7 +675,7 @@ export default function ScalpScreener() {
         {/* Results */}
         {filtered.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filtered.map(r => {
+            {filtered.map((r, idx) => {
               const cfg     = gradeCfg[r.grade];
               const rrRatio = r.price > r.stopLoss
                 ? Math.abs(r.target - r.price) / Math.abs(r.price - r.stopLoss)
@@ -678,7 +683,7 @@ export default function ScalpScreener() {
               const calmMins = r.calmBars * (r.timeframe === '5m' ? 5 : 15);
 
               return (
-                <div key={r.symbol} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4 space-y-3 hover:shadow-lg transition-all`}>
+                <div key={`${r.symbol}-${idx}`} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4 space-y-3 hover:shadow-lg transition-all`}>
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div>
