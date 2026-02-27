@@ -589,6 +589,7 @@ const IconShield = () => (
 
 // ── RESULT CARD ───────────────────────────────────────────────────────────────
 function ResultCard({ r }: { r: AnalysisResult }) {
+  const chartUrl = `/?symbol=${r.symbol}`;
   const suggestionCfg = {
     BUY:   { bg: 'bg-emerald-500/20', border: 'border-emerald-500/40', text: 'text-emerald-400', badge: 'bg-emerald-500', label: '🟢 BUY',   desc: 'Strong bullish setup — Consider entering position' },
     WAIT:  { bg: 'bg-yellow-500/20',  border: 'border-yellow-500/40',  text: 'text-yellow-400',  badge: 'bg-yellow-500',  label: '🟡 WAIT',  desc: 'Bullish setup forming — Wait for confirmation signal' },
@@ -633,11 +634,20 @@ function ResultCard({ r }: { r: AnalysisResult }) {
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xl font-bold text-white">{r.symbol}</span>
             <span className={`text-xs px-2 py-0.5 rounded-full font-semibold text-white ${cfg.badge}`}>
               {r.suggestion}
             </span>
+            <Link
+              href={chartUrl}
+              className="flex items-center gap-1 text-xs bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 px-2.5 py-0.5 rounded-full transition-colors font-medium"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              View Chart
+            </Link>
           </div>
           <p className={`text-xs mt-0.5 ${cfg.text}`}>{cfg.desc}</p>
         </div>
@@ -817,6 +827,20 @@ function ResultCard({ r }: { r: AnalysisResult }) {
           )}
         </div>
       </div>
+
+      {/* View Chart CTA */}
+      <Link
+        href={chartUrl}
+        className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/40 text-blue-300 hover:text-blue-200 transition-colors font-medium text-sm"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+        </svg>
+        View {r.symbol} Chart
+        <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </Link>
     </div>
   );
 }
@@ -966,16 +990,31 @@ function AnalysisContent() {
             <div className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wide">Recent Analyses</div>
             <div className="flex flex-wrap gap-2">
               {history.slice(1).map(h => (
-                <button key={h.symbol}
-                  onClick={() => { setTicker(h.symbol); analyze(h.symbol); }}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                    h.suggestion === 'BUY'   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
-                    h.suggestion === 'SELL'  ? 'bg-red-500/10 border-red-500/30 text-red-400' :
-                    h.suggestion === 'WAIT'  ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' :
-                    'bg-gray-700/50 border-gray-600/30 text-gray-400'
-                  }`}>
-                  {h.symbol} · {h.suggestion}
-                </button>
+                <div key={h.symbol} className="flex items-center gap-1">
+                  <button
+                    onClick={() => { setTicker(h.symbol); analyze(h.symbol); }}
+                    className={`text-xs px-3 py-1.5 rounded-l-lg border-y border-l transition-colors ${
+                      h.suggestion === 'BUY'   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+                      h.suggestion === 'SELL'  ? 'bg-red-500/10 border-red-500/30 text-red-400' :
+                      h.suggestion === 'WAIT'  ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' :
+                      'bg-gray-700/50 border-gray-600/30 text-gray-400'
+                    }`}>
+                    {h.symbol} · {h.suggestion}
+                  </button>
+                  <Link
+                    href={`/?symbol=${h.symbol}`}
+                    title={`View ${h.symbol} chart`}
+                    className={`text-xs px-2 py-1.5 rounded-r-lg border transition-colors ${
+                      h.suggestion === 'BUY'   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25' :
+                      h.suggestion === 'SELL'  ? 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/25' :
+                      h.suggestion === 'WAIT'  ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/25' :
+                      'bg-gray-700/50 border-gray-600/30 text-gray-400 hover:bg-gray-700'
+                    }`}>
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                    </svg>
+                  </Link>
+                </div>
               ))}
             </div>
           </div>
