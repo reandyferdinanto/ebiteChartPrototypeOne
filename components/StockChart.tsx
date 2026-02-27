@@ -945,6 +945,90 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 ))}
               </div>
 
+              {/* ── Predicta V4 Table ─────────────────────────────────────── */}
+              {indicators.predictaV4 && (() => {
+                const p4 = indicators.predictaV4!;
+                const isBull = p4.verdict === 'STRONG_BULL' || p4.verdict === 'BULL';
+                const isBear = p4.verdict === 'STRONG_BEAR' || p4.verdict === 'BEAR';
+                const headerColor = p4.longPerfect ? 'text-emerald-300' : p4.shortPerfect ? 'text-red-300' : 'text-gray-300';
+                const verdictText = p4.longPerfect ? '⚡ PERFECT TIME — LONG'
+                  : p4.shortPerfect ? '⚡ PERFECT TIME — SHORT'
+                  : p4.verdict === 'BULL' ? '🟢 BULL BIAS'
+                  : p4.verdict === 'BEAR' ? '🔴 BEAR BIAS'
+                  : '⬜ NEUTRAL';
+                const verdictBg = p4.longPerfect ? 'bg-emerald-500/20 border-emerald-500/30'
+                  : p4.shortPerfect ? 'bg-red-500/20 border-red-500/30'
+                  : isBull ? 'bg-green-900/20 border-green-700/30'
+                  : isBear ? 'bg-red-900/20 border-red-700/30'
+                  : 'bg-gray-800/20 border-gray-700/30';
+
+                // Compact bar renderer (5 blocks)
+                const bar = (score: number) => {
+                  const filled = Math.round(score / 20); // 0-5 blocks
+                  return '█'.repeat(filled) + '░'.repeat(5 - filled);
+                };
+
+                const rows: [string, number, string, string][] = [
+                  ['Trend',  p4.trendScore,  p4.isUptrend ? 'Uptrend ✓' : 'Downtrend',   p4.isUptrend ? 'text-green-400' : 'text-red-400'],
+                  ['MACD',   p4.macdScore,   p4.macdHistValue > 0 ? `Bull (${p4.macdHistValue > 0 ? '+' : ''}${p4.macdHistValue})` : `Bear (${p4.macdHistValue})`, p4.macdHistValue > 0 ? 'text-green-400' : 'text-red-400'],
+                  ['Delta✨', p4.deltaScore, p4.deltaBullish ? (p4.volumeDeltaValue > 0 ? 'Buy ↑' : 'Buy') : 'Sell ↓', p4.deltaBullish ? 'text-green-400' : 'text-red-400'],
+                  ['RSI',    p4.rsiScore,    `${p4.rsiValue} ${p4.rsiAbove50 ? '↑' : '↓'}`, p4.rsiAbove50 ? 'text-green-400' : 'text-red-400'],
+                  ['Stoch',  p4.stochScore,  `K${p4.stochK} D${p4.stochD} ${p4.stochAbove50 ? '↑' : '↓'}`, p4.stochAbove50 ? 'text-green-400' : 'text-red-400'],
+                  ['ADX',    p4.adxScore,    `${p4.adxValue} ${p4.adxStrong ? 'Strong' : 'Weak'}`, p4.adxStrong ? 'text-yellow-400' : 'text-gray-400'],
+                  ['Volume', p4.volScore,    `${p4.volRatio}x`, p4.volRatio >= 1 ? 'text-cyan-400' : 'text-gray-400'],
+                ];
+
+                return (
+                  <div className={`rounded-lg border px-2 py-1.5 ${verdictBg} mt-0.5`}>
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-gray-400 tracking-wide">
+                        PREDICTA V4
+                        <span className="ml-1.5 text-gray-600 text-xs font-normal">(ATR: {p4.volRegime})</span>
+                      </span>
+                      <span className={`text-xs font-bold ${headerColor}`}>{verdictText}</span>
+                    </div>
+                    {/* Probability bars */}
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="flex-1 flex items-center gap-1.5">
+                        <span className="text-xs text-gray-400 w-8 flex-shrink-0">Long</span>
+                        <div className="flex-1 h-2 rounded-full bg-gray-700 overflow-hidden">
+                          <div className="h-full bg-emerald-500 transition-all" style={{ width: `${p4.longPct}%` }} />
+                        </div>
+                        <span className="text-xs font-bold text-emerald-300 w-8 text-right flex-shrink-0">{p4.longPct}%</span>
+                      </div>
+                      <div className="flex-1 flex items-center gap-1.5">
+                        <span className="text-xs text-gray-400 w-8 flex-shrink-0">Short</span>
+                        <div className="flex-1 h-2 rounded-full bg-gray-700 overflow-hidden">
+                          <div className="h-full bg-red-500 transition-all" style={{ width: `${p4.shortPct}%` }} />
+                        </div>
+                        <span className="text-xs font-bold text-red-300 w-8 text-right flex-shrink-0">{p4.shortPct}%</span>
+                      </div>
+                    </div>
+                    {/* Component rows */}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                      {rows.map(([name, score, detail, detailColor]) => (
+                        <div key={name} className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs text-gray-500 w-12 flex-shrink-0">{name}</span>
+                          <span className="font-mono text-xs text-blue-300 flex-shrink-0">{bar(score)}</span>
+                          <span className={`text-xs truncate ${detailColor}`}>{detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Confluence footer */}
+                    <div className="flex items-center justify-between mt-1 pt-1 border-t border-white/5">
+                      <span className="text-xs text-gray-500">
+                        Confluence: <span className={`font-bold ${p4.confluenceLong >= 5 ? 'text-emerald-400' : 'text-gray-400'}`}>{p4.confluenceLong}/8 Long</span>
+                        {' '}&nbsp;<span className={`font-bold ${p4.confluenceShort >= 5 ? 'text-red-400' : 'text-gray-400'}`}>{p4.confluenceShort}/8 Short</span>
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        EMA8&gt;21: <span className={p4.ema8 > p4.ema21 ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>{p4.ema8 > p4.ema21 ? 'Yes ✓' : 'No ✗'}</span>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* ── Row 4: KESIMPULAN ─────────────────────────────────────── */}
               {(() => {
                 const bias    = indicators.signals.cppBias;
@@ -954,6 +1038,7 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 const wyckoff = indicators.signals.wyckoffPhase ?? '';
                 const vcp     = indicators.signals.vcpStatus ?? '';
                 const bvd     = indicators.latestBreakoutDelta;
+                const p4      = indicators.predictaV4;
 
                 const isHAKA      = vsa.includes('HAKA');
                 const isVSABull   = isHAKA || vsa.includes('🟢') || /NS|SC|SV|SOS|Iceberg|Dry Up/i.test(vsa);
@@ -963,23 +1048,38 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 const isVCPReady  = /PIVOT|BASE/.test(vcp);
 
                 // BVD signals
-                const isBVDFakeBull = bvd?.direction === 'bull' && bvd.isFakeBreakout;   // Upthrust → bearish
-                const isBVDRealBull = bvd?.direction === 'bull' && bvd.isRealBreakout;   // confirmed breakout
-                const isBVDFakeBear = bvd?.direction === 'bear' && bvd.isFakeBreakout;   // Spring → bullish
-                const isBVDRealBear = bvd?.direction === 'bear' && bvd.isRealBreakout;   // confirmed breakdown
+                const isBVDFakeBull = bvd?.direction === 'bull' && bvd.isFakeBreakout;
+                const isBVDRealBull = bvd?.direction === 'bull' && bvd.isRealBreakout;
+                const isBVDFakeBear = bvd?.direction === 'bear' && bvd.isFakeBreakout;
+                const isBVDRealBear = bvd?.direction === 'bear' && bvd.isRealBreakout;
 
-                // Score: BVD has high weight (±2) because it directly addresses
-                // the core question "is this breakout real or a trap?"
+                // Predicta V4 contribution to conviction
+                const p4Bull = p4?.longPerfect ? 3 : (p4?.verdict === 'BULL' ? 1 : 0);
+                const p4Bear = p4?.shortPerfect ? 3 : (p4?.verdict === 'BEAR' ? 1 : 0);
+                const p4Ctx = p4
+                  ? p4.longPerfect
+                    ? ` ⚡ Predicta V4 PERFECT LONG (${p4.longPct}% bull, confluence ${p4.confluenceLong}/8) — Delta+Trend+MACD+RSI semua aligned.`
+                    : p4.shortPerfect
+                    ? ` ⚡ Predicta V4 PERFECT SHORT (${p4.shortPct}% bear, confluence ${p4.confluenceShort}/8).`
+                    : p4.verdict === 'BULL'
+                    ? ` Predicta V4: BULL ${p4.longPct}% (${p4.confluenceLong}/8 confluence).`
+                    : p4.verdict === 'BEAR'
+                    ? ` Predicta V4: BEAR ${p4.shortPct}% (${p4.confluenceShort}/8 confluence).`
+                    : ` Predicta V4: NEUTRAL (${p4.longPct}%L / ${p4.shortPct}%S).`
+                  : '';
+
                 const bullScore = (bias === 'BULLISH' ? 2 : 0)
                   + (isVSABull ? 1 : 0) + (isWyBull ? 1 : 0) + (isVCPReady ? 1 : 0)
                   + (evr > 0.3 ? 1 : 0)
-                  + (isBVDRealBull ? 2 : 0)   // confirmed bull breakout +2
-                  + (isBVDFakeBear ? 2 : 0);  // fake breakdown (spring) +2
+                  + (isBVDRealBull ? 2 : 0)
+                  + (isBVDFakeBear ? 2 : 0)
+                  + p4Bull;
 
                 const bearScore = (bias === 'BEARISH' ? 2 : 0)
                   + (isVSABear ? 1 : 0) + (isWyBear ? 1 : 0)
-                  + (isBVDRealBear ? 2 : 0)   // confirmed breakdown +2
-                  + (isBVDFakeBull ? 2 : 0);  // fake breakout (upthrust) +2
+                  + (isBVDRealBear ? 2 : 0)
+                  + (isBVDFakeBull ? 2 : 0)
+                  + p4Bear;
 
                 // BVD context string
                 const bvdCtx = isBVDFakeBull
@@ -997,35 +1097,42 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 // Fake breakout overrides everything — strongest warning
                 if (isBVDFakeBull && bearScore >= 2) {
                   icon = '🚨'; col = 'bg-red-900/40 border-red-500/50 text-red-200';
-                  text = `JEBAKAN BREAKOUT (Upthrust)! Bear vol ${bvd!.bearPct}% mendominasi saat harga tembus resistance — institusi DISTRIBUSI di atas level ini. CPP ${cpp}.${isVSABear ? ' VSA juga konfirmasi distribusi.' : ''} Sangat disarankan TIDAK entry atau segera kurangi posisi.`;
+                  text = `JEBAKAN BREAKOUT (Upthrust)! Bear vol ${bvd!.bearPct}% mendominasi saat harga tembus resistance — institusi DISTRIBUSI di atas level ini. CPP ${cpp}.${p4?.shortPerfect ? ' ⚡ Predicta V4 SHORT PERFECT mempertegas distribusi!' : p4Ctx}${isVSABear ? ' VSA juga konfirmasi distribusi.' : ''} Sangat disarankan TIDAK entry atau segera kurangi posisi.`;
                 // Spring / fake breakdown = strong buy setup
                 } else if (isBVDFakeBear && bullScore >= 2) {
                   icon = '🌱'; col = 'bg-green-900/40 border-green-500/50 text-green-200';
-                  text = `SPRING terdeteksi! Harga sempat tembus support tapi bull vol ${bvd!.bullPct}% dominan — smart money AKUMULASI di bawah support. CPP ${cpp > 0 ? '+' : ''}${cpp}.${isVSABull ? ' VSA konfirmasi kekuatan.' : ''} Setup reversal naik berkualitas tinggi.`;
+                  text = `SPRING terdeteksi! Harga sempat tembus support tapi bull vol ${bvd!.bullPct}% dominan — smart money AKUMULASI di bawah support. CPP ${cpp > 0 ? '+' : ''}${cpp}.${p4Ctx}${isVSABull ? ' VSA konfirmasi kekuatan.' : ''} Setup reversal naik berkualitas tinggi.`;
                 // Real breakout confirmed
                 } else if (isBVDRealBull && bullScore >= 3) {
                   icon = '🚀'; col = 'bg-green-900/30 border-green-600/30 text-green-200';
-                  text = `Breakout VALID — bull vol ${bvd!.bullPct}% konfirmasi momentum naik. CPP ${cpp > 0 ? '+' : ''}${cpp}.${isHAKA ? ' 🔥 HAKA Cooldown mendukung.' : ''}${isVCPReady ? ' VCP pivot siap.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup aktif.' : 'akumulasi.') : ''} Entry dengan stop di bawah level yang ditembus.`;
+                  text = `Breakout VALID — bull vol ${bvd!.bullPct}% konfirmasi momentum naik. CPP ${cpp > 0 ? '+' : ''}${cpp}.${p4Ctx}${isHAKA ? ' 🔥 HAKA Cooldown mendukung.' : ''}${isVCPReady ? ' VCP pivot siap.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup aktif.' : 'akumulasi.') : ''} Entry dengan stop di bawah level yang ditembus.`;
                 // Real breakdown
                 } else if (isBVDRealBear && bearScore >= 3) {
                   icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
-                  text = `Breakdown VALID — bear vol ${bvd!.bearPct}% konfirmasi tekanan jual.${bvdCtx} CPP ${cpp}.${isWyBear ? ' Wyckoff markdown aktif.' : ''} Hindari posisi baru, pertimbangkan cut loss.`;
+                  text = `Breakdown VALID — bear vol ${bvd!.bearPct}% konfirmasi tekanan jual.${bvdCtx} CPP ${cpp}.${p4Ctx}${isWyBear ? ' Wyckoff markdown aktif.' : ''} Hindari posisi baru, pertimbangkan cut loss.`;
+                // Predicta V4 Perfect Time (overrides standard scoring if strong)
+                } else if (p4?.longPerfect && bullScore >= 3) {
+                  icon = '⚡'; col = 'bg-emerald-900/40 border-emerald-500/50 text-emerald-200';
+                  text = `⚡ PREDICTA V4 PERFECT TIME LONG! ${p4.longPct}% probabilitas bullish. ${p4.confluenceLong}/8 confluence terpenuhi. Delta ${p4.deltaBullish ? 'bullish' : 'bearish'} — leading indicator konfirmasi. CPP ${cpp > 0 ? '+' : ''}${cpp}.${isHAKA ? ' 🔥 HAKA Cooldown.' : ''}${isVCPReady ? ' VCP pivot ready.' : ''}${isVSABull ? ' VSA bullish.' : ''}${bvdCtx} Kondisi optimal untuk entry.`;
+                } else if (p4?.shortPerfect && bearScore >= 3) {
+                  icon = '⚡'; col = 'bg-red-900/40 border-red-500/50 text-red-200';
+                  text = `⚡ PREDICTA V4 PERFECT TIME SHORT! ${p4.shortPct}% probabilitas bearish. ${p4.confluenceShort}/8 confluence. Delta bearish konfirmasi. CPP ${cpp}.${isVSABear ? ' VSA distribusi.' : ''}${bvdCtx} Kurangi/hindari posisi long.`;
                 // Standard scoring without BVD
                 } else if (bullScore >= 4) {
                   icon = '🚀'; col = 'bg-green-900/30 border-green-600/30 text-green-200';
-                  text = `Sinyal KUAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp} momentum bullish kuat.${isHAKA ? ' 🔥 HAKA Cooldown: markup agresif dengan sell vol rendah — berpotensi naik lagi!' : ''}${isVCPReady ? ' VCP pivot terbentuk, risiko/reward optimal.' : ''}${isVSABull && !isHAKA ? ' VSA konfirmasi akumulasi institusi.' : ''}${bvdCtx} Entry dengan stop di bawah support.`;
+                  text = `Sinyal KUAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp} momentum bullish kuat.${p4Ctx}${isHAKA ? ' 🔥 HAKA Cooldown: markup agresif dengan sell vol rendah — berpotensi naik lagi!' : ''}${isVCPReady ? ' VCP pivot terbentuk, risiko/reward optimal.' : ''}${isVSABull && !isHAKA ? ' VSA konfirmasi akumulasi institusi.' : ''}${bvdCtx} Entry dengan stop di bawah support.`;
                 } else if (bullScore >= 2 && bearScore === 0) {
                   icon = '🟢'; col = 'bg-green-900/20 border-green-700/30 text-green-300';
-                  text = `Sinyal MODERAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp}.${isHAKA ? ' 🔥 HAKA Cooldown.' : isVSABull ? ' VSA bullish.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup.' : 'akumulasi.') : ''}${bvdCtx} Tunggu konfirmasi volume.`;
+                  text = `Sinyal MODERAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp}.${p4Ctx}${isHAKA ? ' 🔥 HAKA Cooldown.' : isVSABull ? ' VSA bullish.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup.' : 'akumulasi.') : ''}${bvdCtx} Tunggu konfirmasi volume.`;
                 } else if (bearScore >= 4) {
                   icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
-                  text = `Sinyal KUAT JUAL — CPP ${cpp}.${isVSABear ? ' VSA distribusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'markdown.' : 'distribusi.') : ''}${bvdCtx} Hindari posisi baru, cut loss.`;
+                  text = `Sinyal KUAT JUAL — CPP ${cpp}.${p4Ctx}${isVSABear ? ' VSA distribusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'markdown.' : 'distribusi.') : ''}${bvdCtx} Hindari posisi baru, cut loss.`;
                 } else if (bearScore >= 2 && bullScore === 0) {
                   icon = '🟡'; col = 'bg-yellow-900/20 border-yellow-700/30 text-yellow-200';
-                  text = `Sinyal WASPADA — CPP ${cpp} melemah.${isVSABear ? ' Tanda distribusi.' : ''}${bvdCtx} Kurangi posisi atau trailing stop.`;
+                  text = `Sinyal WASPADA — CPP ${cpp} melemah.${p4Ctx}${isVSABear ? ' Tanda distribusi.' : ''}${bvdCtx} Kurangi posisi atau trailing stop.`;
                 } else {
                   icon = '⬜'; col = 'bg-gray-700/20 border-gray-600/30 text-gray-300';
-                  text = `Sinyal NETRAL — CPP ${cpp}, supply-demand seimbang.${isVCPReady ? ' VCP base, pantau breakout+volume.' : ''}${bvdCtx} Tunggu sinyal tegas.`;
+                  text = `Sinyal NETRAL — CPP ${cpp}, supply-demand seimbang.${p4Ctx}${isVCPReady ? ' VCP base, pantau breakout+volume.' : ''}${bvdCtx} Tunggu sinyal tegas.`;
                 }
 
                 return (

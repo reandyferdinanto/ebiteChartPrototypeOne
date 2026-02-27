@@ -21,14 +21,31 @@ export interface RMVData { time: number; value: number; color: string; }
 // ── NEW: Breakout Volume Delta ──────────────────────────────────────────────
 export interface BreakoutDeltaResult {
   time: number;
-  direction: 'bull' | 'bear';         // upside break vs downside break
-  bullPct: number;                     // 0-100 — buying volume dominance
-  bearPct: number;                     // 0-100 — selling volume dominance
+  direction: 'bull' | 'bear';
+  bullPct: number;
+  bearPct: number;
   totalVol: number;
-  isRealBreakout: boolean;             // bull% ≥ 55% for upside, bear% ≥ 55% for downside
-  isFakeBreakout: boolean;             // opposite dominance ≥ 55%
-  label: string;                       // human-readable label
-  level: number;                       // pivot level that was broken
+  isRealBreakout: boolean;
+  isFakeBreakout: boolean;
+  label: string;
+  level: number;
+}
+
+// ── Predicta V4 Result ──────────────────────────────────────────────────────
+export interface PredictaV4Result {
+  trendScore: number; macdScore: number; deltaScore: number; rsiScore: number;
+  stochScore: number; adxScore: number; volScore: number;
+  longScore: number; shortScore: number; longPct: number; shortPct: number;
+  confluenceLong: number; confluenceShort: number;
+  isUptrend: boolean; deltaBullish: boolean; rsiAbove50: boolean;
+  stochAbove50: boolean; adxStrong: boolean;
+  volRegime: 'HIGH' | 'MEDIUM' | 'LOW';
+  longPerfect: boolean; shortPerfect: boolean;
+  verdict: 'STRONG_BULL' | 'BULL' | 'NEUTRAL' | 'BEAR' | 'STRONG_BEAR';
+  rsiValue: number; adxValue: number; volRatio: number;
+  stochK: number; stochD: number; macdHistValue: number;
+  volumeDeltaValue: number;
+  ema8: number; ema21: number; ema50val: number;
 }
 
 export interface IndicatorResult {
@@ -39,6 +56,7 @@ export interface IndicatorResult {
   vsaMarkers: MarkerData[]; rmvData: RMVData[];
   breakoutDeltaMarkers: MarkerData[];
   latestBreakoutDelta: BreakoutDeltaResult | null;
+  predictaV4: PredictaV4Result | null;
   signals: { bandar: string; wyckoffPhase: string; vcpStatus: string; evrScore: number; cppScore: number; cppBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; };
 }
 
@@ -896,6 +914,256 @@ export function detectBreakoutVolumeDelta(
 }
 
 // ============================================================================
+// PREDICTA V4 — NEXT CANDLE PREDICTOR
+// Ported from PineScript "Predicta Futures - Next Candle Predictor V4"
+// 8-point confluence: Supertrend + EMA + MACD + RSI + Stoch + ADX + Vol + Delta
+// V4 fix: Delta confirmation MANDATORY for "Perfect Time" signal
+// ============================================================================
+export function calculatePredictaV4(data: ChartData[]): PredictaV4Result | null {
+  const N = data.length;
+  if (N < 60) return null;
+
+  // ── EMA ──────────────────────────────────────────────────────────────────
+  function emaFn(values: number[], period: number): number[] {
+    const result = new Array(values.length).fill(NaN);
+    const k = 2 / (period + 1);
+    let seed = 0;
+    const seedLen = Math.min(period, values.length);
+    for (let i = 0; i < seedLen; i++) seed += values[i];
+    seed /= seedLen;
+    result[period - 1] = seed;
+    for (let i = period; i < values.length; i++) {
+      result[i] = values[i] * k + result[i - 1] * (1 - k);
+    }
+    return result;
+  }
+
+  // ── SMA ──────────────────────────────────────────────────────────────────
+  function smaFn(values: number[], period: number): number[] {
+    const result = new Array(values.length).fill(NaN);
+    for (let i = period - 1; i < values.length; i++) {
+      let s = 0;
+      for (let j = i - period + 1; j <= i; j++) s += values[j];
+      result[i] = s / period;
+    }
+    return result;
+  }
+
+  // ── Wilder RMA (for RSI / ATR) ────────────────────────────────────────────
+  function rmaFn(values: number[], period: number): number[] {
+    const result = new Array(values.length).fill(NaN);
+    let seed = 0;
+    for (let i = 0; i < period && i < values.length; i++) seed += values[i];
+    seed /= Math.min(period, values.length);
+    result[period - 1] = seed;
+    for (let i = period; i < values.length; i++) {
+      result[i] = (result[i - 1] * (period - 1) + values[i]) / period;
+    }
+    return result;
+  }
+
+  const closes = data.map(d => d.close);
+  const highs  = data.map(d => d.high);
+  const lows   = data.map(d => d.low);
+  const vols   = data.map(d => d.volume || 0);
+
+  // ── True Range array ─────────────────────────────────────────────────────
+  const trArr: number[] = new Array(N).fill(0);
+  trArr[0] = highs[0] - lows[0];
+  for (let i = 1; i < N; i++) {
+    trArr[i] = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1]));
+  }
+
+  // ── Supertrend (period=10, factor=3.0) ───────────────────────────────────
+  const stATR = rmaFn(trArr, 10);
+  const upperBandArr = new Array(N).fill(0);
+  const lowerBandArr = new Array(N).fill(0);
+  const trendDirArr  = new Array(N).fill(1); // 1=down, -1=up
+  for (let i = 0; i < N; i++) {
+    const hl2 = (highs[i] + lows[i]) / 2;
+    const raw = 3.0 * (stATR[i] || 1);
+    const rawU = hl2 + raw, rawL = hl2 - raw;
+    if (i === 0) { upperBandArr[i] = rawU; lowerBandArr[i] = rawL; continue; }
+    lowerBandArr[i] = closes[i - 1] > lowerBandArr[i - 1] ? Math.max(rawL, lowerBandArr[i - 1]) : rawL;
+    upperBandArr[i] = closes[i - 1] < upperBandArr[i - 1] ? Math.min(rawU, upperBandArr[i - 1]) : rawU;
+    const pDir = trendDirArr[i - 1];
+    trendDirArr[i] = pDir === 1 ? (closes[i] > upperBandArr[i] ? -1 : 1) : (closes[i] < lowerBandArr[i] ? 1 : -1);
+  }
+  const isUptrend = trendDirArr[N - 1] === -1;
+
+  // ── EMA 8, 21, 50 ────────────────────────────────────────────────────────
+  const ema8arr  = emaFn(closes, 8);
+  const ema21arr = emaFn(closes, 21);
+  const ema50arr = emaFn(closes, 50);
+  const ema8v    = isNaN(ema8arr[N - 1])  ? closes[N - 1] : ema8arr[N - 1];
+  const ema21v   = isNaN(ema21arr[N - 1]) ? closes[N - 1] : ema21arr[N - 1];
+  const ema50v   = isNaN(ema50arr[N - 1]) ? closes[N - 1] : ema50arr[N - 1];
+
+  // ── RSI(14) ───────────────────────────────────────────────────────────────
+  const gains  = new Array(N).fill(0);
+  const losses = new Array(N).fill(0);
+  for (let i = 1; i < N; i++) {
+    const ch = closes[i] - closes[i - 1];
+    gains[i]  = ch > 0 ?  ch : 0;
+    losses[i] = ch < 0 ? -ch : 0;
+  }
+  const avgGain = rmaFn(gains,  14);
+  const avgLoss = rmaFn(losses, 14);
+  let rsiVal = 50;
+  if (N >= 14) {
+    const ag = avgGain[N - 1], al = avgLoss[N - 1];
+    rsiVal = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+  }
+
+  // ── MACD (12, 26, 9) ──────────────────────────────────────────────────────
+  const fastEMA   = emaFn(closes, 12);
+  const slowEMA   = emaFn(closes, 26);
+  const macdLine  = fastEMA.map((v, i) => (isNaN(v) || isNaN(slowEMA[i])) ? 0 : v - slowEMA[i]);
+  const sigLine   = emaFn(macdLine, 9);
+  const macdHist  = macdLine[N - 1] - (isNaN(sigLine[N - 1]) ? 0 : sigLine[N - 1]);
+  const macdLineV = macdLine[N - 1];
+  const sigLineV  = isNaN(sigLine[N - 1]) ? 0 : sigLine[N - 1];
+
+  // ── Stochastic(14, 3) ─────────────────────────────────────────────────────
+  const stochKArr = new Array(N).fill(50);
+  for (let i = 13; i < N; i++) {
+    const slice = { h: Math.max(...highs.slice(i - 13, i + 1)), l: Math.min(...lows.slice(i - 13, i + 1)) };
+    stochKArr[i] = slice.h > slice.l ? ((closes[i] - slice.l) / (slice.h - slice.l)) * 100 : 50;
+  }
+  const stochDArr = smaFn(stochKArr, 3);
+  const stochK = stochKArr[N - 1];
+  const stochD = isNaN(stochDArr[N - 1]) ? 50 : stochDArr[N - 1];
+
+  // ── ADX(14) ───────────────────────────────────────────────────────────────
+  const dmP = new Array(N).fill(0), dmM = new Array(N).fill(0);
+  for (let i = 1; i < N; i++) {
+    const up = highs[i] - highs[i - 1], dn = lows[i - 1] - lows[i];
+    dmP[i] = (up > dn && up > 0) ? up : 0;
+    dmM[i] = (dn > up && dn > 0) ? dn : 0;
+  }
+  const atrAdx    = rmaFn(trArr, 14);
+  const smDiP     = rmaFn(dmP, 14);
+  const smDiM     = rmaFn(dmM, 14);
+  const diPlusV   = atrAdx[N - 1] > 0 ? (smDiP[N - 1] / atrAdx[N - 1]) * 100 : 0;
+  const diMinusV  = atrAdx[N - 1] > 0 ? (smDiM[N - 1] / atrAdx[N - 1]) * 100 : 0;
+  const dxArr     = atrAdx.map((a, i) => {
+    const dp = a > 0 ? (smDiP[i] / a) * 100 : 0;
+    const dm = a > 0 ? (smDiM[i] / a) * 100 : 0;
+    const s  = dp + dm;
+    return s > 0 ? (Math.abs(dp - dm) / s) * 100 : 0;
+  });
+  const adxArr = rmaFn(dxArr, 14);
+  const adxVal = isNaN(adxArr[N - 1]) ? 20 : adxArr[N - 1];
+
+  // ── Volume ratio ──────────────────────────────────────────────────────────
+  const volSMA20 = smaFn(vols, 20);
+  const volRatio = vols[N - 1] / (isNaN(volSMA20[N - 1]) || volSMA20[N - 1] === 0 ? 1 : volSMA20[N - 1]);
+
+  // ── Volume Delta (buy vol vs sell vol estimate) ───────────────────────────
+  const candleRange = highs[N - 1] - lows[N - 1];
+  const buyVol  = candleRange > 0 ? vols[N - 1] * (closes[N - 1] - lows[N - 1]) / candleRange : vols[N - 1] * 0.5;
+  const sellVol = candleRange > 0 ? vols[N - 1] * (highs[N - 1] - closes[N - 1]) / candleRange : vols[N - 1] * 0.5;
+  const volumeDelta = buyVol - sellVol;
+
+  // Delta EMA(10) over all bars
+  const deltaArr = data.map(d => {
+    const r = d.high - d.low;
+    const bv = r > 0 ? (d.volume || 0) * (d.close - d.low) / r : (d.volume || 0) * 0.5;
+    const sv = r > 0 ? (d.volume || 0) * (d.high - d.close) / r : (d.volume || 0) * 0.5;
+    return bv - sv;
+  });
+  const deltaEmaArr = emaFn(deltaArr, 10);
+  const deltaEma    = isNaN(deltaEmaArr[N - 1]) ? 0 : deltaEmaArr[N - 1];
+  const deltaBullish  = volumeDelta > 0;
+  const deltaBearish  = volumeDelta < 0;
+  const deltaMomentum = volumeDelta > deltaEma;
+
+  // ── Volatility Regime ─────────────────────────────────────────────────────
+  const atrCur = stATR[N - 1] || 1;
+  let atrRankCount = 0;
+  const lookbackATR = Math.min(100, N);
+  for (let i = N - lookbackATR; i < N; i++) if ((stATR[i] || 0) < atrCur) atrRankCount++;
+  const atrPct = (atrRankCount / lookbackATR) * 100;
+  const volRegime: 'HIGH' | 'MEDIUM' | 'LOW' = atrPct > 75 ? 'HIGH' : atrPct < 25 ? 'LOW' : 'MEDIUM';
+  const volMult = atrPct > 75 ? 0.85 : atrPct < 25 ? 1.15 : 1.0;
+
+  // ── Dynamic ADX threshold ─────────────────────────────────────────────────
+  const dynThr = adxVal > 30 ? 55 : adxVal > 25 ? 60 : adxVal > 20 ? 65 : 70;
+
+  // ── Component Scores ──────────────────────────────────────────────────────
+  const rsiAbove50 = rsiVal > 50;
+  const stochAbove50 = stochK > 50;
+  const adxStrong = adxVal > 25;
+
+  const macdScL = macdLineV > sigLineV && macdHist > 0 ? 100 : macdLineV > sigLineV ? 70 : macdHist > 0 ? 50 : 20;
+  const macdScS = macdLineV < sigLineV && macdHist < 0 ? 100 : macdLineV < sigLineV ? 70 : macdHist < 0 ? 50 : 20;
+  const rsiScL  = rsiVal < 30 ? 100 : rsiVal < 40 ? 85 : rsiVal < 50 ? 70 : rsiVal < 60 ? 50 : 25;
+  const rsiScS  = rsiVal > 70 ? 100 : rsiVal > 60 ? 85 : rsiVal > 50 ? 70 : rsiVal > 40 ? 50 : 25;
+  const stScL   = stochK > stochD && stochK < 20 ? 100 : stochK > stochD && stochK < 50 ? 85 : stochK > stochD ? 65 : 25;
+  const stScS   = stochK < stochD && stochK > 80 ? 100 : stochK < stochD && stochK > 50 ? 85 : stochK < stochD ? 65 : 25;
+  const volSc   = volRatio > 2.0 ? 100 : volRatio > 1.5 ? 80 : volRatio > 1.0 ? 60 : volRatio > 0.8 ? 45 : 25;
+  const dScL    = volumeDelta > 0 && deltaMomentum ? 100 : volumeDelta > 0 ? 75 : volumeDelta > -Math.abs(deltaEma) ? 40 : 20;
+  const dScS    = volumeDelta < 0 && !deltaMomentum ? 100 : volumeDelta < 0 ? 75 : volumeDelta < Math.abs(deltaEma) ? 40 : 20;
+  const adxSc   = adxVal > 35 ? 100 : adxVal > 30 ? 85 : adxVal > 25 ? 70 : adxVal > 20 ? 50 : 30;
+  const tScL    = isUptrend && ema8v > ema21v && ema21v > ema50v ? 100 : isUptrend && ema8v > ema21v ? 80 : isUptrend ? 60 : 0;
+  const tScS    = !isUptrend && ema8v < ema21v && ema21v < ema50v ? 100 : !isUptrend && ema8v < ema21v ? 80 : !isUptrend ? 60 : 0;
+
+  // Weighted composite (Trend 23%, MACD 18%, Delta 15%, RSI 12%, Stoch 12%, ADX 10%, Vol 10%)
+  const longRaw  = tScL * 0.23 + macdScL * 0.18 + dScL * 0.15 + rsiScL * 0.12 + stScL * 0.12 + adxSc * 0.10 + volSc * 0.10;
+  const shortRaw = tScS * 0.23 + macdScS * 0.18 + dScS * 0.15 + rsiScS * 0.12 + stScS * 0.12 + adxSc * 0.10 + volSc * 0.10;
+
+  const longScore  = Math.round(Math.min(100, Math.max(0, longRaw  * volMult)));
+  const shortScore = Math.round(Math.min(100, Math.max(0, shortRaw * volMult)));
+  const totalRaw   = longScore + shortScore || 1;
+  const longPct    = Math.round((longScore / totalRaw) * 100);
+  const shortPct   = 100 - longPct;
+
+  // ── 8-Point Confluence ────────────────────────────────────────────────────
+  const volOk = volRatio >= 0.8;
+  let cL = 0, cS = 0;
+  cL += isUptrend ? 1 : 0;     cS += !isUptrend ? 1 : 0;
+  cL += ema8v > ema21v ? 1 : 0; cS += ema8v < ema21v ? 1 : 0;
+  cL += macdLineV > sigLineV ? 1 : 0; cS += macdLineV < sigLineV ? 1 : 0;
+  cL += stochK > stochD ? 1 : 0;     cS += stochK < stochD ? 1 : 0;
+  cL += volOk ? 1 : 0;              cS += volOk ? 1 : 0;
+  cL += adxStrong ? 1 : 0;          cS += adxStrong ? 1 : 0;
+  cL += rsiAbove50 ? 1 : 0;         cS += !rsiAbove50 ? 1 : 0;
+  cL += deltaBullish ? 1 : 0;       cS += deltaBearish ? 1 : 0;
+
+  // ── Perfect Time (V4: Delta MANDATORY) ───────────────────────────────────
+  const longPerfect  = isUptrend  && longPct  >= dynThr && cL >= 5 && volOk && rsiAbove50  && deltaBullish;
+  const shortPerfect = !isUptrend && shortPct >= dynThr && cS >= 5 && volOk && !rsiAbove50 && deltaBearish;
+
+  // ── Verdict ───────────────────────────────────────────────────────────────
+  let verdict: PredictaV4Result['verdict'];
+  if      (longPerfect)              verdict = 'STRONG_BULL';
+  else if (longPct  >= 60 && cL >= 5) verdict = 'BULL';
+  else if (shortPerfect)             verdict = 'STRONG_BEAR';
+  else if (shortPct >= 60 && cS >= 5) verdict = 'BEAR';
+  else                                verdict = 'NEUTRAL';
+
+  return {
+    trendScore: Math.max(tScL, tScS), macdScore: Math.max(macdScL, macdScS),
+    deltaScore: Math.max(dScL, dScS), rsiScore: rsiAbove50 ? rsiScL : rsiScS,
+    stochScore: stochAbove50 ? stScL : stScS, adxScore: adxSc, volScore: volSc,
+    longScore, shortScore, longPct, shortPct,
+    confluenceLong: cL, confluenceShort: cS,
+    isUptrend, deltaBullish, rsiAbove50, stochAbove50, adxStrong, volRegime,
+    longPerfect, shortPerfect, verdict,
+    rsiValue:         Math.round(rsiVal * 10) / 10,
+    adxValue:         Math.round(adxVal * 10) / 10,
+    volRatio:         Math.round(volRatio * 10) / 10,
+    stochK:           Math.round(stochK  * 10) / 10,
+    stochD:           Math.round(stochD  * 10) / 10,
+    macdHistValue:    Math.round(macdHist * 100) / 100,
+    volumeDeltaValue: Math.round(volumeDelta),
+    ema8:             Math.round(ema8v  * 100) / 100,
+    ema21:            Math.round(ema21v * 100) / 100,
+    ema50val:         Math.round(ema50v * 100) / 100,
+  };
+}
+
+// ============================================================================
 // SUPPORT & RESISTANCE ZONES (Pivot-based + ATR zones)
 // ============================================================================
 export function calculateSupportResistance(
@@ -936,12 +1204,14 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
   const vsaResult = detectVSA(data);
   const cpResult = calculateCandlePower(data);
   const bvdResult = detectBreakoutVolumeDelta(data);
+  const predictaV4 = calculatePredictaV4(data);
   return {
     ma5, ma20, ma50, ma200, momentum, awesomeOscillator, fibonacci, supportResistance,
     candlePowerMarkers: cpResult.markers, candlePowerAnalysis: cpResult.analysis,
     vsaMarkers: vsaResult.markers, rmvData: vsaResult.rmvData,
     breakoutDeltaMarkers: bvdResult.markers,
     latestBreakoutDelta: bvdResult.latestBreakout,
+    predictaV4,
     signals: {
       bandar: vsaResult.signal, wyckoffPhase: vsaResult.wyckoffPhase,
       vcpStatus: vsaResult.vcpStatus, evrScore: vsaResult.evrScore,
