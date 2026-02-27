@@ -273,6 +273,56 @@ function screenScalp(data: any[], tf: '5m'|'15m'): Omit<ScalpResult,'symbol'|'ch
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// URL BUILDERS — pass full screener context to chart
+// ─────────────────────────────────────────────────────────────────────────────
+function buildSwingChartURL(r: SwingResult): string {
+  const p = new URLSearchParams({
+    symbol: r.symbol, interval: '1d', screenerType: 'swing',
+    grade: r.grade, entryType: r.entryType,
+    vsaSignal: r.cooldownVSA || 'NEUTRAL',
+    reason: r.reason,
+    sl: r.stopLoss.toString(), tp: r.target.toString(),
+    cpp: r.cppScore.toString(), cppBias: r.cppBias,
+    power: r.powerScore.toString(), gain: r.gainFromBase.toString(),
+    svr: r.sellVolRatio.toString(), acc: r.accRatio.toString(),
+    rmv: r.rmv.toString(), timeframe: '1d',
+  });
+  return `/?${p.toString()}`;
+}
+
+function buildVCPChartURL(c: VCPCandidate): string {
+  const et = c.isSniperEntry ? 'SNIPER' : c.isVCP ? 'VCP' : c.isDryUp ? 'DRY_UP' : 'WATCH';
+  const vsa = c.isSellingClimax ? 'SELLING CLIMAX' : c.isIceberg ? 'ICEBERG'
+    : c.isNoSupply ? 'NO SUPPLY' : c.isDryUp ? 'DRY UP' : 'NEUTRAL';
+  const grade = c.vpcScore >= 80 ? 'A+' : c.vpcScore >= 60 ? 'A' : 'B';
+  const p = new URLSearchParams({
+    symbol: c.symbol, interval: '1d', screenerType: 'vcp',
+    grade, entryType: et, vsaSignal: vsa,
+    reason: c.recommendation || c.pattern || '',
+    sl: '0', tp: '0',
+    cpp: c.cppScore.toString(), cppBias: c.cppBias,
+    power: '50', gain: (c.changePercent || 0).toString(),
+    svr: '0', acc: '1', rmv: c.rmv.toString(), timeframe: '1d',
+  });
+  return `/?${p.toString()}`;
+}
+
+function buildScalpChartURL(r: ScalpResult): string {
+  const p = new URLSearchParams({
+    symbol: r.symbol, interval: r.timeframe, screenerType: 'scalp',
+    grade: r.grade, entryType: r.entryType,
+    vsaSignal: r.vsaSignal || 'NEUTRAL',
+    reason: r.reason,
+    sl: r.stopLoss.toString(), tp: r.target.toString(),
+    cpp: r.cppScore.toString(), cppBias: r.cppBias,
+    power: r.powerScore.toString(), gain: r.runGainPct.toString(),
+    svr: r.sellVolRatio.toString(), acc: r.accRatio.toString(),
+    rmv: r.rmv.toString(), timeframe: r.timeframe,
+  });
+  return `/?${p.toString()}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // INNER CONTENT
 // ─────────────────────────────────────────────────────────────────────────────
 function ScreenerContent() {
@@ -427,7 +477,7 @@ function ScreenerContent() {
                   </div>
                   <p className="text-xs text-gray-400 bg-gray-900/40 rounded p-2 leading-relaxed">{c.recommendation}</p>
                   <div className="flex gap-2">
-                    <button onClick={()=>router.push(`/?symbol=${c.symbol}&timeframe=1d`)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-1.5 rounded-lg font-medium transition-colors">Chart</button>
+                    <button onClick={()=>router.push(buildVCPChartURL(c))} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-1.5 rounded-lg font-medium transition-colors">Chart</button>
                     <button onClick={()=>router.push(`/analysis?symbol=${c.symbol}`)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-1.5 rounded-lg font-medium transition-colors">Analysis</button>
                   </div>
                 </div>
@@ -496,7 +546,7 @@ function ScreenerContent() {
                 </div>
                 <div className="text-xs text-gray-400 bg-gray-900/50 rounded-lg px-2.5 py-2">{r.reason}</div>
                 <div className="flex gap-2">
-                  <button onClick={()=>router.push(`/?symbol=${r.symbol}&timeframe=1d`)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded-lg font-medium transition-colors">📊 Chart</button>
+                  <button onClick={()=>router.push(buildSwingChartURL(r))} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded-lg font-medium transition-colors">📊 Chart</button>
                   <button onClick={()=>router.push(`/analysis?symbol=${r.symbol}`)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded-lg font-medium transition-colors">🔬 Analysis</button>
                 </div>
               </div>
@@ -565,7 +615,7 @@ function ScreenerContent() {
                 </div>
                 <div className="text-xs text-gray-400 bg-gray-900/50 rounded-lg px-2.5 py-2">{r.reason}</div>
                 <div className="flex gap-2">
-                  <button onClick={()=>router.push(`/?symbol=${r.symbol}&timeframe=${r.timeframe}`)} className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-gray-900 text-xs py-2 rounded-lg font-bold transition-colors">⚡ Chart {r.timeframe}</button>
+                  <button onClick={()=>router.push(buildScalpChartURL(r))} className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-gray-900 text-xs py-2 rounded-lg font-bold transition-colors">⚡ Chart {r.timeframe}</button>
                   <button onClick={()=>router.push(`/analysis?symbol=${r.symbol}`)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded-lg font-medium transition-colors">🔬 Analysis</button>
                 </div>
               </div>

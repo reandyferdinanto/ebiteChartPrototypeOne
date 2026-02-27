@@ -19,6 +19,25 @@ interface StockChartProps {
   timeframe?: string;
 }
 
+// ── Screener context passed via URL params ───────────────────────────────────
+interface ScreenerContext {
+  screenerType: 'swing' | 'vcp' | 'scalp' | null;
+  grade: string;        // A+, A, B
+  entryType: string;    // SNIPER, BREAKOUT, WATCH
+  vsaSignal: string;    // DRY UP, ICEBERG, etc.
+  reason: string;       // full reason string from screener
+  stopLoss: number;
+  target: number;
+  cppScore: number;
+  cppBias: string;      // BULLISH, NEUTRAL, BEARISH
+  powerScore: number;
+  gainFromBase: number; // swing: gain%, scalp: spike%
+  sellVolRatio: number;
+  accRatio: number;
+  rmv: number;
+  timeframe: string;    // timeframe screener ran on
+}
+
 export default function StockChart({ data, timeframe = '1d' }: StockChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const macdContainerRef  = useRef<HTMLDivElement>(null);
@@ -26,8 +45,8 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
   const macdChartRef = useRef<any>(null);
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick');
   const [showControls, setShowControls] = useState(true);
-  // scalpSignal: populated when chart is opened from scalp screener
-  const [scalpSignal, setScalpSignal] = useState<{ type: string; label: string } | null>(null);
+  const [screenerCtx, setScreenerCtx] = useState<ScreenerContext | null>(null);
+  const [showScreenerBanner, setShowScreenerBanner] = useState(true);
   const [showIndicators, setShowIndicators] = useState({
     ma: true,
     momentum: true,
@@ -41,28 +60,45 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
   });
   const [indicators, setIndicators] = useState<IndicatorResult | null>(null);
 
-  // Read scalpSignal from URL params when chart mounts
+  // Read screener context from URL params when chart mounts
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const sig  = params.get('scalpSignal');
-    const lbl  = params.get('scalpLabel');
-    if (sig && lbl) {
-      // URLSearchParams.get() already decodes the value, so use it directly.
-      // Only attempt decodeURIComponent if the value still looks encoded.
-      let safeLabel = lbl;
-      try {
-        // Only decode if it contains % sequences (double-encoded scenario)
-        if (lbl.includes('%')) {
-          safeLabel = decodeURIComponent(lbl);
-        }
-      } catch {
-        // If decoding fails (malformed URI), use the raw value as-is
-        safeLabel = lbl;
-      }
-      setScalpSignal({ type: sig, label: safeLabel });
-      // Auto-enable VSA mode so user sees the markers immediately
-      setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, candlePower: false, signals: true }));
+    const p = new URLSearchParams(window.location.search);
+    const st = p.get('screenerType') as ScreenerContext['screenerType'];
+    if (!st) return; // not coming from screener
+
+    const safeStr = (key: string) => {
+      const v = p.get(key) || '';
+      try { return v.includes('%') ? decodeURIComponent(v) : v; } catch { return v; }
+    };
+
+    const ctx: ScreenerContext = {
+      screenerType: st,
+      grade: safeStr('grade'),
+      entryType: safeStr('entryType'),
+      vsaSignal: safeStr('vsaSignal'),
+      reason: safeStr('reason'),
+      stopLoss: parseFloat(p.get('sl') || '0'),
+      target: parseFloat(p.get('tp') || '0'),
+      cppScore: parseFloat(p.get('cpp') || '0'),
+      cppBias: safeStr('cppBias'),
+      powerScore: parseInt(p.get('power') || '0'),
+      gainFromBase: parseFloat(p.get('gain') || '0'),
+      sellVolRatio: parseFloat(p.get('svr') || '0'),
+      accRatio: parseFloat(p.get('acc') || '1'),
+      rmv: parseFloat(p.get('rmv') || '50'),
+      timeframe: safeStr('timeframe') || '1d',
+    };
+    setScreenerCtx(ctx);
+    setShowScreenerBanner(true);
+
+    // Auto-activate correct indicators based on screener type
+    if (st === 'scalp') {
+      setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, candlePower: false, signals: true, ma: true }));
+    } else if (st === 'vcp') {
+      setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, fibonacci: true, candlePower: false, signals: true, ma: true }));
+    } else if (st === 'swing') {
+      setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, candlePower: false, signals: true, ma: true }));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -906,6 +942,119 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
           </div>
         </div>
       )}
+
+      {/* ── Screener Context Banner ──────────────────────────────────────── */}
+      {screenerCtx && showScreenerBanner && (() => {
+        const sc = screenerCtx;
+        const gradeColor: Record<string,string> = {
+          'A+': 'from-emerald-900/60 to-emerald-800/30 border-emerald-500/40',
+          'A':  'from-cyan-900/60 to-cyan-800/30 border-cyan-500/40',
+          'B':  'from-yellow-900/60 to-yellow-800/30 border-yellow-500/40',
+        };
+        const bgCls = gradeColor[sc.grade] || 'from-gray-800/60 to-gray-700/30 border-gray-600/40';
+        const gradeTextColor: Record<string,string> = {'A+':'text-emerald-300','A':'text-cyan-300','B':'text-yellow-300'};
+        const gradeTxt = gradeTextColor[sc.grade] || 'text-gray-300';
+
+        const typeLabel = sc.screenerType === 'scalp' ? '⚡ Scalp' : sc.screenerType === 'vcp' ? '📊 VCP' : '📈 Swing';
+        const entryLabel = sc.entryType === 'SNIPER' ? '🎯 Sniper Entry' : sc.entryType === 'BREAKOUT' ? '🚀 Breakout' : '👁️ Watch';
+        const rr = sc.stopLoss > 0 && sc.target > 0 && sc.target > sc.stopLoss
+          ? ((sc.target - (sc.stopLoss + sc.target) / 2) / (((sc.stopLoss + sc.target) / 2) - sc.stopLoss)).toFixed(1)
+          : null;
+
+        // Kesimpulan screener
+        let kesimpulan = '';
+        if (sc.screenerType === 'scalp') {
+          kesimpulan = `${entryLabel} terdeteksi pada timeframe ${sc.timeframe}. Saham spike +${sc.gainFromBase.toFixed(1)}% lalu masuk fase cooldown dengan sell vol ${Math.round(sc.sellVolRatio * 100)}% (rendah). ` +
+            `CPP ${sc.cppScore > 0 ? '+' : ''}${sc.cppScore} (${sc.cppBias}) — momentum ${sc.cppBias === 'BULLISH' ? 'masih bullish, siap markup lagi' : 'netral, tunggu konfirmasi'}. ` +
+            `Acc Ratio ${sc.accRatio.toFixed(1)}x = buying pressure > selling. ` +
+            (sc.vsaSignal !== 'NEUTRAL' ? `VSA: ${sc.vsaSignal} — sinyal institusi. ` : '') +
+            `SL: Rp ${sc.stopLoss.toLocaleString('id-ID')} · TP: Rp ${sc.target.toLocaleString('id-ID')}${rr ? ` · R:R 1:${rr}` : ''}.`;
+        } else if (sc.screenerType === 'swing') {
+          kesimpulan = `${entryLabel} swing harian. Saham sudah naik +${sc.gainFromBase.toFixed(1)}% lalu calmdown dengan sell vol ${Math.round(sc.sellVolRatio * 100)}% (rendah). ` +
+            `CPP ${sc.cppScore > 0 ? '+' : ''}${sc.cppScore} (${sc.cppBias}) — bias ${sc.cppBias === 'BULLISH' ? 'bullish: momentum lanjutan 1–5 hari ke depan' : 'netral: tunggu konfirmasi volume'}. ` +
+            `Acc ${sc.accRatio.toFixed(1)}x · Power ${sc.powerScore}. ` +
+            (sc.vsaSignal !== 'NEUTRAL' ? `VSA: ${sc.vsaSignal}. ` : '') +
+            `SL: Rp ${sc.stopLoss.toLocaleString('id-ID')} · TP: Rp ${sc.target.toLocaleString('id-ID')}${rr ? ` · R:R 1:${rr}` : ''}.`;
+        } else {
+          kesimpulan = `${entryLabel} VCP/Wyckoff setup. RMV ${Math.round(sc.rmv)} (${sc.rmv <= 15 ? 'kompresi ekstrem — pivot ready' : sc.rmv <= 30 ? 'kompresi sedang' : 'volatilitas normal'}). ` +
+            `CPP ${sc.cppScore > 0 ? '+' : ''}${sc.cppScore} (${sc.cppBias}). Acc ${sc.accRatio.toFixed(1)}x. ` +
+            (sc.vsaSignal !== 'NEUTRAL' ? `VSA: ${sc.vsaSignal}. ` : '') +
+            `SL: Rp ${sc.stopLoss.toLocaleString('id-ID')} · TP: Rp ${sc.target.toLocaleString('id-ID')}${rr ? ` · R:R 1:${rr}` : ''}.`;
+        }
+
+        return (
+          <div className={`border-b border-t-0 bg-gradient-to-r ${bgCls} px-3 py-2 md:px-4 md:py-3`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0 space-y-1.5">
+                {/* Header row */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-white bg-black/30 px-2 py-0.5 rounded-full">
+                    {typeLabel} Screener Signal
+                  </span>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full bg-black/30 ${gradeTxt}`}>
+                    Grade {sc.grade}
+                  </span>
+                  <span className="text-xs font-semibold text-white bg-black/20 px-2 py-0.5 rounded-full">
+                    {entryLabel}
+                  </span>
+                  {sc.cppBias === 'BULLISH' && (
+                    <span className="text-xs font-bold text-emerald-300 bg-emerald-900/30 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                      📈 CPP {sc.cppScore > 0 ? '+' : ''}{sc.cppScore} BULLISH
+                    </span>
+                  )}
+                  {sc.vsaSignal && sc.vsaSignal !== 'NEUTRAL' && (
+                    <span className="text-xs font-bold text-cyan-300 bg-cyan-900/30 px-2 py-0.5 rounded-full border border-cyan-500/30">
+                      VSA: {sc.vsaSignal}
+                    </span>
+                  )}
+                </div>
+
+                {/* Stats row */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  <span><span className="text-gray-400">Gain: </span><span className="text-white font-bold">+{sc.gainFromBase.toFixed(1)}%</span></span>
+                  <span><span className="text-gray-400">Sell Vol: </span><span className={`font-bold ${sc.sellVolRatio < 0.3 ? 'text-emerald-400' : 'text-yellow-400'}`}>{Math.round(sc.sellVolRatio * 100)}%</span></span>
+                  <span><span className="text-gray-400">Acc: </span><span className={`font-bold ${sc.accRatio >= 1.5 ? 'text-emerald-400' : 'text-yellow-400'}`}>{sc.accRatio.toFixed(1)}x</span></span>
+                  <span><span className="text-gray-400">Power: </span><span className={`font-bold ${sc.powerScore >= 70 ? 'text-emerald-400' : 'text-yellow-400'}`}>{sc.powerScore}</span></span>
+                  <span><span className="text-gray-400">RMV: </span><span className={`font-bold ${sc.rmv <= 15 ? 'text-blue-400' : sc.rmv <= 30 ? 'text-cyan-400' : 'text-gray-300'}`}>{Math.round(sc.rmv)}</span></span>
+                  {sc.stopLoss > 0 && <span><span className="text-red-400">SL: </span><span className="text-white font-bold">Rp {sc.stopLoss.toLocaleString('id-ID')}</span></span>}
+                  {sc.target > 0 && <span><span className="text-emerald-400">TP: </span><span className="text-white font-bold">Rp {sc.target.toLocaleString('id-ID')}</span></span>}
+                  {rr && <span><span className="text-gray-400">R:R </span><span className={`font-bold ${parseFloat(rr) >= 2 ? 'text-emerald-400' : 'text-yellow-400'}`}>1:{rr}</span></span>}
+                </div>
+
+                {/* Reason chips */}
+                {sc.reason && (
+                  <div className="flex flex-wrap gap-1">
+                    {sc.reason.split(' · ').map((r, i) => (
+                      <span key={i} className="text-xs bg-black/20 text-gray-300 px-1.5 py-0.5 rounded border border-white/10">{r}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Kesimpulan */}
+                <div className="bg-black/20 rounded-lg px-2.5 py-1.5 border border-white/10">
+                  <p className="text-xs text-gray-200 leading-relaxed">
+                    <span className="font-bold text-white mr-1">
+                      {sc.grade === 'A+' ? '🚀' : sc.grade === 'A' ? '🟢' : '🟡'} Analisis Screener:
+                    </span>
+                    {kesimpulan}
+                  </p>
+                </div>
+              </div>
+
+              {/* Close button */}
+              <button
+                onClick={() => setShowScreenerBanner(false)}
+                className="flex-shrink-0 text-gray-400 hover:text-white backdrop-blur-md bg-black/20 hover:bg-black/40 rounded-lg p-1 transition"
+                title="Tutup banner screener"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Chart Area ───────────────────────────────────────────────────── */}
       <div className="p-1 md:p-2 space-y-0">
