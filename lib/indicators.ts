@@ -762,8 +762,8 @@ export function calculateIntradayScalpMarkers(
 // ============================================================================
 export function detectBreakoutVolumeDelta(
   data: ChartData[],
-  pivotLeft = 7,
-  pivotRight = 7,
+  pivotLeft = 5,
+  pivotRight = 5,
   maxLevels = 5,
   brVolFilter = false,
   brVolPct = 55,

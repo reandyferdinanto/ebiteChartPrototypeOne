@@ -370,8 +370,8 @@ function screenSpring(data: any[]): Omit<SpringResult, 'symbol' | 'change' | 'ch
 
       pivot.mitigated = true;
 
-      // SPRING = fake breakdown: buyers dominate (bullPct >= 55%)
-      const isSpring = bPct >= 50; // relaxed slightly for IDX
+      // SPRING = fake breakdown: buyers dominate (bullPct >= 55%), aligned with BVD chart indicator
+      const isSpring = bPct >= 55;
       if (!isSpring) continue;
 
       // How much price has recovered since the spring bar
