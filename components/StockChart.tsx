@@ -21,21 +21,25 @@ interface StockChartProps {
 
 // ── Screener context passed via URL params ───────────────────────────────────
 interface ScreenerContext {
-  screenerType: 'swing' | 'vcp' | 'scalp' | null;
-  grade: string;        // A+, A, B
-  entryType: string;    // SNIPER, BREAKOUT, WATCH
-  vsaSignal: string;    // DRY UP, ICEBERG, etc.
-  reason: string;       // full reason string from screener
+  screenerType: 'swing' | 'vcp' | 'scalp' | 'spring' | null;
+  grade: string;
+  entryType: string;
+  vsaSignal: string;
+  reason: string;
   stopLoss: number;
   target: number;
   cppScore: number;
-  cppBias: string;      // BULLISH, NEUTRAL, BEARISH
+  cppBias: string;
   powerScore: number;
-  gainFromBase: number; // swing: gain%, scalp: spike%
+  gainFromBase: number;
   sellVolRatio: number;
   accRatio: number;
   rmv: number;
-  timeframe: string;    // timeframe screener ran on
+  timeframe: string;
+  // Spring-specific extras
+  springBullPct?: number;
+  springBarsAgo?: number;
+  pivotLevel?: number;
 }
 
 export default function StockChart({ data, timeframe = '1d' }: StockChartProps) {
@@ -88,6 +92,9 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
       accRatio: parseFloat(p.get('acc') || '1'),
       rmv: parseFloat(p.get('rmv') || '50'),
       timeframe: safeStr('timeframe') || '1d',
+      springBullPct: p.get('springBullPct') ? parseFloat(p.get('springBullPct')!) : undefined,
+      springBarsAgo: p.get('springBarsAgo') ? parseInt(p.get('springBarsAgo')!) : undefined,
+      pivotLevel: p.get('pivotLevel') ? parseFloat(p.get('pivotLevel')!) : undefined,
     };
     setScreenerCtx(ctx);
     setShowScreenerBanner(true);
@@ -99,6 +106,9 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
       setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, fibonacci: true, candlePower: false, signals: true, ma: true }));
     } else if (st === 'swing') {
       setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, candlePower: false, signals: true, ma: true }));
+    } else if (st === 'spring') {
+      // For Spring: show VSA + signals (BVD markers will show 🌱SP) + MA context
+      setShowIndicators(prev => ({ ...prev, vsa: true, vcp: false, candlePower: true, signals: true, ma: true }));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1052,7 +1062,7 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
         const gradeTextColor: Record<string,string> = {'A+':'text-emerald-300','A':'text-cyan-300','B':'text-yellow-300'};
         const gradeTxt = gradeTextColor[sc.grade] || 'text-gray-300';
 
-        const typeLabel = sc.screenerType === 'scalp' ? '⚡ Scalp' : sc.screenerType === 'vcp' ? '📊 VCP' : '📈 Swing';
+        const typeLabel = sc.screenerType === 'scalp' ? '⚡ Scalp' : sc.screenerType === 'vcp' ? '📊 VCP' : sc.screenerType === 'spring' ? '🌱 Spring' : '📈 Swing';
         const entryLabel = sc.entryType === 'SNIPER' ? '🎯 Sniper Entry' : sc.entryType === 'BREAKOUT' ? '🚀 Breakout' : '👁️ Watch';
         const rr = sc.stopLoss > 0 && sc.target > 0 && sc.target > sc.stopLoss
           ? ((sc.target - (sc.stopLoss + sc.target) / 2) / (((sc.stopLoss + sc.target) / 2) - sc.stopLoss)).toFixed(1)
@@ -1072,6 +1082,15 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
             `Acc ${sc.accRatio.toFixed(1)}x · Power ${sc.powerScore}. ` +
             (sc.vsaSignal !== 'NEUTRAL' ? `VSA: ${sc.vsaSignal}. ` : '') +
             `SL: Rp ${sc.stopLoss.toLocaleString('id-ID')} · TP: Rp ${sc.target.toLocaleString('id-ID')}${rr ? ` · R:R 1:${rr}` : ''}.`;
+        } else if (sc.screenerType === 'spring') {
+          const barsAgo = sc.springBarsAgo ?? 0;
+          const pivot = sc.pivotLevel ? `Rp ${Math.round(sc.pivotLevel).toLocaleString('id-ID')}` : 'pivot';
+          kesimpulan = `🌱 Wyckoff Spring terdeteksi ${barsAgo === 0 ? 'hari ini' : barsAgo + ' hari lalu'}. ` +
+            `Harga sempat breakdown ${pivot} (support pivot) namun volume beli mendominasi ${sc.springBullPct ?? '--'}% — tanda akumulasi institusional tersembunyi. ` +
+            `CPP ${sc.cppScore > 0 ? '+' : ''}${sc.cppScore} (${sc.cppBias}). Acc ${sc.accRatio.toFixed(1)}x. ` +
+            (sc.vsaSignal && sc.vsaSignal !== 'NEUTRAL' ? `VSA: ${sc.vsaSignal}. ` : '') +
+            `Spring adalah setup terkuat Wyckoff: harga dipaksa turun untuk ambil likuiditas ritel, lalu langsung balik naik. ` +
+            `SL: Rp ${sc.stopLoss.toLocaleString('id-ID')} (di bawah pivot) · TP: Rp ${sc.target.toLocaleString('id-ID')}${rr ? ` · R:R 1:${rr}` : ''}.`;
         } else {
           kesimpulan = `${entryLabel} VCP/Wyckoff setup. RMV ${Math.round(sc.rmv)} (${sc.rmv <= 15 ? 'kompresi ekstrem — pivot ready' : sc.rmv <= 30 ? 'kompresi sedang' : 'volatilitas normal'}). ` +
             `CPP ${sc.cppScore > 0 ? '+' : ''}${sc.cppScore} (${sc.cppBias}). Acc ${sc.accRatio.toFixed(1)}x. ` +
@@ -1108,11 +1127,19 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
 
                 {/* Stats row */}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                  <span><span className="text-gray-400">Gain: </span><span className="text-white font-bold">+{sc.gainFromBase.toFixed(1)}%</span></span>
-                  <span><span className="text-gray-400">Sell Vol: </span><span className={`font-bold ${sc.sellVolRatio < 0.3 ? 'text-emerald-400' : 'text-yellow-400'}`}>{Math.round(sc.sellVolRatio * 100)}%</span></span>
-                  <span><span className="text-gray-400">Acc: </span><span className={`font-bold ${sc.accRatio >= 1.5 ? 'text-emerald-400' : 'text-yellow-400'}`}>{sc.accRatio.toFixed(1)}x</span></span>
-                  <span><span className="text-gray-400">Power: </span><span className={`font-bold ${sc.powerScore >= 70 ? 'text-emerald-400' : 'text-yellow-400'}`}>{sc.powerScore}</span></span>
-                  <span><span className="text-gray-400">RMV: </span><span className={`font-bold ${sc.rmv <= 15 ? 'text-blue-400' : sc.rmv <= 30 ? 'text-cyan-400' : 'text-gray-300'}`}>{Math.round(sc.rmv)}</span></span>
+                  {sc.screenerType === 'spring' ? (<>
+                    <span><span className="text-gray-400">Spring: </span><span className="text-green-400 font-bold">{sc.springBarsAgo === 0 ? 'Today' : `${sc.springBarsAgo}d ago`}</span></span>
+                    <span><span className="text-gray-400">Bull Vol: </span><span className="text-green-400 font-bold">{sc.springBullPct ?? '--'}%</span></span>
+                    {sc.pivotLevel && <span><span className="text-gray-400">Pivot: </span><span className="text-white font-bold">Rp {Math.round(sc.pivotLevel).toLocaleString('id-ID')}</span></span>}
+                    <span><span className="text-gray-400">Acc: </span><span className={`font-bold ${sc.accRatio >= 1.5 ? 'text-emerald-400' : 'text-yellow-400'}`}>{sc.accRatio.toFixed(1)}x</span></span>
+                    <span><span className="text-gray-400">Power: </span><span className={`font-bold ${sc.powerScore >= 70 ? 'text-emerald-400' : 'text-yellow-400'}`}>{sc.powerScore}</span></span>
+                  </>) : (<>
+                    <span><span className="text-gray-400">Gain: </span><span className="text-white font-bold">+{sc.gainFromBase.toFixed(1)}%</span></span>
+                    <span><span className="text-gray-400">Sell Vol: </span><span className={`font-bold ${sc.sellVolRatio < 0.3 ? 'text-emerald-400' : 'text-yellow-400'}`}>{Math.round(sc.sellVolRatio * 100)}%</span></span>
+                    <span><span className="text-gray-400">Acc: </span><span className={`font-bold ${sc.accRatio >= 1.5 ? 'text-emerald-400' : 'text-yellow-400'}`}>{sc.accRatio.toFixed(1)}x</span></span>
+                    <span><span className="text-gray-400">Power: </span><span className={`font-bold ${sc.powerScore >= 70 ? 'text-emerald-400' : 'text-yellow-400'}`}>{sc.powerScore}</span></span>
+                    <span><span className="text-gray-400">RMV: </span><span className={`font-bold ${sc.rmv <= 15 ? 'text-blue-400' : sc.rmv <= 30 ? 'text-cyan-400' : 'text-gray-300'}`}>{Math.round(sc.rmv)}</span></span>
+                  </>)}
                   {sc.stopLoss > 0 && <span><span className="text-red-400">SL: </span><span className="text-white font-bold">Rp {sc.stopLoss.toLocaleString('id-ID')}</span></span>}
                   {sc.target > 0 && <span><span className="text-emerald-400">TP: </span><span className="text-white font-bold">Rp {sc.target.toLocaleString('id-ID')}</span></span>}
                   {rr && <span><span className="text-gray-400">R:R </span><span className={`font-bold ${parseFloat(rr) >= 2 ? 'text-emerald-400' : 'text-yellow-400'}`}>1:{rr}</span></span>}

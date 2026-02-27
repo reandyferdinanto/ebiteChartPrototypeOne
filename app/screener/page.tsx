@@ -40,6 +40,22 @@ interface ScalpResult {
   grade: 'A+' | 'A' | 'B'; entryType: 'SNIPER' | 'WATCH';
   stopLoss: number; target: number; reason: string;
 }
+interface SpringResult {
+  symbol: string; price: number; change: number; changePercent: number;
+  // BVD data
+  bullPct: number; bearPct: number; springBarsAgo: number;
+  pivotLevel: number; recoverPct: number;
+  // Context
+  aboveMA20: boolean; aboveMA50: boolean;
+  volRatio: number; accRatio: number;
+  cppScore: number; cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+  powerScore: number; rmv: number;
+  // VSA around spring
+  vsaSignal: string; // NO SUPPLY, DRY UP, HAMMER, etc
+  springType: 'STRONG' | 'MODERATE' | 'WEAK'; // strength of the spring
+  grade: 'A+' | 'A' | 'B';
+  stopLoss: number; target: number; reason: string;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STOCK LISTS
@@ -273,6 +289,177 @@ function screenScalp(data: any[], tf: '5m'|'15m'): Omit<ScalpResult,'symbol'|'ch
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SPRING / FAKE BREAKDOWN LOGIC
+// 🌱 SP — Spring = price broke support pivot (fake breakdown) but buyers dominated
+// ─────────────────────────────────────────────────────────────────────────────
+function screenSpring(data: any[]): Omit<SpringResult, 'symbol' | 'change' | 'changePercent'> | null {
+  const C: number[] = [], O: number[] = [], H: number[] = [], L: number[] = [], V: number[] = [];
+  for (const d of data) {
+    if (d.close !== null && d.volume > 0) { C.push(d.close); O.push(d.open); H.push(d.high); L.push(d.low); V.push(d.volume); }
+  }
+  const n = C.length; if (n < 40) return null;
+  const i = n - 1;
+
+  // ── Helpers ──
+  const calcSMALocal = (arr: number[], p: number, idx: number) => {
+    if (idx < p - 1) return 0;
+    let s = 0; for (let j = idx - p + 1; j <= idx; j++) s += arr[j]; return s / p;
+  };
+  const calcATRLocal = (hi: number[], lo: number[], cl: number[], p: number, idx: number) => {
+    if (idx < p) return hi[idx] - lo[idx]; let s = 0;
+    for (let j = idx - p + 1; j <= idx; j++) { const pc = cl[j - 1] ?? cl[j]; s += Math.max(hi[j] - lo[j], Math.abs(hi[j] - pc), Math.abs(lo[j] - pc)); }
+    return s / p;
+  };
+
+  const ma20 = calcSMALocal(C, 20, i);
+  const ma50 = calcSMALocal(C, 50, i);
+  const atr14 = calcATRLocal(H, L, C, 14, i);
+
+  // ── CPP ──
+  const cppRaw = calcCPP(C, O, H, L, V, i);
+  const cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH' = cppRaw > 0.4 ? 'BULLISH' : cppRaw < -0.4 ? 'BEARISH' : 'NEUTRAL';
+  const cppScore = parseFloat(cppRaw.toFixed(2));
+  const powerScore = Math.max(0, Math.min(100, Math.round(50 + (cppRaw / 1.5) * 45)));
+  const rmvVal = calcRMV(H, L, C, i);
+
+  // ── Volume averages ──
+  let vs = 0; for (let k = i - 19; k <= i; k++) vs += V[k]; const va = vs / 20;
+  let bv = 0, sv = 0; for (let k = i - 9; k <= i; k++) { if (C[k] > O[k]) bv += V[k]; else if (C[k] < O[k]) sv += V[k]; }
+  const acc = bv / (sv || 1);
+  const vr = V[i] / (va || 1);
+
+  // ── BVD: Detect pivot lows, look for Spring in last 10 bars ──
+  const pivotLeft = 5, pivotRight = 5, maxLevels = 6;
+  interface PivotLo { value: number; index: number; mitigated: boolean; }
+  const pivotsLo: PivotLo[] = [];
+  for (let j = pivotLeft; j < n - pivotRight; j++) {
+    let isL = true;
+    for (let k = j - pivotLeft; k <= j + pivotRight; k++) {
+      if (k === j) continue;
+      if (L[k] <= L[j]) { isL = false; break; }
+    }
+    if (isL) pivotsLo.push({ value: L[j], index: j, mitigated: false });
+  }
+  const activeLo = pivotsLo.slice(-maxLevels);
+
+  // Find most recent spring event in last 15 bars
+  let springFound: { barsAgo: number; bullPct: number; bearPct: number; pivotLevel: number; recoverPct: number } | null = null;
+
+  for (let barIdx = Math.max(pivotLeft + pivotRight, n - 15); barIdx <= i; barIdx++) {
+    const bar_C = C[barIdx], bar_O = O[barIdx], bar_H = H[barIdx], bar_L = L[barIdx], bar_V = V[barIdx];
+
+    // Volume split (same proxy as BVD in indicators.ts)
+    const rng = bar_H - bar_L;
+    const cPos = rng > 0 ? (bar_C - bar_L) / rng : 0.5;
+    let bullV: number, bearV: number;
+    if (bar_C > bar_O) { bullV = bar_V; bearV = 0; }
+    else if (bar_C < bar_O) { bullV = 0; bearV = bar_V; }
+    else { bullV = bar_V * cPos; bearV = bar_V * (1 - cPos); }
+
+    const totalV = bullV + bearV;
+    const bPct = totalV > 0 ? (bullV / totalV) * 100 : 50;
+    const ePct = 100 - bPct;
+
+    for (const pivot of activeLo) {
+      if (pivot.mitigated) continue;
+      if (pivot.index >= barIdx) continue;
+
+      // Price broke support by close
+      const broke = bar_C < pivot.value;
+      if (!broke) continue;
+
+      pivot.mitigated = true;
+
+      // SPRING = fake breakdown: buyers dominate (bullPct >= 55%)
+      const isSpring = bPct >= 50; // relaxed slightly for IDX
+      if (!isSpring) continue;
+
+      // How much price has recovered since the spring bar
+      const recoverPct = ((C[i] - bar_C) / bar_C) * 100;
+      if (recoverPct < -3) continue; // still falling — not a real spring
+
+      springFound = {
+        barsAgo: i - barIdx,
+        bullPct: Math.round(bPct),
+        bearPct: Math.round(ePct),
+        pivotLevel: pivot.value,
+        recoverPct: parseFloat(recoverPct.toFixed(2)),
+      };
+      break;
+    }
+    if (springFound) break;
+  }
+
+  if (!springFound) return null;
+
+  // ── Quality filters ──
+  // Must have recovered from spring (price must be above pivot level now or near it)
+  const abovePivot = C[i] >= springFound.pivotLevel * 0.97;
+  // Must not be in freefall
+  if (cppBias === 'BEARISH' && acc < 0.6) return null;
+  // VSA context around spring
+  const sp = H[i] - L[i];
+  const body = Math.abs(C[i] - O[i]);
+  const isGreen = C[i] >= O[i];
+  const lWick = Math.min(O[i], C[i]) - L[i];
+  const uWick = H[i] - Math.max(O[i], C[i]);
+  const isDryUp = (body < sp * 0.3 || !isGreen) && vr <= 0.70 && acc > 0.8;
+  const isNS = !isGreen && sp < atr14 && vr < 0.80 && acc > 0.9;
+  const isIceberg = vr > 1.1 && sp < atr14 * 0.85 && acc > 1.1;
+  const isHammer = lWick > body && (lWick / (sp || 1)) > 0.4;
+  let vsaSignal = 'NEUTRAL';
+  if (isDryUp) vsaSignal = 'DRY UP';
+  else if (isNS) vsaSignal = 'NO SUPPLY';
+  else if (isIceberg) vsaSignal = 'ICEBERG';
+  else if (isHammer) vsaSignal = 'HAMMER';
+
+  // ── Spring grade ──
+  const strongSpring = springFound.bullPct >= 65 && (cppBias === 'BULLISH' || acc >= 1.2) && abovePivot;
+  const moderateSpring = springFound.bullPct >= 55 && cppBias !== 'BEARISH';
+
+  let springType: 'STRONG' | 'MODERATE' | 'WEAK';
+  let grade: 'A+' | 'A' | 'B';
+
+  if (strongSpring && vsaSignal !== 'NEUTRAL' && springFound.barsAgo <= 5) {
+    springType = 'STRONG'; grade = 'A+';
+  } else if (strongSpring) {
+    springType = 'STRONG'; grade = 'A';
+  } else if (moderateSpring && vsaSignal !== 'NEUTRAL') {
+    springType = 'MODERATE'; grade = 'A';
+  } else if (moderateSpring) {
+    springType = 'MODERATE'; grade = 'B';
+  } else {
+    springType = 'WEAK'; grade = 'B';
+  }
+
+  // ── Reason string ──
+  const pts: string[] = [
+    `🌱 SP ${springFound.barsAgo === 0 ? 'Today' : springFound.barsAgo + 'd ago'}`,
+    `Bull ${springFound.bullPct}% vs Bear ${springFound.bearPct}%`,
+    `Pivot Rp ${Math.round(springFound.pivotLevel).toLocaleString('id-ID')}`,
+    `Recovery +${springFound.recoverPct >= 0 ? springFound.recoverPct : 0}%`,
+  ];
+  if (vsaSignal !== 'NEUTRAL') pts.push(vsaSignal);
+  if (abovePivot) pts.push('Back ↑ Pivot');
+  pts.push(`Acc ${acc.toFixed(1)}x`);
+  pts.push(`CPP ${cppScore > 0 ? '+' : ''}${cppScore}`);
+
+  const slMult = grade === 'A+' ? 1.0 : 1.2;
+  const tpMult = grade === 'A+' ? 3.0 : grade === 'A' ? 2.5 : 2.0;
+
+  return {
+    price: C[i], bullPct: springFound.bullPct, bearPct: springFound.bearPct,
+    springBarsAgo: springFound.barsAgo, pivotLevel: springFound.pivotLevel,
+    recoverPct: springFound.recoverPct, aboveMA20: C[i] > ma20, aboveMA50: C[i] > ma50,
+    volRatio: vr, accRatio: acc, cppScore, cppBias, powerScore, rmv: rmvVal,
+    vsaSignal, springType, grade,
+    stopLoss: parseFloat((springFound.pivotLevel - atr14 * slMult).toFixed(0)),
+    target: parseFloat((C[i] + atr14 * tpMult).toFixed(0)),
+    reason: pts.join(' · '),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // URL BUILDERS — pass full screener context to chart
 // ─────────────────────────────────────────────────────────────────────────────
 function buildSwingChartURL(r: SwingResult): string {
@@ -322,14 +509,32 @@ function buildScalpChartURL(r: ScalpResult): string {
   return `/?${p.toString()}`;
 }
 
+function buildSpringChartURL(r: SpringResult): string {
+  const p = new URLSearchParams({
+    symbol: r.symbol, interval: '1d', screenerType: 'spring',
+    grade: r.grade, entryType: 'SNIPER',
+    vsaSignal: r.vsaSignal || 'SPRING',
+    reason: r.reason,
+    sl: r.stopLoss.toString(), tp: r.target.toString(),
+    cpp: r.cppScore.toString(), cppBias: r.cppBias,
+    power: r.powerScore.toString(), gain: r.recoverPct.toString(),
+    svr: '0', acc: r.accRatio.toString(),
+    rmv: r.rmv.toString(), timeframe: '1d',
+    springBullPct: r.bullPct.toString(),
+    springBarsAgo: r.springBarsAgo.toString(),
+    pivotLevel: r.pivotLevel.toString(),
+  });
+  return `/?${p.toString()}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INNER CONTENT
 // ─────────────────────────────────────────────────────────────────────────────
 function ScreenerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initTab = (searchParams.get('tab') as 'swing'|'vcp'|'scalp') || 'swing';
-  const [activeTab, setActiveTab] = useState<'swing'|'vcp'|'scalp'>(initTab);
+  const initTab = (searchParams.get('tab') as 'swing'|'vcp'|'scalp'|'spring') || 'swing';
+  const [activeTab, setActiveTab] = useState<'swing'|'vcp'|'scalp'|'spring'>(initTab);
 
   // VCP
   const [vcpResults, setVcpResults] = useState<ScreenerResult|null>(null);
@@ -359,7 +564,17 @@ function ScreenerContent() {
   const [scGrade,setScGrade]= useState<'ALL'|'A+'|'A'|'B'>('ALL');
   const scAbort = useRef(false);
 
-  const changeTab = (t: 'swing'|'vcp'|'scalp') => {
+  // Spring
+  const [spRes, setSpRes]   = useState<SpringResult[]>([]);
+  const [spLoad, setSpLoad] = useState(false);
+  const [spProg, setSpProg] = useState(0);
+  const [spScan, setSpScan] = useState(0);
+  const [spMode, setSpMode] = useState<'LIQUID'|'ALL'>('LIQUID');
+  const [spGrade,setSpGrade]= useState<'ALL'|'A+'|'A'|'B'>('ALL');
+  const [spType, setSpType] = useState<'ALL'|'STRONG'|'MODERATE'>('ALL');
+  const spAbort = useRef(false);
+
+  const changeTab = (t: 'swing'|'vcp'|'scalp'|'spring') => {
     setActiveTab(t);
     try { const u = new URL(window.location.href); u.searchParams.set('tab',t); window.history.replaceState({},'',u); } catch(_){}
   };
@@ -422,6 +637,47 @@ function ScreenerContent() {
       setScProg(Math.round(((idx+1)/list.length)*100));
     }
     setScLoad(false);
+  };
+
+  // ── Spring scan ────────────────────────────────────────────────────────────
+  const startSpring = async () => {
+    setSpLoad(true); setSpRes([]); setSpProg(0); setSpScan(0); spAbort.current = false;
+    const list = spMode === 'LIQUID' ? LIQUID_STOCKS : ALL_IDX;
+    const found: SpringResult[] = [];
+    for (let idx = 0; idx < list.length; idx++) {
+      if (spAbort.current) break;
+      const ticker = list[idx];
+      try {
+        const sym = `${ticker}.JK`;
+        const hr = await fetch(`/api/stock/historical?symbol=${sym}&interval=1d&range=6mo`);
+        if (!hr.ok) { setSpProg(Math.round(((idx + 1) / list.length) * 100)); continue; }
+        const hd = await hr.json();
+        const candles = hd.candles ?? hd.data ?? [];
+        if (candles.length < 40) { setSpProg(Math.round(((idx + 1) / list.length) * 100)); continue; }
+        setSpScan(s => s + 1);
+        const qr = await fetch(`/api/stock/quote?symbol=${sym}`);
+        const q = qr.ok ? await qr.json() : null;
+        const a = screenSpring(candles);
+        if (a) {
+          const r: SpringResult = {
+            ...a,
+            symbol: ticker,
+            price: q?.regularMarketPrice ?? q?.price ?? a.price,
+            change: q?.regularMarketChange ?? q?.change ?? 0,
+            changePercent: q?.regularMarketChangePercent ?? q?.changePercent ?? 0,
+          };
+          found.push(r);
+          // Sort: A+ first, then by bullPct desc
+          setSpRes([...found].sort((a, b) => {
+            const gm: Record<string, number> = { 'A+': 0, 'A': 1, 'B': 2 };
+            const gd = gm[a.grade] - gm[b.grade];
+            return gd !== 0 ? gd : b.bullPct - a.bullPct;
+          }));
+        }
+      } catch { }
+      setSpProg(Math.round(((idx + 1) / list.length) * 100));
+    }
+    setSpLoad(false);
   };
 
   // ── Shared UI ──────────────────────────────────────────────────────────────
@@ -626,6 +882,210 @@ function ScreenerContent() {
     </div>
   );
 
+  // ── Spring tab ─────────────────────────────────────────────────────────────
+  const spFilt = spRes.filter(r => {
+    if (spGrade !== 'ALL' && r.grade !== spGrade) return false;
+    if (spType === 'STRONG' && r.springType !== 'STRONG') return false;
+    if (spType === 'MODERATE' && r.springType === 'WEAK') return false;
+    return true;
+  });
+  const renderSpring = () => (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
+          {(['LIQUID','ALL'] as const).map(m=>(
+            <button key={m} onClick={()=>setSpMode(m)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${spMode===m?'bg-blue-600 text-white':'text-gray-400 hover:text-white'}`}>
+              {m==='LIQUID'?`⚡ Liquid (${LIQUID_STOCKS.length})`:`📊 All (${ALL_IDX.length})`}
+            </button>
+          ))}
+        </div>
+        <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
+          {(['ALL','STRONG','MODERATE'] as const).map(t=>(
+            <button key={t} onClick={()=>setSpType(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${spType===t?'bg-green-600 text-white':'text-gray-400 hover:text-white'}`}>
+              {t==='ALL'?'All':t==='STRONG'?'💪 Strong':'⚡ Moderate'}
+            </button>
+          ))}
+        </div>
+        <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
+          {(['ALL','A+','A','B'] as const).map(g=>(
+            <button key={g} onClick={()=>setSpGrade(g)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${spGrade===g?'bg-indigo-600 text-white':'text-gray-400 hover:text-white'}`}>{g}</button>
+          ))}
+        </div>
+        <button
+          onClick={spLoad ? ()=>{spAbort.current=true;setSpLoad(false);} : startSpring}
+          className={`flex items-center gap-2 px-5 py-2 rounded-lg font-bold text-sm transition-colors ml-auto ${spLoad?'bg-red-600 hover:bg-red-500 text-white':'bg-green-600 hover:bg-green-500 text-white'}`}
+        >
+          {spLoad
+            ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Stop</>
+            : <>🌱 Scan Spring</>}
+        </button>
+      </div>
+
+      {/* Progress */}
+      {spLoad && (
+        <div className="bg-gray-800/60 rounded-xl p-4 space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-300">Scanning Spring setups… <span className="text-green-400">{spScan} checked</span></span>
+            <span>{spProg}%</span>
+          </div>
+          <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full bg-green-500 rounded-full transition-all" style={{width:`${spProg}%`}}/>
+          </div>
+          {spRes.length > 0 && <div className="text-xs text-green-400">🌱 {spRes.length} Spring setups found</div>}
+        </div>
+      )}
+
+      {/* Empty states */}
+      {!spLoad && spRes.length === 0 && spScan === 0 && (
+        <div className="text-center py-12">
+          <div className="text-6xl mb-4">🌱</div>
+          <p className="text-white font-bold text-lg">Spring Screener</p>
+          <p className="text-gray-400 text-sm mt-1 max-w-md mx-auto">
+            Mencari <strong className="text-green-400">Wyckoff Spring</strong> — saham yang tembus support pivot tapi volume beli mendominasi.
+            Setup paling bullish dalam teori Wyckoff: harga dipaksa turun untuk ambil likuiditas lalu langsung mantul.
+          </p>
+          <div className="mt-4 grid grid-cols-3 gap-3 max-w-sm mx-auto text-xs">
+            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-2.5">
+              <div className="text-green-400 font-bold text-base">🌱 SP</div>
+              <div className="text-gray-400 mt-0.5">Fake breakdown — buyers dominate</div>
+            </div>
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-2.5">
+              <div className="text-blue-400 font-bold text-base">Bull%</div>
+              <div className="text-gray-400 mt-0.5">Volume beli saat tembus support</div>
+            </div>
+            <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-2.5">
+              <div className="text-purple-400 font-bold text-base">Recovery</div>
+              <div className="text-gray-400 mt-0.5">Harga kembali di atas pivot</div>
+            </div>
+          </div>
+          <p className="text-gray-500 text-xs mt-4">Klik <span className="text-green-400 font-bold">🌱 Scan Spring</span> untuk mulai.</p>
+        </div>
+      )}
+      {!spLoad && spRes.length === 0 && spScan > 0 && (
+        <div className="text-center py-10 text-gray-500">
+          <div className="text-4xl mb-2">🌱</div>
+          <p>Tidak ada Spring setup ditemukan. Coba All IDX atau wait for market correction.</p>
+          <p className="text-xs mt-1 text-gray-600">Spring hanya muncul saat ada tekanan jual yang diserap institusi di pivot support.</p>
+        </div>
+      )}
+
+      {/* Results */}
+      {spFilt.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs text-gray-500 px-1">
+            <span className="text-green-400 font-medium">{spFilt.length}</span> Spring setups
+            {spFilt.filter(r=>r.grade==='A+').length > 0 && <span className="ml-2 text-emerald-400">⭐ {spFilt.filter(r=>r.grade==='A+').length} A+</span>}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {spFilt.map(r => {
+              const cfg = gc[r.grade];
+              const rr = r.price > r.stopLoss ? Math.abs(r.target - r.price) / Math.abs(r.price - r.stopLoss) : null;
+              const springColor = r.springType === 'STRONG' ? 'text-emerald-400' : r.springType === 'MODERATE' ? 'text-yellow-400' : 'text-gray-400';
+              const springBg = r.springType === 'STRONG' ? 'bg-emerald-500/10 border-emerald-500/40' : r.springType === 'MODERATE' ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-gray-800/50 border-gray-700/50';
+              return (
+                <div key={r.symbol} className={`rounded-xl border ${springBg} p-4 space-y-3`}>
+                  {/* Header */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white font-bold text-lg">{r.symbol}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold text-white ${cfg.badge}`}>{r.grade}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${r.springType === 'STRONG' ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : r.springType === 'MODERATE' ? 'bg-yellow-500/15 border-yellow-500/30 text-yellow-300' : 'bg-gray-700/50 border-gray-600/50 text-gray-400'}`}>
+                          🌱 {r.springType}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-white font-medium">Rp {r.price.toLocaleString('id-ID')}</span>
+                        <span className={`text-xs ${r.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {r.changePercent >= 0 ? '+' : ''}{r.changePercent.toFixed(2)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className={`font-bold text-xl ${springColor}`}>{r.bullPct}%</div>
+                      <div className="text-gray-500 text-xs">Bull Vol</div>
+                    </div>
+                  </div>
+
+                  {/* BVD Spring info */}
+                  <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-2.5">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="text-green-400 font-semibold">🌱 Wyckoff Spring</span>
+                      <span className="text-gray-500">{r.springBarsAgo === 0 ? 'Today' : r.springBarsAgo + 'd ago'}</span>
+                    </div>
+                    {/* Bull/Bear bar */}
+                    <div className="h-3 rounded-full overflow-hidden bg-red-900/50 flex">
+                      <div className="h-full bg-green-500 rounded-l-full transition-all" style={{width:`${r.bullPct}%`}}/>
+                      <div className="h-full bg-red-500 flex-1 rounded-r-full"/>
+                    </div>
+                    <div className="flex justify-between text-xs mt-1">
+                      <span className="text-green-400">Bull {r.bullPct}%</span>
+                      <span className="text-gray-500">Pivot Rp {Math.round(r.pivotLevel).toLocaleString('id-ID')}</span>
+                      <span className="text-red-400">Bear {r.bearPct}%</span>
+                    </div>
+                  </div>
+
+                  {/* Metrics */}
+                  <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
+                    <div className="bg-gray-900/60 rounded-lg p-2">
+                      <div className="text-gray-500">Recovery</div>
+                      <div className={`font-bold ${r.recoverPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {r.recoverPct >= 0 ? '+' : ''}{r.recoverPct}%
+                      </div>
+                    </div>
+                    <div className="bg-gray-900/60 rounded-lg p-2">
+                      <div className="text-gray-500">CPP</div>
+                      <div className={`font-bold ${r.cppBias === 'BULLISH' ? 'text-emerald-400' : r.cppBias === 'BEARISH' ? 'text-red-400' : 'text-gray-300'}`}>
+                        {r.cppScore > 0 ? '+' : ''}{r.cppScore}
+                      </div>
+                    </div>
+                    <div className="bg-gray-900/60 rounded-lg p-2">
+                      <div className="text-gray-500">Power</div>
+                      <div className={`font-bold ${r.powerScore >= 70 ? 'text-emerald-400' : 'text-yellow-400'}`}>{r.powerScore}</div>
+                    </div>
+                  </div>
+
+                  {/* VSA + MA */}
+                  <div className="flex items-center justify-between text-xs px-0.5">
+                    <div><span className="text-gray-500">VSA </span><span className={`font-semibold ${vc[r.vsaSignal] || 'text-gray-400'}`}>{r.vsaSignal}</span></div>
+                    <div><span className="text-gray-500">Acc </span><span className={`font-semibold ${r.accRatio >= 1.5 ? 'text-emerald-400' : 'text-yellow-400'}`}>{r.accRatio.toFixed(1)}x</span></div>
+                    <div><span className="text-gray-500">MA20 </span><span className={`font-semibold ${r.aboveMA20 ? 'text-emerald-400' : 'text-orange-400'}`}>{r.aboveMA20 ? '✓' : '✗'}</span></div>
+                    <div><span className="text-gray-500">RMV </span><span className={`font-semibold ${r.rmv <= 30 ? 'text-blue-400' : 'text-gray-300'}`}>{Math.round(r.rmv)}</span></div>
+                  </div>
+
+                  {/* SL / TP */}
+                  <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-1.5">
+                      <div className="text-red-400 font-medium">SL</div>
+                      <div className="text-white">{r.stopLoss.toLocaleString('id-ID')}</div>
+                    </div>
+                    <div className="bg-gray-800/60 rounded-lg p-1.5 flex flex-col items-center justify-center">
+                      {rr ? <><div className="text-gray-500">R:R</div><div className={`font-bold ${rr >= 2 ? 'text-emerald-400' : 'text-yellow-400'}`}>1:{rr.toFixed(1)}</div></> : <span className="text-gray-600">—</span>}
+                    </div>
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-1.5">
+                      <div className="text-emerald-400 font-medium">TP</div>
+                      <div className="text-white">{r.target.toLocaleString('id-ID')}</div>
+                    </div>
+                  </div>
+
+                  {/* Reason */}
+                  <div className="text-xs text-gray-400 bg-gray-900/50 rounded-lg px-2.5 py-2 leading-relaxed">{r.reason}</div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <button onClick={()=>router.push(buildSpringChartURL(r))} className="flex-1 bg-green-600 hover:bg-green-500 text-white text-xs py-2 rounded-lg font-bold transition-colors">🌱 Chart</button>
+                    <button onClick={()=>router.push(`/analysis?symbol=${r.symbol}`)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded-lg font-medium transition-colors">🔬 Analysis</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   // ─────────────────────────────────────────────────────────────────────────
   // LAYOUT
   // ─────────────────────────────────────────────────────────────────────────
@@ -633,6 +1093,7 @@ function ScreenerContent() {
     { key:'swing', label:'Swing', icon:<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>, color:'bg-emerald-600', desc:'Daily · 1–5 day hold' },
     { key:'vcp',   label:'VCP',   icon:<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>, color:'bg-orange-600', desc:'Daily · Wyckoff + VCP' },
     { key:'scalp', label:'Scalp', icon:<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>, color:'bg-yellow-500', desc:'5m/15m · Intraday' },
+    { key:'spring',label:'Spring',icon:<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>, color:'bg-green-600', desc:'Daily · Fake Breakdown' },
   ] as const;
 
   return (
@@ -665,7 +1126,7 @@ function ScreenerContent() {
         </div>
 
         {/* Tab selector cards */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           {tabs.map(t=>
             <button key={t.key} onClick={()=>changeTab(t.key)} className={`rounded-xl border p-3 md:p-4 text-left transition-all group ${activeTab===t.key?`${t.color} border-transparent shadow-lg`:'bg-gray-800/50 border-gray-700/50 hover:bg-gray-800 hover:border-gray-600'}`}>
               <div className="flex items-center gap-2 mb-1">
@@ -682,12 +1143,14 @@ function ScreenerContent() {
           {activeTab==='swing'&&<span>📈 <strong className="text-white">Short Swing</strong>: Candle harian — saham sudah naik ≥3% sedang <em>calmdown</em> dengan tekanan jual rendah. Target <span className="text-emerald-400">1–5 hari lanjutan</span>. Cocok untuk position trading setelah pullback.</span>}
           {activeTab==='vcp'&&<span>📊 <strong className="text-white">VCP (Volatility Contraction Pattern)</strong>: Candle harian — pola Minervini VCP + fase Wyckoff + sinyal VSA. Mendeteksi <span className="text-orange-400">Sniper Entry, VCP Base, Dry Up, Iceberg</span>. Cocok untuk breakout swing.</span>}
           {activeTab==='scalp'&&<span>⚡ <strong className="text-white">Scalp</strong>: Intraday 5m/15m — mencari HAKA spike + calmdown dengan vol jual rendah. <span className="text-yellow-400">Entry intraday only</span>. Gunakan saat jam IDX 09:00–15:00 WIB.</span>}
+          {activeTab==='spring'&&<span>🌱 <strong className="text-white">Spring / Fake Breakdown</strong>: Wyckoff Spring — harga tembus <em>support pivot</em> tapi pembeli mendominasi volume (Bull% ≥ 50%). Harga mantul kembali ke atas level support = <span className="text-green-400">tanda akumulasi institusional tersembunyi</span>. Salah satu setup terkuat dalam teori Wyckoff.</span>}
         </div>
 
         {/* Content */}
         {activeTab==='swing'&&renderSwing()}
         {activeTab==='vcp'&&renderVCP()}
         {activeTab==='scalp'&&renderScalp()}
+        {activeTab==='spring'&&renderSpring()}
       </div>
     </div>
   );
