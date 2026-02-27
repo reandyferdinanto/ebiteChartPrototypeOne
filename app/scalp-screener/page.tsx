@@ -361,7 +361,7 @@ export default function ScalpScreener() {
     if (bestSignal === "") return { entry: null };
 
     // Determine entry type based on signal
-    let entry: 'SNIPER' | 'BREAKOUT' | 'WATCH' | null = null;
+    let entry: 'SNIPER' | 'BREAKOUT' | 'WATCH' | null;
     if (bestSignal.includes('SNIPER')) entry = 'SNIPER';
     else if (bestSignal.includes('BREAKOUT')) entry = 'BREAKOUT';
     else if (bestSignal.includes('DUMP') || bestSignal.includes('PUCUK')) entry = null; // Bearish - skip
@@ -387,7 +387,6 @@ export default function ScalpScreener() {
 
     // Calculate candle power based on AppScript logic
     const spread = current.high - current.low;
-    const body = Math.abs(current.close - current.open);
     const isGreenCurrent = current.close >= current.open;
     const closePos = spread > 0 ? (current.close - current.low) / spread : 0.5;
 
@@ -475,7 +474,7 @@ export default function ScalpScreener() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {/* Stock Selection */}
             <div>
-              <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+              <label className="flex text-sm font-semibold mb-2 items-center gap-2">
                 <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
@@ -512,7 +511,7 @@ export default function ScalpScreener() {
 
             {/* Timeframe Selection */}
             <div>
-              <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+              <label className="flex text-sm font-semibold mb-2 items-center gap-2">
                 <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -546,7 +545,7 @@ export default function ScalpScreener() {
 
             {/* Sort By */}
             <div>
-              <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+              <label className="flex text-sm font-semibold mb-2 items-center gap-2">
                 <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
                 </svg>
@@ -566,7 +565,7 @@ export default function ScalpScreener() {
 
             {/* Filter Entry Type */}
             <div>
-              <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+              <label className="flex text-sm font-semibold mb-2 items-center gap-2">
                 <svg className="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
                 </svg>
@@ -652,159 +651,118 @@ export default function ScalpScreener() {
                 SCALP BREAKOUT
               </div>
               <div className="text-gray-300 text-xs">
-                Green candle, Vol &gt; 2.5x, close &gt; 80% range, above MA20. Strong breakout - fast trade!
-              </div>
-            </div>
-            <div className="backdrop-blur-md bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl">
-              <div className="font-bold text-blue-400 mb-1 flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                MICRO ICEBERG
-              </div>
-              <div className="text-gray-300 text-xs">
-                Vol &gt; 1.5x, narrow spread &lt; 50% avg. Hidden accumulation - watch closely!
+                High volume breakout above MA20. Vol &gt; 2.5x, body &gt; 80%, green candle = momentum!
               </div>
             </div>
             <div className="backdrop-blur-md bg-cyan-500/10 border border-cyan-500/20 p-3 rounded-xl">
               <div className="font-bold text-cyan-400 mb-1 flex items-center gap-1.5">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
-                MICRO DRY UP
+                WATCH
               </div>
               <div className="text-gray-300 text-xs">
-                Low vol &lt; 35%, small body, Acc &gt; 1.2x. Professional accumulation - good setup!
-              </div>
-            </div>
-            <div className="backdrop-blur-md bg-red-500/10 border border-red-500/20 p-3 rounded-xl">
-              <div className="font-bold text-red-400 mb-1 flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
-                </svg>
-                SCALP DUMP
-              </div>
-              <div className="text-gray-300 text-xs">
-                Red candle, Vol &gt; 2.5x, big body. Heavy selling - avoid or short!
-              </div>
-            </div>
-            <div className="backdrop-blur-md bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl">
-              <div className="font-bold text-orange-400 mb-1 flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                PUCUK (Shooting Star)
-              </div>
-              <div className="text-gray-300 text-xs">
-                Vol &gt; 2x, long upper wick. Distribution at top - bearish reversal!
+                Iceberg / Dry Up patterns. Potential setup forming. Monitor closely for entry signal.
               </div>
             </div>
           </div>
         </div>
 
         {/* Results */}
-        {loading && results.length === 0 && (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin text-4xl mb-4">??</div>
-            <div className="text-xl">Scanning {SCALP_STOCKS.length} {stockSelection === 'LIQUID' ? 'liquid ' : ''}stocks...</div>
-            <div className="text-sm text-gray-400 mt-2">Analyzing {timeframe} charts for sniper entries</div>
-            <div className="text-lg text-green-400 mt-3 font-bold">{progress}%</div>
+        {filteredResults.length > 0 && (
+          <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {filteredResults.length} Scalp Opportunities ({timeframe})
+              </h2>
+              <span className="text-xs text-gray-400">Sorted by {sortBy}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs md:text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 bg-white/5">
+                    <th className="text-left py-3 px-3 text-gray-400">Ticker</th>
+                    <th className="text-right py-3 px-3 text-gray-400">Price</th>
+                    <th className="text-right py-3 px-3 text-gray-400">Change</th>
+                    <th className="text-center py-3 px-3 text-gray-400">Entry</th>
+                    <th className="text-center py-3 px-3 text-gray-400">Power</th>
+                    <th className="text-right py-3 px-3 text-gray-400 hidden md:table-cell">Mom%</th>
+                    <th className="text-left py-3 px-3 text-gray-400 hidden lg:table-cell">Signal</th>
+                    <th className="text-center py-3 px-3 text-gray-400">Chart</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredResults.map((r, idx) => (
+                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition">
+                      <td className="py-3 px-3 font-bold text-white">{r.symbol}</td>
+                      <td className="py-3 px-3 text-right text-white">
+                        Rp {r.price.toLocaleString('id-ID', { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <span className={r.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}>
+                          {r.changePercent >= 0 ? '+' : ''}{r.changePercent.toFixed(2)}%
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                          r.entry === 'SNIPER' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
+                          r.entry === 'BREAKOUT' ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
+                          'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                        }`}>
+                          {r.entry}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <span className={`px-2 py-0.5 rounded font-bold text-xs ${
+                          r.candlePower >= 85 ? 'bg-green-900/50 text-green-300' :
+                          r.candlePower >= 70 ? 'bg-blue-900/50 text-blue-300' :
+                          r.candlePower >= 55 ? 'bg-yellow-900/50 text-yellow-300' :
+                          'bg-gray-800 text-gray-400'
+                        }`}>
+                          {r.candlePower}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right hidden md:table-cell">
+                        <span className={r.momentum >= 0 ? 'text-green-400' : 'text-red-400'}>
+                          {r.momentum >= 0 ? '+' : ''}{r.momentum.toFixed(1)}%
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-gray-300 hidden lg:table-cell text-xs max-w-xs truncate">
+                        {r.signal}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <Link
+                          href={`/?symbol=${r.symbol}&interval=${r.timeframe}`}
+                          className="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition"
+                        >
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {!loading && results.length === 0 && (
-          <div className="bg-gray-800 rounded-lg p-8 text-center">
-            <div className="text-4xl mb-4">??</div>
-            <div className="text-xl mb-2">No scalping opportunities found</div>
-            <div className="text-gray-400">
-              Try changing timeframe or click scan again. Market may be consolidating.
+          <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl p-12 text-center shadow-2xl">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center border border-green-500/30">
+              <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
             </div>
-          </div>
-        )}
-
-        {filteredResults.length > 0 && (
-          <div>
-            <div className="mb-4 text-sm text-gray-400">
-              Found <span className="text-white font-bold">{filteredResults.length}</span> scalping opportunities on {timeframe} timeframe
-              {loading && <span className="ml-2 text-yellow-400">(Still scanning...)</span>}
-            </div>
-
-            <div className="grid gap-4">
-              {filteredResults.map((result) => (
-                <div
-                  key={result.symbol}
-                  className={`bg-gray-800 rounded-lg p-4 border-l-4 hover:bg-gray-750 transition ${
-                    result.entry === 'SNIPER'
-                      ? 'border-yellow-400'
-                      : result.entry === 'BREAKOUT'
-                      ? 'border-green-400'
-                      : 'border-blue-400'
-                  }`}
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    {/* Stock Info */}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className="text-2xl font-bold">{result.symbol}</span>
-                        <span className="text-xl text-gray-300">
-                          Rp {result.price.toLocaleString()}
-                        </span>
-                        <span
-                          className={`text-sm font-semibold ${
-                            result.changePercent >= 0 ? 'text-green-400' : 'text-red-400'
-                          }`}
-                        >
-                          {result.changePercent >= 0 ? '?' : '?'} {Math.abs(result.changePercent).toFixed(2)}%
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        <span
-                          className={`px-3 py-1 rounded font-bold text-sm ${
-                            result.entry === 'SNIPER'
-                              ? 'bg-yellow-600 text-black'
-                              : result.entry === 'BREAKOUT'
-                              ? 'bg-green-600 text-white'
-                              : 'bg-blue-600 text-white'
-                          }`}
-                        >
-                          {result.signal}
-                        </span>
-                        <span className="px-3 py-1 backdrop-blur-md bg-black/30 rounded text-sm">
-                          Power: <span className="font-bold text-green-400">{result.candlePower}</span>
-                        </span>
-                        <span className="px-3 py-1 backdrop-blur-md bg-black/30 rounded text-sm">
-                          Momentum: <span className={`font-bold ${result.momentum > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {result.momentum > 0 ? '+' : ''}{result.momentum}%
-                          </span>
-                        </span>
-                        <span className="px-3 py-1 backdrop-blur-md bg-black/30 rounded text-sm">
-                          Vol: <span className="font-bold">{result.volume}x</span>
-                        </span>
-                      </div>
-
-                      <div className="text-sm text-gray-400">
-                        ?? {result.reason}
-                      </div>
-                    </div>
-
-                    {/* Action Button */}
-                    <div>
-                      <Link
-                        href={`/?symbol=${result.symbol}&interval=${timeframe}`}
-                        className="block px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded font-bold text-center transition whitespace-nowrap"
-                      >
-                        ?? View Chart
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <h3 className="text-xl font-bold mb-2">Ready to Scan</h3>
+            <p className="text-gray-400 mb-1">Select timeframe and click Scan to find scalping opportunities</p>
+            <p className="text-sm text-gray-500">Using VSA + VCP momentum detection algorithm</p>
           </div>
         )}
       </div>
     </div>
   );
 }
-
