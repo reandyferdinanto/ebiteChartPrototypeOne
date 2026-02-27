@@ -768,14 +768,36 @@ export default function StockChart({ data }: StockChartProps) {
                   <p className="text-xs text-orange-200 truncate">{indicators.signals.vcpStatus}</p>
                 </div>
               )}
-              {/* Candle Power + EVR */}
+              {/* Candle Power + CPP Prediction */}
               {showIndicators.candlePower && (
-                <div className="flex items-center gap-3">
-                  <p className="text-xs text-gray-300 truncate">{indicators.candlePowerAnalysis}</p>
-                  {indicators.signals.evrScore !== 0 && (
-                    <span className={`text-xs font-mono flex-shrink-0 ${indicators.signals.evrScore > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      EVR:{indicators.signals.evrScore > 0 ? '+' : ''}{indicators.signals.evrScore}
-                    </span>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-purple-400 flex-shrink-0">Power:</span>
+                    <p className="text-xs text-gray-300 truncate">{indicators.candlePowerAnalysis}</p>
+                  </div>
+                  {indicators.signals.cppScore !== undefined && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 flex-shrink-0">Next Candle:</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                        indicators.signals.cppBias === 'BULLISH'
+                          ? 'bg-green-500/20 text-green-300 border border-green-500/40'
+                          : indicators.signals.cppBias === 'BEARISH'
+                          ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                          : 'bg-gray-500/20 text-gray-300 border border-gray-500/40'
+                      }`}>
+                        {indicators.signals.cppBias === 'BULLISH' ? '📈 BULLISH' : indicators.signals.cppBias === 'BEARISH' ? '📉 BEARISH' : '➡️ NEUTRAL'}
+                      </span>
+                      <span className={`text-xs font-mono flex-shrink-0 ${
+                        indicators.signals.cppScore > 0 ? 'text-green-400' : indicators.signals.cppScore < 0 ? 'text-red-400' : 'text-gray-400'
+                      }`}>
+                        CPP:{indicators.signals.cppScore > 0 ? '+' : ''}{indicators.signals.cppScore}
+                      </span>
+                      {indicators.signals.evrScore !== 0 && (
+                        <span className={`text-xs font-mono flex-shrink-0 ${indicators.signals.evrScore > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          EVR:{indicators.signals.evrScore > 0 ? '+' : ''}{indicators.signals.evrScore}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

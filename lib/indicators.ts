@@ -23,7 +23,7 @@ export interface IndicatorResult {
   supportResistance: SupportResistanceData;
   candlePowerMarkers: MarkerData[]; candlePowerAnalysis: string;
   vsaMarkers: MarkerData[]; rmvData: RMVData[];
-  signals: { bandar: string; wyckoffPhase: string; vcpStatus: string; evrScore: number; };
+  signals: { bandar: string; wyckoffPhase: string; vcpStatus: string; evrScore: number; cppScore: number; cppBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; };
 }
 
 // ============================================================================
@@ -294,34 +294,96 @@ function detectVCPStructure(data: ChartData[], i: number, atr5: number[], _volSM
 }
 
 // ============================================================================
-// CANDLE POWER ENGINE (Wyckoff + VSA + VCP Integrated)
-// Predicts NEXT candle direction — score = probability next candle is bullish
-// 90+ = Near certain up | 50 = Neutral | < 25 = Near certain down
+// CANDLE POWER ENGINE v2 — Power Directional Index (PDI)
+//
+// Research formula (probabilistic next-candle prediction):
+//
+//   CBD_i = (Close_i - Open_i) / (High_i - Low_i)      → Candle Body Dominance  [-1, +1]
+//   VAM_i = Volume_i / SMA(Volume, 10)                  → Volume Anomaly Multiplier
+//   DP_i  = CBD_i × VAM_i                               → Daily Power
+//   CPP   = Σ [ DP_(t-j) × (N-j)/N ]  for j = 0..N-1  → Cumulative Power Prediction
+//
+//   CPP > +0.5  → HIGH probability bullish next candle
+//   CPP < -0.5  → HIGH probability bearish next candle
+//   -0.5…+0.5   → Neutral / choppy / VCP base
+//
+// CPP is then mapped to 0-100 scale and adjusted with Wyckoff/VSA context:
+//   - MA positioning (above/below MA20 / MA50)
+//   - Trend alignment bonus
+//   - VSA pattern boost (Spring, SOS, No Supply, Stopping Volume)
 // ============================================================================
-export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]; analysis: string } {
+export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]; analysis: string; cppScore: number; cppBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' } {
   const markers: MarkerData[] = [];
   const N = data.length;
-  let latestPower = 50, latestAnalysis = 'Insufficient data';
-  if (N < 50) return { markers, analysis: latestAnalysis };
+  let latestPower = 50, latestAnalysis = 'Insufficient data', latestCPP = 0;
+  if (N < 20) return { markers, analysis: latestAnalysis, cppScore: 0, cppBias: 'NEUTRAL' };
 
-  const atr14 = calculateATR(data, 14);
-  const volSMA20 = calculateVolumeSMA(data, 20);
+  const LOOKBACK = 5;    // N days for CPP weighted sum
+  const VOL_SMA_PERIOD = 10; // VAM base
+
+  // Pre-compute MA20, MA50 arrays for context
   const ma20v = calculateMA(data, 20);
   const ma50v = calculateMA(data, 50);
+  const atr14 = calculateATR(data, 14);
 
-  for (let i = 50; i < N; i++) {
+  for (let i = Math.max(LOOKBACK + VOL_SMA_PERIOD, 20); i < N; i++) {
+
+    // ── STEP 1: Compute SMA(Volume, 10) at current bar ───────────────────────
+    let volSum10 = 0;
+    for (let k = 0; k < VOL_SMA_PERIOD; k++) volSum10 += (data[i - k].volume || 0);
+    const volSMA10 = (volSum10 / VOL_SMA_PERIOD) || 1;
+
+    // ── STEP 2: Compute CPP over LOOKBACK days ───────────────────────────────
+    let cpp = 0;
+    for (let j = 0; j < LOOKBACK; j++) {
+      const bar = data[i - j];
+      const range = bar.high - bar.low;
+      const safeRange = range < 0.0001 ? 0.0001 : range;
+
+      // Candle Body Dominance: [-1, +1]
+      const cbd = (bar.close - bar.open) / safeRange;
+
+      // Volume Anomaly Multiplier
+      const vam = (bar.volume || 0) / volSMA10;
+
+      // Daily Power × time weight (j=0 = today = highest weight)
+      const weight = (LOOKBACK - j) / LOOKBACK;
+      cpp += cbd * vam * weight;
+    }
+
+    // ── STEP 3: Map CPP → 0-100 scale ────────────────────────────────────────
+    // CPP range is roughly -3 to +3 in practice (VAM ≤ 3, CBD ≤ 1, weight avg ~0.6)
+    // Linear scaling: 0 CPP → 50, CPP ≥ +1.5 → 95, CPP ≤ -1.5 → 5
+    const CPP_MAX = 1.5;
+    let power = 50 + (cpp / CPP_MAX) * 45;
+    power = Math.max(5, Math.min(95, power));
+
+    // ── STEP 4: Wyckoff / VSA context modifiers ───────────────────────────────
     const cur = data[i];
     const sp = cur.high - cur.low;
     const body = Math.abs(cur.close - cur.open);
     const atr = atr14[i] || sp || 1;
-    const avgVol = volSMA20[i] || (cur.volume || 1);
-    const vRatio = (cur.volume || 0) / avgVol;
-    const nSp = sp / atr;
+    const vRatio = (cur.volume || 0) / volSMA10;
     const cPos = sp > 0 ? (cur.close - cur.low) / sp : 0.5;
     const isGreen = cur.close >= cur.open;
-    const ma20 = (i - 19 >= 0 && (i - 19) < ma20v.length) ? ma20v[i - 19].value : cur.close;
-    const ma50 = (i - 49 >= 0 && (i - 49) < ma50v.length) ? ma50v[i - 49].value : cur.close;
+    const lWick = Math.min(cur.open, cur.close) - cur.low;
+    const uWick = cur.high - Math.max(cur.open, cur.close);
+    const isHammer = lWick > body * 1.2 && uWick < body * 0.6 && (lWick / (sp || 1)) > 0.45;
+    const isStar = uWick > body * 2.0 && lWick < body * 0.3 && cPos < 0.4;
 
+    // MA position context
+    const ma20idx = i - 19;
+    const ma50idx = i - 49;
+    const ma20 = (ma20idx >= 0 && ma20idx < ma20v.length) ? ma20v[ma20idx].value : cur.close;
+    const ma50 = (ma50idx >= 0 && ma50idx < ma50v.length) ? ma50v[ma50idx].value : cur.close;
+    const abMA20 = cur.close > ma20;
+    const abMA50 = cur.close > ma50;
+    const maTrend = ma20 > ma50;
+    const inUp = abMA20 && abMA50 && maTrend;
+    const inDown = !abMA20 && !abMA50 && !maTrend;
+    const nearMA20 = cur.low <= ma20 * 1.025 && cur.low >= ma20 * 0.965;
+
+    // Buying/selling pressure (10-bar accumulation ratio)
     let bVol = 0, sVol = 0;
     for (let k = Math.max(0, i - 9); k <= i; k++) {
       if (data[k].close > data[k].open) bVol += (data[k].volume || 0);
@@ -329,99 +391,72 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
     }
     const accR = bVol / (sVol || 1);
 
-    const uWick = cur.high - Math.max(cur.open, cur.close);
-    const lWick = Math.min(cur.open, cur.close) - cur.low;
-    const isHammer = lWick > body * 1.2 && uWick < body * 0.6 && lWick / (sp || 1) > 0.5;
-    const isStar = uWick > body * 2 && lWick < body * 0.3 && cPos < 0.4;
-    const isSmallBody = body < sp * 0.3;
+    // ── Context adjustments (each capped so they don't override CPP signal) ──
 
-    const abMA20 = cur.close > ma20, abMA50 = cur.close > ma50, maTrend = ma20 > ma50;
-    const inUp = abMA20 && abMA50 && maTrend, inDown = !abMA20 && !abMA50 && !maTrend;
-    const nearMA20 = cur.low <= ma20 * 1.02 && cur.low >= ma20 * 0.96 && cur.close > ma20 * 0.99;
+    // Spring / Hammer at MA20 support: strong reversal signal → boost
+    if (isHammer && nearMA20) {
+      if (vRatio > 1.3 && accR > 1.2) power = Math.max(power, 88);
+      else if (vRatio < 0.7)          power = Math.max(power, 82); // No Supply spring
+      else                             power = Math.max(power, 74);
+    }
 
-    const hiEff = vRatio > 1.3, loEff = vRatio < 0.65;
-    const wideR = nSp > 1.2, narrowR = nSp < 0.8;
-    const sDemand = accR > 1.5, mDemand = accR > 1.1, sSupply = accR < 0.6;
+    // Upthrust / Shooting Star: trap signal → suppress
+    if (isStar && vRatio > 1.3) power = Math.min(power, 22);
 
-    let power = 50, reason = 'Neutral';
+    // No Supply (VSA): red candle + very low vol above MA = bullish
+    if (!isGreen && vRatio < 0.65 && cPos > 0.45 && abMA20) power = Math.max(power, 72);
 
-    // P1: NO SUPPLY AT MA20 SUPPORT (Wyckoff best signal)
-    if (nearMA20 && loEff && !sSupply) {
-      if (sDemand) { power = 96; reason = 'No Supply + Demand at MA20 → Up'; }
-      else if (mDemand) { power = 88; reason = 'No Supply Test MA20 → Up'; }
-      else { power = 78; reason = 'Supply Dry-Up MA20 → Up'; }
-    }
-    // P2: WYCKOFF SPRING (low dips below MA, closes above = shakeout)
-    else if (cur.low < ma20 * 0.99 && cur.close > ma20 * 0.99 && isHammer) {
-      if (hiEff && sDemand) { power = 94; reason = 'Spring + HAKA → Strong Up'; }
-      else if (sDemand) { power = 88; reason = 'Wyckoff Spring → Up'; }
-      else if (mDemand) { power = 80; reason = 'Possible Spring → Up'; }
-      else { power = 60; reason = 'Weak Spring → Caution'; }
-    }
-    // P3: SIGN OF STRENGTH (wide up + high vol + close near top)
-    else if (isGreen && hiEff && wideR && cPos > 0.6) {
-      if (inUp && sDemand) { power = 90; reason = 'Wyckoff SOS → Up'; }
-      else if (inUp) { power = 78; reason = 'Sign of Strength → Up'; }
-      else if (sDemand) { power = 72; reason = 'SOS Reversal Area → Up'; }
-      else { power = 60; reason = 'Possible SOS → Neutral'; }
-    }
-    // P4: SIGN OF WEAKNESS / UPTHRUST
-    else if (!isGreen && hiEff && nSp > 1.5 && cPos < 0.35) {
-      if (isStar && inUp) { power = 12; reason = 'Upthrust → Down'; }
-      else if (inDown && sSupply) { power = 15; reason = 'SOW Continues → Down'; }
-      else if (sSupply) { power = 22; reason = 'Heavy Selling → Down'; }
-      else { power = 40; reason = 'Wide Down → Caution'; }
-    }
-    // P5: STOPPING VOLUME (high vol + narrow result = absorption)
-    else if (hiEff && narrowR && sDemand) {
-      if (!isGreen && cur.close > ma20 * 0.99) { power = 92; reason = 'Stopping Volume → Up'; }
-      else if (nearMA20) { power = 85; reason = 'Volume Absorption MA20 → Up'; }
-      else { power = 70; reason = 'Effort Absorbed → Up'; }
-    }
-    // P6: HIDDEN DISTRIBUTION (high effort, narrow result, selling dominates in uptrend)
-    else if (hiEff && narrowR && sSupply && inUp) { power = 25; reason = 'Hidden Distribution → Down Risk'; }
-    // P7: NO SUPPLY (VSA - red candle, very low vol = sellers gone)
-    else if (!isGreen && loEff && cPos > 0.45) {
-      if (abMA20 && mDemand) { power = 85; reason = 'No Supply → Up'; }
-      else if (nearMA20) { power = 80; reason = 'No Supply at MA20 → Up'; }
-      else if (abMA50) { power = 72; reason = 'No Supply → Up Likely'; }
-      else { power = 60; reason = 'Low Supply → Neutral'; }
-    }
-    // P8: NO DEMAND (VSA - green candle, very low vol = buyers weak)
-    else if (isGreen && loEff && cPos < 0.55) {
-      if (!abMA20) { power = 35; reason = 'No Demand → Down Risk'; }
-      else if (inDown) { power = 28; reason = 'No Demand in Downtrend → Down'; }
-      else { power = 45; reason = 'Low Demand → Caution'; }
-    }
-    // P9: EFFORTLESS ADVANCE (low vol but green = pro buying)
-    else if (isGreen && inUp && loEff && cPos > 0.55) { power = 82; reason = 'Effortless Advance → Up'; }
-    // P10: HEALTHY UPTREND CONTINUATION
-    else if (isGreen && inUp && mDemand) { power = 68; reason = 'Uptrend Continuation → Up'; }
-    // P11: SHOOTING STAR (distribution)
-    else if (isStar && vRatio > 1.5) { power = 18; reason = 'Shooting Star → Down'; }
-    // P12: DOWNTREND CONTINUATION
-    else if (!isGreen && inDown && sSupply) { power = 20; reason = 'Downtrend Continues → Down'; }
-    // P13: CONSOLIDATION
-    else if (isSmallBody) {
-      power = (abMA20 && mDemand) ? 60 : (!abMA20 ? 42 : 52);
-      reason = 'Consolidation → Neutral';
-    }
-    else { power = isGreen ? 55 : 45; reason = isGreen ? 'Green → Neutral' : 'Red → Neutral'; }
+    // No Demand (VSA): green candle + very low vol below MA = bearish
+    if (isGreen && vRatio < 0.65 && cPos < 0.55 && !abMA20) power = Math.min(power, 38);
 
-    if (inUp && power > 60) power = Math.min(100, power + 3);
-    if (inDown && power < 40) power = Math.max(0, power - 3);
-    if (vRatio > 3.0 && sDemand && isGreen) power = Math.min(100, power + 5);
-    if (vRatio > 3.0 && sSupply && !isGreen) power = Math.max(0, power - 5);
+    // Stopping Volume (Wyckoff): high vol + narrow spread + closes upper half
+    if (vRatio > 1.5 && (sp / atr) < 0.85 && cPos > 0.55 && !isGreen) power = Math.max(power, 80);
+
+    // Buying Climax: ultra-high vol + wide up + closes lower = distribution
+    if (vRatio > 2.5 && (sp / atr) > 2.0 && cPos < 0.5 && isGreen) power = Math.min(power, 25);
+
+    // Trend alignment fine-tune
+    if (inUp  && power > 55) power = Math.min(100, power + 3);
+    if (inDown && power < 45) power = Math.max(0,   power - 3);
+
     power = Math.max(0, Math.min(100, Math.round(power)));
-    latestPower = power; latestAnalysis = reason;
+    latestPower = power;
 
-    const col = power >= 90 ? '#00b894' : power >= 75 ? '#55efc4' : power >= 60 ? '#a4de6c' :
-      power >= 50 ? '#ffd700' : power >= 40 ? '#ff8c00' : power >= 25 ? '#d63031' : '#8b0000';
+    // ── Build human-readable reason string ───────────────────────────────────
+    const cppRounded = Math.round(cpp * 100) / 100;
+    const bias = cpp >  0.5 ? '📈 Bullish Bias' :
+                 cpp < -0.5 ? '📉 Bearish Bias' : '➡️ Neutral / Consolidation';
+    let context = '';
+    if (isHammer && nearMA20)                              context = ' | 🔨 Hammer@MA20';
+    else if (isStar && vRatio > 1.3)                       context = ' | ⭐ Shooting Star';
+    else if (!isGreen && vRatio < 0.65 && abMA20)         context = ' | 🥷 No Supply';
+    else if (isGreen && vRatio < 0.65 && !abMA20)         context = ' | 😴 No Demand';
+    else if (vRatio > 1.5 && (sp / atr) < 0.85 && cPos > 0.55) context = ' | 🛑 Stop Volume';
+    else if (vRatio > 2.5 && (sp / atr) > 2.0)           context = ' | ⚠️ Climax Vol';
+    else if (inUp)                                         context = ' | ↗️ Uptrend';
+    else if (inDown)                                       context = ' | ↘️ Downtrend';
 
-    if (i >= N - 5 && !markers.find(m => m.time === cur.time))
+    latestAnalysis = `CPP:${cppRounded} ${bias}${context}`;
+    latestCPP = cpp;
+
+    // Color scale
+    const col = power >= 90 ? '#00b894'
+              : power >= 80 ? '#55efc4'
+              : power >= 65 ? '#a4de6c'
+              : power >= 55 ? '#ffd700'
+              : power >= 45 ? '#ffb347'
+              : power >= 30 ? '#ff8c00'
+              : power >= 15 ? '#d63031'
+              :                '#8b0000';
+
+    // Show dots on last 5 candles
+    if (i >= N - 5 && !markers.find(m => m.time === cur.time)) {
       markers.push({ time: cur.time, position: 'aboveBar', color: col, shape: 'circle', text: power.toString() });
+    }
   }
-  return { markers, analysis: `Power: ${latestPower} (${latestAnalysis})` };
+
+  const finalBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = latestCPP > 0.5 ? 'BULLISH' : latestCPP < -0.5 ? 'BEARISH' : 'NEUTRAL';
+  return { markers, analysis: `Power: ${latestPower} (${latestAnalysis})`, cppScore: Math.round(latestCPP * 100) / 100, cppBias: finalBias };
 }
 
 // ============================================================================
@@ -566,6 +601,10 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
     ma5, ma20, ma50, ma200, momentum, awesomeOscillator, fibonacci, supportResistance,
     candlePowerMarkers: cpResult.markers, candlePowerAnalysis: cpResult.analysis,
     vsaMarkers: vsaResult.markers, rmvData: vsaResult.rmvData,
-    signals: { bandar: vsaResult.signal, wyckoffPhase: vsaResult.wyckoffPhase, vcpStatus: vsaResult.vcpStatus, evrScore: vsaResult.evrScore }
+    signals: {
+      bandar: vsaResult.signal, wyckoffPhase: vsaResult.wyckoffPhase,
+      vcpStatus: vsaResult.vcpStatus, evrScore: vsaResult.evrScore,
+      cppScore: cpResult.cppScore, cppBias: cpResult.cppBias,
+    }
   };
 }
