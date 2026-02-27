@@ -189,7 +189,14 @@ export default function StockChart({ data }: StockChartProps) {
       grid: sharedGrid,
       width: chartContainerRef.current.clientWidth,
       height: mainHeight,
-      timeScale: { ...sharedTimeScale, visible: !showIndicators.momentum }, // hide time axis on main if MACD shown below
+      timeScale: {
+        ...sharedTimeScale,
+        visible: true, // always show — hiding breaks scroll/pan
+        // Hide tick marks on main when MACD shown (cleaner look), but keep axis
+        tickMarkFormatter: showIndicators.momentum
+          ? () => ''  // blank labels, MACD chart shows the real time labels below
+          : undefined,
+      },
       rightPriceScale: {
         borderColor: '#2a2a2a',
         scaleMargins: { top: 0.08, bottom: 0.25 }, // 75% price, 25% volume
@@ -336,7 +343,7 @@ export default function StockChart({ data }: StockChartProps) {
       volumeSeries.setData(volumeData as any);
     }
 
-    // Auto-fit
+    // Auto-fit main chart, then sync MACD to same range
     const timeoutId = setTimeout(() => {
       if (chartRef.current) {
         try {
@@ -347,9 +354,18 @@ export default function StockChart({ data }: StockChartProps) {
               to: data[data.length - 1].time as any,
             });
           }
+          // Sync MACD to match main chart's logical range after fit
+          if (macdChartRef.current) {
+            try {
+              const logicalRange = chart.timeScale().getVisibleLogicalRange();
+              if (logicalRange) {
+                macdChartRef.current.timeScale().setVisibleLogicalRange(logicalRange);
+              }
+            } catch (e) {}
+          }
         } catch (e) {}
       }
-    }, 100);
+    }, 150);
 
     // ── MACD CHART (separate container, synced time scale) ────────────────
     if (showIndicators.momentum && calculatedIndicators.momentum.length > 0 && macdContainerRef.current) {
@@ -358,7 +374,10 @@ export default function StockChart({ data }: StockChartProps) {
         grid: sharedGrid,
         width: macdContainerRef.current.clientWidth,
         height: macdHeight,
-        timeScale: { ...sharedTimeScale },
+        timeScale: {
+          ...sharedTimeScale,
+          visible: true, // MACD shows the real time labels
+        },
         rightPriceScale: {
           borderColor: '#2a2a2a',
           scaleMargins: { top: 0.1, bottom: 0.1 },
@@ -381,24 +400,24 @@ export default function StockChart({ data }: StockChartProps) {
       });
       macdSeries.setData(calculatedIndicators.momentum as any);
 
-      // Sync time scales: when main scrolls, MACD follows
-      chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
-        if (range && macdChartRef.current) {
-          try { macdChartRef.current.timeScale().setVisibleRange(range); } catch (e) {}
-        }
-      });
-      macdChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
-        if (range && chartRef.current) {
-          try { chartRef.current.timeScale().setVisibleRange(range); } catch (e) {}
-        }
+      // ── SYNC with lock flag to prevent infinite feedback loop ──────────
+      let isSyncing = false;
+
+      // Main → MACD  (primary direction)
+      chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (isSyncing || !range || !macdChartRef.current) return;
+        isSyncing = true;
+        try { macdChartRef.current.timeScale().setVisibleLogicalRange(range); } catch (e) {}
+        isSyncing = false;
       });
 
-      // Sync fit
-      setTimeout(() => {
-        if (macdChartRef.current) {
-          try { macdChart.timeScale().fitContent(); } catch (e) {}
-        }
-      }, 120);
+      // MACD → Main  (secondary direction, so user can also pan MACD)
+      macdChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (isSyncing || !range || !chartRef.current) return;
+        isSyncing = true;
+        try { chartRef.current.timeScale().setVisibleLogicalRange(range); } catch (e) {}
+        isSyncing = false;
+      });
     }
 
     // ── RESIZE ────────────────────────────────────────────────────────────
@@ -793,9 +812,48 @@ export default function StockChart({ data }: StockChartProps) {
         </div>
       )}
 
-      {/* Chart Container - Maximum space for chart */}
-      <div className="p-1 md:p-2">
-        <div ref={chartContainerRef} className="w-full min-h-[400px] md:min-h-[500px] lg:min-h-[600px]" />
+      {/* ── Chart Area ───────────────────────────────────────────────────── */}
+      <div className="p-1 md:p-2 space-y-0">
+
+        {/* Main Chart — Price + Volume overlay */}
+        <div className="relative">
+          {/* Volume label — bottom-left corner */}
+          <div className="absolute bottom-2 left-2 z-10 pointer-events-none">
+            <span className="text-xs font-semibold text-gray-400 bg-gray-900/70 px-1.5 py-0.5 rounded">
+              VOL
+            </span>
+          </div>
+          {/* MA legend strip */}
+          {showIndicators.ma && (
+            <div className="absolute top-1 left-1 z-10 flex gap-2 pointer-events-none">
+              <span className="text-xs font-bold text-blue-400 bg-gray-900/70 px-1 py-0.5 rounded">MA5</span>
+              <span className="text-xs font-bold text-yellow-400 bg-gray-900/70 px-1 py-0.5 rounded">MA20</span>
+              <span className="text-xs font-bold text-orange-400 bg-gray-900/70 px-1 py-0.5 rounded">MA50</span>
+              <span className="text-xs font-bold text-purple-400 bg-gray-900/70 px-1 py-0.5 rounded">MA200</span>
+            </div>
+          )}
+          <div ref={chartContainerRef} className="w-full" />
+        </div>
+
+        {/* MACD Histogram Panel — separate chart, synced */}
+        {showIndicators.momentum && (
+          <div className="relative border-t border-gray-700/60">
+            {/* MACD label */}
+            <div className="absolute top-1 left-2 z-10 pointer-events-none flex items-center gap-2">
+              <span className="text-xs font-bold text-cyan-400 bg-gray-900/70 px-1.5 py-0.5 rounded">
+                MACD Histogram
+              </span>
+              <span className="text-xs text-gray-500 bg-gray-900/60 px-1 py-0.5 rounded hidden sm:inline">
+                Momentum indicator — green = bullish / red = bearish
+              </span>
+            </div>
+            {/* Zero line label */}
+            <div className="absolute right-12 top-1/2 -translate-y-1/2 z-10 pointer-events-none">
+              <span className="text-xs text-gray-600">0</span>
+            </div>
+            <div ref={macdContainerRef} className="w-full" />
+          </div>
+        )}
       </div>
     </div>
   );
