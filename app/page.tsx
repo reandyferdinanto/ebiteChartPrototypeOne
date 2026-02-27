@@ -31,14 +31,13 @@ interface StockQuote {
 
 export default function Home() {
   const [symbol, setSymbol] = useState('BBCA.JK');
-  const [inputSymbol, setInputSymbol] = useState('BBCA'); // Display without .JK
+  const [inputSymbol, setInputSymbol] = useState('BBCA');
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [stockQuote, setStockQuote] = useState<StockQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [timeframe, setTimeframe] = useState('1d');
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
-  const [showSettings, setShowSettings] = useState(false); // Collapsible settings
+  const [showSettings, setShowSettings] = useState(false);
 
   const popularStocks = [
     'BBCA', 'BBRI', 'BMRI', 'BBNI', 'ASII', 'TLKM', 'UNVR', 'ICBP'
@@ -47,95 +46,69 @@ export default function Home() {
   // Helper function to ensure .JK suffix
   const ensureJKSuffix = (ticker: string): string => {
     const trimmed = ticker.trim().toUpperCase();
-    if (trimmed.endsWith('.JK')) {
-      return trimmed;
-    }
+    if (trimmed.endsWith('.JK')) return trimmed;
     return `${trimmed}.JK`;
   };
 
+  // Single effect: read URL params on mount and do initial fetch ONCE
   useEffect(() => {
-    // Check for symbol and interval in URL params (from screener view button)
     const urlParams = new URLSearchParams(window.location.search);
     const urlSymbol = urlParams.get('symbol');
     const urlInterval = urlParams.get('interval');
 
-    // Set interval from URL if provided
-    if (urlInterval && ['5m', '15m', '1h', '4h', '1d', '1wk', '1mo'].includes(urlInterval)) {
-      setTimeframe(urlInterval);
-    }
+    const validIntervals = ['5m', '15m', '1h', '4h', '1d', '1wk', '1mo'];
+    const resolvedInterval = urlInterval && validIntervals.includes(urlInterval) ? urlInterval : '1d';
+    const resolvedSymbol = urlSymbol ? ensureJKSuffix(urlSymbol) : 'BBCA.JK';
+    const resolvedInput = urlSymbol ? urlSymbol.replace('.JK', '').toUpperCase() : 'BBCA';
 
-    if (urlSymbol) {
-      const fullSymbol = ensureJKSuffix(urlSymbol);
-      setSymbol(fullSymbol);
-      setInputSymbol(urlSymbol); // Update input field to show ticker without .JK
-      // Fetch data immediately for URL symbol with URL interval if provided
-      fetchStockData(fullSymbol, urlInterval || timeframe);
-      setInitialLoadDone(true);
-    } else {
-      // No URL symbol, fetch default symbol
-      fetchStockData(symbol, urlInterval || timeframe);
-      setInitialLoadDone(true);
-    }
-  }, []); // Run once on component mount
+    setSymbol(resolvedSymbol);
+    setInputSymbol(resolvedInput);
+    setTimeframe(resolvedInterval);
 
-  useEffect(() => {
-    // Only run for subsequent changes after initial load
-    // Skip if this is the initial load or if we just loaded from URL
-    if (initialLoadDone) {
-      console.log('useEffect triggered for symbol or timeframe change:', symbol, timeframe); // Debug log
-
-      // Always fetch data when symbol or timeframe changes after initial load
-      // This ensures timeframe buttons work even when loaded from URL
-      fetchStockData(symbol, timeframe);
-
-      // Update URL to reflect current state (removes stale interval param)
-      const newUrl = new URL(window.location.href);
-      newUrl.searchParams.set('symbol', symbol.replace('.JK', ''));
-      newUrl.searchParams.set('interval', timeframe);
-      window.history.replaceState({}, '', newUrl);
-    }
-  }, [symbol, timeframe, initialLoadDone]);
+    // Single direct fetch on mount — no cascading effects
+    fetchStockData(resolvedSymbol, resolvedInterval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchStockData = async (sym: string, int: string) => {
-    console.log('fetchStockData called with symbol:', sym, 'interval:', int); // Debug log
     setLoading(true);
     setError('');
+    setChartData([]);
+    setStockQuote(null);
+
+    // Update URL
+    try {
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.set('symbol', sym.replace('.JK', ''));
+      newUrl.searchParams.set('interval', int);
+      window.history.replaceState({}, '', newUrl);
+    } catch (_) {}
 
     try {
       // Fetch quote
       const quoteRes = await fetch(`/api/stock/quote?symbol=${sym}`);
       if (!quoteRes.ok) {
-        const errorData = await quoteRes.json().catch(() => ({ error: 'Unknown error' }));
         const stockTicker = sym.replace('.JK', '');
-        throw new Error(`Failed to fetch data for ${stockTicker}. The stock may be delisted, suspended, or not available on Yahoo Finance.`);
+        throw new Error(`Stock "${stockTicker}" not found. Check the ticker symbol and try again.`);
       }
       const quoteData = await quoteRes.json();
       setStockQuote(quoteData);
 
       // Fetch historical data
-      const historicalRes = await fetch(
-        `/api/stock/historical?symbol=${sym}&interval=${int}`
-      );
+      const historicalRes = await fetch(`/api/stock/historical?symbol=${sym}&interval=${int}`);
       if (!historicalRes.ok) {
-        const errorData = await historicalRes.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('Historical API error:', errorData);
         const stockTicker = sym.replace('.JK', '');
-        throw new Error(`Failed to fetch historical data for ${stockTicker}. The stock may not have data available for the ${int} timeframe.`);
+        throw new Error(`No historical data for "${stockTicker}" at ${int} timeframe.`);
       }
       const historicalData = await historicalRes.json();
 
-      // Check if we have valid data
       if (!historicalData.data || historicalData.data.length === 0) {
-        console.warn('No historical data available for:', sym, 'interval:', int);
         const stockTicker = sym.replace('.JK', '');
-        throw new Error(`No data available for ${stockTicker} at ${int} timeframe. Try a different timeframe or stock.`);
+        throw new Error(`No data available for "${stockTicker}" at ${int} timeframe. Try Daily timeframe.`);
       }
 
       setChartData(historicalData.data);
-      console.log('Successfully fetched', historicalData.data.length, 'data points for:', sym); // Debug log
     } catch (err: any) {
-      console.error('Error fetching data for', sym, ':', err); // Debug log
-      setError(err.message || 'Failed to fetch data');
+      setError(err.message || 'Failed to fetch data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -143,22 +116,23 @@ export default function Home() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputSymbol.trim()) {
-      // Clear any previous errors
-      setError('');
+    const trimmed = inputSymbol.trim();
+    if (!trimmed || loading) return;
+    const fullSymbol = ensureJKSuffix(trimmed);
+    setSymbol(fullSymbol);
+    fetchStockData(fullSymbol, timeframe);
+  };
 
-      // Automatically add .JK suffix
-      const fullSymbol = ensureJKSuffix(inputSymbol);
-      console.log('Search triggered for symbol:', fullSymbol); // Debug log
+  const handleTimeframeChange = (tf: string) => {
+    setTimeframe(tf);
+    fetchStockData(symbol, tf);
+  };
 
-      // Update symbol state - this will trigger the useEffect to fetch data
-      setSymbol(fullSymbol);
-
-      // Update URL without page reload for better UX
-      const newUrl = new URL(window.location.href);
-      newUrl.searchParams.delete('symbol'); // Remove any existing symbol param for manual searches
-      window.history.replaceState({}, '', newUrl.pathname);
-    }
+  const handleQuickAccess = (stock: string) => {
+    const fullSymbol = ensureJKSuffix(stock);
+    setSymbol(fullSymbol);
+    setInputSymbol(stock);
+    fetchStockData(fullSymbol, timeframe);
   };
 
   return (
@@ -261,16 +235,13 @@ export default function Home() {
             {popularStocks.map((stock) => (
               <button
                 key={stock}
-                onClick={() => {
-                  const fullSymbol = ensureJKSuffix(stock);
-                  setSymbol(fullSymbol);
-                  setInputSymbol(stock);
-                }}
+                onClick={() => handleQuickAccess(stock)}
+                disabled={loading}
                 className={`px-2.5 py-1 rounded-lg text-xs font-medium transition shadow-md ${
                   symbol === ensureJKSuffix(stock)
                     ? 'backdrop-blur-md bg-blue-500/30 text-white border border-blue-500/50 shadow-blue-500/20'
                     : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
-                }`}
+                } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {stock}
               </button>
@@ -300,14 +271,15 @@ export default function Home() {
                   ].map((tf) => (
                     <button
                       key={tf.value}
-                      onClick={() => setTimeframe(tf.value)}
+                      onClick={() => handleTimeframeChange(tf.value)}
+                      disabled={loading}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md ${
                         timeframe === tf.value
                           ? tf.type === 'intraday'
                             ? 'backdrop-blur-md bg-green-500/30 text-white ring-2 ring-green-400/50 shadow-green-500/20'
                             : 'backdrop-blur-md bg-blue-500/30 text-white ring-2 ring-blue-400/50 shadow-blue-500/20'
                           : 'backdrop-blur-md bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
-                      }`}
+                      } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <span>{tf.icon}</span>
                       <span>{tf.label}</span>
