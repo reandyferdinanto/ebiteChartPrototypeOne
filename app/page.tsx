@@ -91,7 +91,9 @@ export default function Home() {
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    const u = p.get('symbol'), ui = p.get('interval');
+    const u = p.get('symbol');
+    // Support both ?interval= (internal) and ?timeframe= (from scalp/swing screener)
+    const ui = p.get('timeframe') || p.get('interval');
     const valid = ['5m','15m','1h','4h','1d','1wk','1mo'];
     const ri = ui && valid.includes(ui) ? ui : '1d';
     const rs = u ? ensureJK(u) : 'BBCA.JK';
