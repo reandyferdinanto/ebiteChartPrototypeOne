@@ -852,7 +852,7 @@ export default function ScalpScreener() {
                       </td>
                       <td className="py-3 px-3 text-center">
                         <Link
-                          href={`/?symbol=${r.symbol}&interval=${r.timeframe}&scalpSignal=${encodeURIComponent(r.entry || '')}&scalpLabel=${encodeURIComponent(r.signal)}`}
+                          href={`/?symbol=${r.symbol}&interval=${r.timeframe}&scalpSignal=${r.entry || ''}&scalpLabel=${encodeURIComponent(r.signal.replace(/%/g, 'pct'))}`}
                           className="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition"
                         >
                           View

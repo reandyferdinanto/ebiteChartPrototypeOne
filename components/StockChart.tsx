@@ -45,7 +45,19 @@ export default function StockChart({ data }: StockChartProps) {
     const sig  = params.get('scalpSignal');
     const lbl  = params.get('scalpLabel');
     if (sig && lbl) {
-      setScalpSignal({ type: sig, label: decodeURIComponent(lbl) });
+      // URLSearchParams.get() already decodes the value, so use it directly.
+      // Only attempt decodeURIComponent if the value still looks encoded.
+      let safeLabel = lbl;
+      try {
+        // Only decode if it contains % sequences (double-encoded scenario)
+        if (lbl.includes('%')) {
+          safeLabel = decodeURIComponent(lbl);
+        }
+      } catch {
+        // If decoding fails (malformed URI), use the raw value as-is
+        safeLabel = lbl;
+      }
+      setScalpSignal({ type: sig, label: safeLabel });
       // Auto-enable VSA mode so user sees the markers immediately
       setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, candlePower: false, signals: true }));
     }
@@ -845,7 +857,8 @@ export default function StockChart({ data }: StockChartProps) {
                 const wyckoff= indicators.signals.wyckoffPhase ?? '';
                 const vcp    = indicators.signals.vcpStatus ?? '';
 
-                const isVSABull  = vsa.includes('🟢') || /NS|SC|SV|SOS|Iceberg|Dry Up/i.test(vsa);
+                const isHAKA     = vsa.includes('HAKA');
+                const isVSABull  = isHAKA || vsa.includes('🟢') || /NS|SC|SV|SOS|Iceberg|Dry Up/i.test(vsa);
                 const isVSABear  = vsa.includes('🔴') || /BC|UT|Distribusi|ABS/i.test(vsa);
                 const isWyBull   = /ACCUMULATION|MARKUP/.test(wyckoff);
                 const isWyBear   = /DISTRIBUTION|MARKDOWN/.test(wyckoff);
