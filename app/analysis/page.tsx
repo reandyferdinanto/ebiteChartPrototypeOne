@@ -922,6 +922,7 @@ function AnalysisContent() {
           <div className="flex gap-3 text-sm">
             <Link href="/vcp-screener" className="text-gray-400 hover:text-white">VCP</Link>
             <Link href="/scalp-screener" className="text-gray-400 hover:text-white">Scalp</Link>
+            <Link href="/guide" className="text-blue-400 hover:text-blue-300 font-semibold">Guide</Link>
           </div>
         </div>
       </nav>

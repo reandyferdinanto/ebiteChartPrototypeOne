@@ -253,6 +253,15 @@ export default function VCPScreener() {
               </svg>
               Chart
             </Link>
+            <Link
+              href="/guide"
+              className="backdrop-blur-md bg-blue-400/15 hover:bg-blue-400/25 border border-blue-400/25 px-3 md:px-4 py-2 rounded-lg transition text-xs md:text-sm text-center flex items-center gap-1.5 font-semibold"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              Guide
+            </Link>
           </div>
         </div>
       </nav>

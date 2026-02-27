@@ -502,6 +502,7 @@ export default function ScalpScreener() {
             <Link href="/analysis"       className="text-gray-400 hover:text-white">Analysis</Link>
             <Link href="/vcp-screener"   className="text-gray-400 hover:text-white">VCP</Link>
             <Link href="/swing-screener" className="text-gray-400 hover:text-white">Swing</Link>
+            <Link href="/guide"          className="text-blue-400 hover:text-blue-300 font-semibold">Guide</Link>
           </div>
         </div>
       </nav>
