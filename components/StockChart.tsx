@@ -20,7 +20,9 @@ interface StockChartProps {
 
 export default function StockChart({ data }: StockChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const macdContainerRef  = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
+  const macdChartRef = useRef<any>(null);
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick');
   const [showControls, setShowControls] = useState(true);
   // scalpSignal: populated when chart is opened from scalp screener
@@ -124,149 +126,116 @@ export default function StockChart({ data }: StockChartProps) {
   useEffect(() => {
     if (!chartContainerRef.current || data.length === 0) return;
 
-    // Clean up previous chart instance before creating a new one
+    // Clean up previous chart instances before creating new ones
     if (chartRef.current) {
-      try {
-        chartRef.current.remove();
-      } catch (e) {
-        console.warn('Error removing previous chart:', e);
-      }
+      try { chartRef.current.remove(); } catch (e) {}
       chartRef.current = null;
+    }
+    if (macdChartRef.current) {
+      try { macdChartRef.current.remove(); } catch (e) {}
+      macdChartRef.current = null;
     }
 
     // Calculate indicators
     const calculatedIndicators = calculateAllIndicators(data);
     setIndicators(calculatedIndicators);
 
-    // Create chart with better mobile dimensions
     const isMobile = window.innerWidth < 768;
     const isTablet = window.innerWidth >= 768 && window.innerWidth < 1024;
 
-    // Significantly larger chart heights for better mobile experience
-    let chartHeight;
-    if (isMobile) {
-      chartHeight = 450; // Increased from 300 to 450 for much better mobile experience
-    } else if (isTablet) {
-      chartHeight = 550; // Good size for tablets
-    } else {
-      chartHeight = 600; // Larger even for desktop for better analysis
-    }
+    // Main chart height: price + volume overlay (no MACD here)
+    let mainHeight: number;
+    if (isMobile)       mainHeight = 380;
+    else if (isTablet)  mainHeight = 480;
+    else                mainHeight = 540;
 
+    // MACD panel height: ~25-30% of main
+    const macdHeight = isMobile ? 110 : 140;
+
+    // ── SHARED CHART OPTIONS ──────────────────────────────────────────────
+    const sharedLayout = {
+      background: { type: ColorType.Solid, color: '#1a1a1a' },
+      textColor: '#d1d5db',
+    };
+    const sharedGrid = {
+      vertLines: { color: '#2a2a2a' },
+      horzLines: { color: '#2a2a2a' },
+    };
+    const sharedTimeScale = {
+      timeVisible: true,
+      secondsVisible: false,
+      borderVisible: true,
+      borderColor: '#2a2a2a',
+      rightOffset: isMobile ? 5 : 12,
+      barSpacing: isMobile ? 8 : 6,
+      minBarSpacing: isMobile ? 4 : 2,
+    };
+    const sharedHandleScroll = {
+      mouseWheel: true,
+      pressedMouseMove: true,
+      horzTouchDrag: true,
+      vertTouchDrag: true,
+    };
+    const sharedHandleScale = {
+      axisPressedMouseMove: { time: true, price: true },
+      mouseWheel: true,
+      pinch: true,
+      axisDoubleClickReset: { time: true, price: true },
+    };
+
+    // ── MAIN CHART (price + volume overlay) ──────────────────────────────
     const chart = createChart(chartContainerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: '#1a1a1a' },
-        textColor: '#d1d5db',
-      },
-      grid: {
-        vertLines: { color: '#2a2a2a' },
-        horzLines: { color: '#2a2a2a' },
-      },
+      layout: sharedLayout,
+      grid: sharedGrid,
       width: chartContainerRef.current.clientWidth,
-      height: chartHeight,
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-        // Better mobile time scale options
-        borderVisible: true,
-        borderColor: '#2a2a2a',
-        rightOffset: isMobile ? 5 : 12, // Less right padding on mobile
-        barSpacing: isMobile ? 8 : 6, // Wider bar spacing on mobile for better touch interaction
-        minBarSpacing: isMobile ? 4 : 2, // Minimum spacing to prevent candles from being too close
-      },
+      height: mainHeight,
+      timeScale: { ...sharedTimeScale, visible: !showIndicators.momentum }, // hide time axis on main if MACD shown below
       rightPriceScale: {
         borderColor: '#2a2a2a',
-        // Better price scale for mobile
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
-        },
+        scaleMargins: { top: 0.08, bottom: 0.25 }, // 75% price, 25% volume
         borderVisible: true,
       },
       crosshair: {
-        mode: 1, // Magnet mode for easier mobile interaction
-        vertLine: {
-          color: '#758494',
-          width: isMobile ? 2 : 1, // Thicker crosshair lines on mobile
-          style: 2,
-        },
-        horzLine: {
-          color: '#758494',
-          width: isMobile ? 2 : 1,
-          style: 2,
-        },
+        mode: 1,
+        vertLine: { color: '#758494', width: isMobile ? 2 : 1, style: 2 },
+        horzLine: { color: '#758494', width: isMobile ? 2 : 1, style: 2 },
       },
-      // Enhanced interaction for proper zoom functionality
-      handleScroll: {
-        mouseWheel: true, // Enable mouse wheel zoom on desktop
-        pressedMouseMove: true, // Enable drag to pan
-        horzTouchDrag: true, // Enable horizontal touch drag (pan left/right)
-        vertTouchDrag: true, // Enable vertical touch drag (zoom in/out on mobile)
-      },
-      handleScale: {
-        axisPressedMouseMove: {
-          time: true, // Enable time axis scaling via mouse drag
-          price: true, // Enable price axis scaling via mouse drag
-        },
-        mouseWheel: true, // Enable mouse wheel zooming
-        pinch: true, // Enable pinch-to-zoom on touch devices
-        axisDoubleClickReset: {
-          time: true, // Double-click time axis to reset zoom
-          price: true, // Double-click price axis to reset zoom
-        },
-      },
+      handleScroll: sharedHandleScroll,
+      handleScale: sharedHandleScale,
     });
-
     chartRef.current = chart;
 
-    // Add main price series with mobile-optimized settings
+    // ── PRICE SERIES ─────────────────────────────────────────────────────
     if (chartType === 'candlestick') {
       const candlestickSeries = chart.addCandlestickSeries({
         upColor: '#26a69a',
         downColor: '#ef5350',
-        borderVisible: true, // Make borders visible for better candle definition
+        borderVisible: true,
         wickUpColor: '#26a69a',
         wickDownColor: '#ef5350',
-        borderUpColor: '#1e8a7a', // Darker border for up candles
-        borderDownColor: '#d32f2f', // Darker border for down candles
+        borderUpColor: '#1e8a7a',
+        borderDownColor: '#d32f2f',
         wickVisible: true,
-        // Better mobile candle appearance
         priceLineVisible: false,
         lastValueVisible: true,
       });
       candlestickSeries.setData(data as any);
 
-      // Add markers based on selected patterns - PROPERLY SEPARATED
+      // Add markers
       if (showIndicators.signals || showIndicators.vsa || showIndicators.vcp || showIndicators.candlePower) {
         const allMarkers: typeof calculatedIndicators.vsaMarkers = [];
-
-        // CANDLE POWER MODE: Show ONLY candle power markers (colored dots with scores)
         if (showIndicators.candlePower) {
-          // Pure Candle Power mode - show ONLY colored score dots
           allMarkers.push(...calculatedIndicators.candlePowerMarkers);
-        }
-        // VSA/VCP MODE: Show ONLY VSA patterns (🎯 SNIPER, 🧊 ICEBERG, 🥷 DRY UP, etc.)
-        else if (showIndicators.vsa || showIndicators.vcp) {
-          // Pure VSA mode - show ONLY VSA pattern markers
+        } else if (showIndicators.vsa || showIndicators.vcp) {
+          allMarkers.push(...calculatedIndicators.vsaMarkers);
+        } else if (showIndicators.signals) {
           allMarkers.push(...calculatedIndicators.vsaMarkers);
         }
-        // SIGNALS MODE (default): Show VSA patterns
-        else if (showIndicators.signals) {
-          // In signals-only mode, show VSA patterns by default
-          allMarkers.push(...calculatedIndicators.vsaMarkers);
-        }
-
-
         if (allMarkers.length > 0) {
-          // Remove duplicates - keep first occurrence
           const markerMap = new Map();
           allMarkers.forEach(marker => {
-            const key = marker.time.toString();
-            if (!markerMap.has(key)) {
-              markerMap.set(key, marker);
-            }
+            if (!markerMap.has(marker.time.toString())) markerMap.set(marker.time.toString(), marker);
           });
-
-
           const uniqueMarkers = Array.from(markerMap.values()).sort((a, b) => a.time - b.time);
           candlestickSeries.setMarkers(uniqueMarkers as any);
         }
@@ -274,273 +243,187 @@ export default function StockChart({ data }: StockChartProps) {
     } else {
       const lineSeries = chart.addLineSeries({
         color: '#2962FF',
-        lineWidth: isMobile ? 3 : 2, // Thicker line on mobile for better visibility
+        lineWidth: isMobile ? 3 : 2,
         priceLineVisible: false,
         lastValueVisible: true,
         crosshairMarkerVisible: true,
-        crosshairMarkerRadius: isMobile ? 6 : 4, // Larger crosshair marker on mobile
+        crosshairMarkerRadius: isMobile ? 6 : 4,
       });
-      const lineData = data.map((d) => ({ time: d.time, value: d.close }));
-      lineSeries.setData(lineData as any);
+      lineSeries.setData(data.map((d) => ({ time: d.time, value: d.close })) as any);
     }
 
-    // Add Moving Averages with proper logic for different modes
+    // ── MOVING AVERAGES ───────────────────────────────────────────────────
     if (showIndicators.ma) {
-      // Determine if we're in a clean mode (only MA without other complex indicators)
       const isMAOnlyMode = !showIndicators.momentum && !showIndicators.ao && !showIndicators.fibonacci &&
-                          !showIndicators.vsa && !showIndicators.vcp && !showIndicators.candlePower;
-
-      // Always show MA5 in MA-only mode, or when in full analysis mode
-      if (isMAOnlyMode || (showIndicators.momentum || showIndicators.ao || showIndicators.fibonacci)) {
+                           !showIndicators.vsa && !showIndicators.vcp && !showIndicators.candlePower;
+      if (isMAOnlyMode || showIndicators.momentum || showIndicators.ao || showIndicators.fibonacci) {
         if (calculatedIndicators.ma5.length > 0) {
-          const ma5Series = chart.addLineSeries({
-            color: '#2962FF',
-            lineWidth: isMobile ? 2 : 1, // Thicker on mobile
-            priceLineVisible: false,
-            lastValueVisible: false
-          });
-          ma5Series.setData(calculatedIndicators.ma5 as any);
+          const s = chart.addLineSeries({ color: '#2962FF', lineWidth: isMobile ? 2 : 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(calculatedIndicators.ma5 as any);
         }
       }
-
-      // Always show MA20
       if (calculatedIndicators.ma20.length > 0) {
-        const ma20Series = chart.addLineSeries({
-          color: '#f1c40f',
-          lineWidth: isMobile ? 3 : 2, // Much thicker for better mobile visibility
-          priceLineVisible: false,
-          lastValueVisible: false
-        });
-        ma20Series.setData(calculatedIndicators.ma20 as any);
+        const s = chart.addLineSeries({ color: '#f1c40f', lineWidth: isMobile ? 3 : 2, priceLineVisible: false, lastValueVisible: false });
+        s.setData(calculatedIndicators.ma20 as any);
       }
-
-      // Always show MA50
       if (calculatedIndicators.ma50.length > 0) {
-        const ma50Series = chart.addLineSeries({
-          color: '#e67e22',
-          lineWidth: isMobile ? 3 : 2, // Much thicker for better mobile visibility
-          priceLineVisible: false,
-          lastValueVisible: false
-        });
-        ma50Series.setData(calculatedIndicators.ma50 as any);
+        const s = chart.addLineSeries({ color: '#e67e22', lineWidth: isMobile ? 3 : 2, priceLineVisible: false, lastValueVisible: false });
+        s.setData(calculatedIndicators.ma50 as any);
       }
-
-      // Show MA200 in MA-only mode or full analysis mode
-      if (isMAOnlyMode || (showIndicators.momentum || showIndicators.ao || showIndicators.fibonacci)) {
+      if (isMAOnlyMode || showIndicators.momentum || showIndicators.ao || showIndicators.fibonacci) {
         if (calculatedIndicators.ma200.length > 0) {
-          const ma200Series = chart.addLineSeries({
-            color: '#9b59b6',
-            lineWidth: isMobile ? 2 : 1, // Thicker on mobile
-            priceLineVisible: false,
-            lastValueVisible: false
-          });
-          ma200Series.setData(calculatedIndicators.ma200 as any);
+          const s = chart.addLineSeries({ color: '#9b59b6', lineWidth: isMobile ? 2 : 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(calculatedIndicators.ma200 as any);
         }
       }
     }
 
-    // Add Fibonacci levels with better mobile visibility
+    // ── FIBONACCI ─────────────────────────────────────────────────────────
     if (showIndicators.fibonacci) {
-      const fib382Series = chart.addLineSeries({
-        color: '#3498db',
-        lineWidth: isMobile ? 2 : 1, // Thicker on mobile
-        lineStyle: 2,
-        priceLineVisible: false
-      });
+      const fib382Series = chart.addLineSeries({ color: '#3498db', lineWidth: isMobile ? 2 : 1, lineStyle: 2, priceLineVisible: false });
       fib382Series.setData(calculatedIndicators.fibonacci.f382 as any);
-
-      const fib500Series = chart.addLineSeries({
-        color: '#e74c3c',
-        lineWidth: isMobile ? 2 : 1, // Thicker on mobile
-        lineStyle: 2,
-        priceLineVisible: false
-      });
+      const fib500Series = chart.addLineSeries({ color: '#e74c3c', lineWidth: isMobile ? 2 : 1, lineStyle: 2, priceLineVisible: false });
       fib500Series.setData(calculatedIndicators.fibonacci.f500 as any);
-
-      const fib618Series = chart.addLineSeries({
-        color: '#00b894',
-        lineWidth: isMobile ? 2 : 1, // Thicker on mobile
-        lineStyle: 2,
-        priceLineVisible: false
-      });
+      const fib618Series = chart.addLineSeries({ color: '#00b894', lineWidth: isMobile ? 2 : 1, lineStyle: 2, priceLineVisible: false });
       fib618Series.setData(calculatedIndicators.fibonacci.f618 as any);
     }
 
-    // Add Support/Resistance Zones - Colored areas between dotted lines
+    // ── SUPPORT / RESISTANCE ZONES ────────────────────────────────────────
     if (showIndicators.sr) {
       const srZones = calculatedIndicators.supportResistance.zones;
-
       srZones.forEach((zone) => {
         const isResistance = zone.type === 'resistance';
+        const fillColor = isResistance ? 'rgba(239, 83, 80, 0.15)' : 'rgba(38, 166, 154, 0.15)';
+        const lineColor  = isResistance ? 'rgba(239, 83, 80, 0.8)' : 'rgba(38, 166, 154, 0.8)';
 
-        // Colors for the filled area between boundaries
-        const fillColor = isResistance
-          ? 'rgba(239, 83, 80, 0.15)'   // Semi-transparent red for resistance
-          : 'rgba(38, 166, 154, 0.15)'; // Semi-transparent green for support
-
-        const lineColor = isResistance
-          ? 'rgba(239, 83, 80, 0.8)'  // Solid red for boundary lines
-          : 'rgba(38, 166, 154, 0.8)'; // Solid green for boundary lines
-
-        // Create baseline series (bottom line) - this will be the base for our area
         const baselineSeries = chart.addBaselineSeries({
           baseValue: { type: 'price', price: zone.bottom },
-          topLineColor: fillColor,
-          topFillColor1: fillColor,
-          topFillColor2: fillColor,
-          bottomLineColor: fillColor,
-          bottomFillColor1: 'transparent',
-          bottomFillColor2: 'transparent',
-          priceLineVisible: false,
-          lastValueVisible: false,
-          crosshairMarkerVisible: false,
+          topLineColor: fillColor, topFillColor1: fillColor, topFillColor2: fillColor,
+          bottomLineColor: fillColor, bottomFillColor1: 'transparent', bottomFillColor2: 'transparent',
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
         });
-
-        // Set data for the filled area (top boundary)
         const areaData = [];
-        for (let i = zone.startIndex; i < data.length; i++) {
-          areaData.push({
-            time: data[i].time,
-            value: zone.top // This creates filled area from bottom to top
-          });
-        }
+        for (let i = zone.startIndex; i < data.length; i++) areaData.push({ time: data[i].time, value: zone.top });
         baselineSeries.setData(areaData as any);
 
-        // Add TOP boundary line (dotted)
-        const topLineSeries = chart.addLineSeries({
-          color: lineColor,
-          lineWidth: isMobile ? 2 : 1,
-          lineStyle: 2, // Dashed/dotted line
-          priceLineVisible: false, // ✅ NO helper line to right axis!
-          lastValueVisible: false, // ✅ NO value bubble on right!
-          crosshairMarkerVisible: true, // Show value on crosshair
-        });
-
+        const topSeries = chart.addLineSeries({ color: lineColor, lineWidth: isMobile ? 2 : 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true });
         const topData = [];
-        for (let i = zone.startIndex; i < data.length; i++) {
-          topData.push({ time: data[i].time, value: zone.top });
-        }
-        topLineSeries.setData(topData as any);
+        for (let i = zone.startIndex; i < data.length; i++) topData.push({ time: data[i].time, value: zone.top });
+        topSeries.setData(topData as any);
 
-        // Add BOTTOM boundary line (dotted)
-        const bottomLineSeries = chart.addLineSeries({
-          color: lineColor,
-          lineWidth: isMobile ? 2 : 1,
-          lineStyle: 2, // Dashed/dotted line
-          priceLineVisible: false, // ✅ NO helper line to right axis!
-          lastValueVisible: false, // ✅ NO value bubble on right!
-          crosshairMarkerVisible: true, // Show value on crosshair
-        });
-
+        const bottomSeries = chart.addLineSeries({ color: lineColor, lineWidth: isMobile ? 2 : 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true });
         const bottomData = [];
-        for (let i = zone.startIndex; i < data.length; i++) {
-          bottomData.push({ time: data[i].time, value: zone.bottom });
-        }
-        bottomLineSeries.setData(bottomData as any);
+        for (let i = zone.startIndex; i < data.length; i++) bottomData.push({ time: data[i].time, value: zone.bottom });
+        bottomSeries.setData(bottomData as any);
       });
     }
 
-    // Add volume series
+    // ── VOLUME (overlay on main chart, bottom 25%) ────────────────────────
     if (data[0]?.volume) {
       const volumeSeries = chart.addHistogramSeries({
         color: '#26a69a',
-        priceFormat: {
-          type: 'volume',
-        },
-        priceScaleId: '',
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'vol',
       });
-
-      // Better volume chart margins for mobile
-      chart.priceScale('').applyOptions({
-        scaleMargins: {
-          top: isMobile ? 0.75 : 0.8, // Slightly more space for price chart on mobile
-          bottom: 0,
-        },
+      chart.priceScale('vol').applyOptions({
+        scaleMargins: { top: 0.75, bottom: 0 }, // Bottom 25% of main chart
       });
-
       const volumeData = data.map((d) => ({
         time: d.time,
         value: d.volume || 0,
         color: d.close >= d.open ? '#26a69a80' : '#ef535080',
       }));
-
       volumeSeries.setData(volumeData as any);
     }
 
-    // Add MACD Histogram (Momentum Indicator) - shown by default
-    if (showIndicators.momentum && calculatedIndicators.momentum.length > 0) {
-      const macdSeries = chart.addHistogramSeries({
-        color: '#00b894',
-        priceFormat: {
-          type: 'price',
-          precision: 2,
-          minMove: 0.01,
-        },
-        priceScaleId: 'macd', // Separate scale for MACD
-      });
-
-      // Configure MACD scale to appear below volume
-      chart.priceScale('macd').applyOptions({
-        scaleMargins: {
-          top: 0.85, // Position MACD below volume and chart
-          bottom: 0,
-        },
-      });
-
-      // Set MACD data with colors based on histogram values
-      macdSeries.setData(calculatedIndicators.momentum as any);
-    }
-
-    // Auto-fit content with mobile-specific behavior
+    // Auto-fit
     const timeoutId = setTimeout(() => {
       if (chartRef.current) {
         try {
           chart.timeScale().fitContent();
-          // On mobile, ensure proper initial zoom level
           if (isMobile && data.length > 50) {
             chart.timeScale().setVisibleRange({
               from: data[Math.max(0, data.length - 30)].time as any,
               to: data[data.length - 1].time as any,
             });
           }
-        } catch (e) {
-          console.warn('Error setting chart content:', e);
-        }
+        } catch (e) {}
       }
     }, 100);
 
-    // Handle resize with improved error handling
+    // ── MACD CHART (separate container, synced time scale) ────────────────
+    if (showIndicators.momentum && calculatedIndicators.momentum.length > 0 && macdContainerRef.current) {
+      const macdChart = createChart(macdContainerRef.current, {
+        layout: sharedLayout,
+        grid: sharedGrid,
+        width: macdContainerRef.current.clientWidth,
+        height: macdHeight,
+        timeScale: { ...sharedTimeScale },
+        rightPriceScale: {
+          borderColor: '#2a2a2a',
+          scaleMargins: { top: 0.1, bottom: 0.1 },
+          borderVisible: true,
+        },
+        crosshair: {
+          mode: 1,
+          vertLine: { color: '#758494', width: isMobile ? 2 : 1, style: 2 },
+          horzLine: { color: '#758494', width: isMobile ? 2 : 1, style: 2 },
+        },
+        handleScroll: sharedHandleScroll,
+        handleScale: sharedHandleScale,
+      });
+      macdChartRef.current = macdChart;
+
+      const macdSeries = macdChart.addHistogramSeries({
+        color: '#00b894',
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+        priceScaleId: 'right',
+      });
+      macdSeries.setData(calculatedIndicators.momentum as any);
+
+      // Sync time scales: when main scrolls, MACD follows
+      chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+        if (range && macdChartRef.current) {
+          try { macdChartRef.current.timeScale().setVisibleRange(range); } catch (e) {}
+        }
+      });
+      macdChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+        if (range && chartRef.current) {
+          try { chartRef.current.timeScale().setVisibleRange(range); } catch (e) {}
+        }
+      });
+
+      // Sync fit
+      setTimeout(() => {
+        if (macdChartRef.current) {
+          try { macdChart.timeScale().fitContent(); } catch (e) {}
+        }
+      }, 120);
+    }
+
+    // ── RESIZE ────────────────────────────────────────────────────────────
     const handleResize = () => {
       try {
         if (chartContainerRef.current && chartRef.current) {
-          chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-          });
+          chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
         }
-      } catch (e) {
-        console.warn('Error resizing chart:', e);
-      }
+        if (macdContainerRef.current && macdChartRef.current) {
+          macdChartRef.current.applyOptions({ width: macdContainerRef.current.clientWidth });
+        }
+      } catch (e) {}
     };
-
-    // Use a reference to track if component is mounted
-    let isMounted = true;
-
     window.addEventListener('resize', handleResize);
 
     return () => {
-      isMounted = false;
       clearTimeout(timeoutId);
       window.removeEventListener('resize', handleResize);
-
-      // Improved cleanup with error handling
       if (chartRef.current) {
-        try {
-          chartRef.current.remove();
-        } catch (e) {
-          console.warn('Error disposing chart:', e);
-        } finally {
-          chartRef.current = null;
-        }
+        try { chartRef.current.remove(); } catch (e) {}
+        chartRef.current = null;
+      }
+      if (macdChartRef.current) {
+        try { macdChartRef.current.remove(); } catch (e) {}
+        macdChartRef.current = null;
       }
     };
   }, [data, chartType, showIndicators]);
