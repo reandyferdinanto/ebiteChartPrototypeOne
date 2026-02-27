@@ -281,10 +281,24 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
         } else if (showIndicators.signals) {
           allMarkers.push(...calculatedIndicators.vsaMarkers);
         }
+
+        // Always include Breakout Volume Delta markers when signals are active
+        // These show 🚀BR (real breakout), ⚠️UT (fake / upthrust), 📉BD, 🌱SP (spring)
+        if (showIndicators.signals || showIndicators.vsa) {
+          allMarkers.push(...calculatedIndicators.breakoutDeltaMarkers);
+        }
+
         if (allMarkers.length > 0) {
-          const markerMap = new Map();
+          // Deduplicate by time (keep most informative marker — BVD priority for breakout bars)
+          const markerMap = new Map<string, typeof allMarkers[0]>();
+          // First pass: add VSA/candle power markers
           allMarkers.forEach(marker => {
-            if (!markerMap.has(marker.time.toString())) markerMap.set(marker.time.toString(), marker);
+            const key = marker.time.toString();
+            if (!markerMap.has(key)) markerMap.set(key, marker);
+          });
+          // Second pass: BVD markers override on breakout bars (more specific info)
+          calculatedIndicators.breakoutDeltaMarkers.forEach(marker => {
+            markerMap.set(marker.time.toString(), marker);
           });
           const uniqueMarkers = Array.from(markerMap.values()).sort((a, b) => a.time - b.time);
           candlestickSeries.setMarkers(uniqueMarkers as any);
@@ -814,6 +828,40 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 )}
               </div>
 
+              {/* ── Row 1b: Breakout Volume Delta ───────────────────────── */}
+              {indicators.latestBreakoutDelta && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Direction badge */}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                    indicators.latestBreakoutDelta.isFakeBreakout
+                      ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                      : indicators.latestBreakoutDelta.isRealBreakout
+                      ? 'bg-green-500/20 text-green-300 border-green-500/40'
+                      : 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40'
+                  }`}>
+                    {indicators.latestBreakoutDelta.isFakeBreakout
+                      ? (indicators.latestBreakoutDelta.direction === 'bull' ? '⚠️ FAKE BR (Upthrust)' : '🌱 FAKE BD (Spring)')
+                      : indicators.latestBreakoutDelta.isRealBreakout
+                      ? (indicators.latestBreakoutDelta.direction === 'bull' ? '🚀 REAL BREAKOUT' : '📉 REAL BREAKDOWN')
+                      : '🔶 BREAKOUT (Lemah)'}
+                  </span>
+                  {/* Volume delta bar */}
+                  <span className="text-xs text-gray-400 flex items-center gap-1">
+                    <span className="text-green-400 font-mono">Bull {indicators.latestBreakoutDelta.bullPct}%</span>
+                    <span className="text-gray-600">|</span>
+                    <span className="text-red-400 font-mono">Bear {indicators.latestBreakoutDelta.bearPct}%</span>
+                  </span>
+                  {/* Mini visual bar */}
+                  <div className="flex-1 max-w-[80px] h-2 rounded-full overflow-hidden bg-gray-700 hidden sm:flex">
+                    <div
+                      className="h-full bg-green-500 transition-all"
+                      style={{ width: `${indicators.latestBreakoutDelta.bullPct}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500">@ {indicators.latestBreakoutDelta.level.toLocaleString('id-ID')}</span>
+                </div>
+              )}
+
               {/* ── Row 2: Candle Power + Next Candle ────────────────────── */}
               {showIndicators.candlePower && indicators.signals.cppScore !== undefined && (
                 <div className="flex flex-wrap gap-2 items-center">
@@ -865,6 +913,10 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                   ['PIVOT', 'text-amber-300',  'VCP Pivot — breakout optimal (RMV≤15)'],
                   ['CPP',   'text-gray-300',   'Cumulative Power Prediction'],
                   ['EVR',   'text-gray-300',   'Effort vs Result anomaly'],
+                  ['🚀BR',  'text-green-300',  'Real Breakout — bull vol dominan (≥55%)'],
+                  ['⚠️UT',  'text-red-300',    'Fake Breakout / Upthrust — bear vol dominan'],
+                  ['📉BD',  'text-red-400',    'Real Breakdown — bear vol dominan'],
+                  ['🌱SP',  'text-green-400',  'Fake Breakdown / Spring — bull vol dominan'],
                 ] as [string, string, string][])
                 ).map(([abbr, color, desc]) => (
                   <span key={abbr} className="text-xs flex items-center gap-1">
@@ -876,40 +928,85 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
 
               {/* ── Row 4: KESIMPULAN ─────────────────────────────────────── */}
               {(() => {
-                const bias   = indicators.signals.cppBias;
-                const cpp    = indicators.signals.cppScore ?? 0;
-                const evr    = indicators.signals.evrScore ?? 0;
-                const vsa    = indicators.signals.bandar ?? '';
-                const wyckoff= indicators.signals.wyckoffPhase ?? '';
-                const vcp    = indicators.signals.vcpStatus ?? '';
+                const bias    = indicators.signals.cppBias;
+                const cpp     = indicators.signals.cppScore ?? 0;
+                const evr     = indicators.signals.evrScore ?? 0;
+                const vsa     = indicators.signals.bandar ?? '';
+                const wyckoff = indicators.signals.wyckoffPhase ?? '';
+                const vcp     = indicators.signals.vcpStatus ?? '';
+                const bvd     = indicators.latestBreakoutDelta;
 
-                const isHAKA     = vsa.includes('HAKA');
-                const isVSABull  = isHAKA || vsa.includes('🟢') || /NS|SC|SV|SOS|Iceberg|Dry Up/i.test(vsa);
-                const isVSABear  = vsa.includes('🔴') || /BC|UT|Distribusi|ABS/i.test(vsa);
-                const isWyBull   = /ACCUMULATION|MARKUP/.test(wyckoff);
-                const isWyBear   = /DISTRIBUTION|MARKDOWN/.test(wyckoff);
-                const isVCPReady = /PIVOT|BASE/.test(vcp);
+                const isHAKA      = vsa.includes('HAKA');
+                const isVSABull   = isHAKA || vsa.includes('🟢') || /NS|SC|SV|SOS|Iceberg|Dry Up/i.test(vsa);
+                const isVSABear   = vsa.includes('🔴') || /BC|UT|Distribusi|ABS/i.test(vsa);
+                const isWyBull    = /ACCUMULATION|MARKUP/.test(wyckoff);
+                const isWyBear    = /DISTRIBUTION|MARKDOWN/.test(wyckoff);
+                const isVCPReady  = /PIVOT|BASE/.test(vcp);
 
-                const bullScore = (bias === 'BULLISH' ? 2 : 0) + (isVSABull ? 1 : 0) + (isWyBull ? 1 : 0) + (isVCPReady ? 1 : 0) + (evr > 0.3 ? 1 : 0);
-                const bearScore = (bias === 'BEARISH' ? 2 : 0) + (isVSABear ? 1 : 0) + (isWyBear ? 1 : 0);
+                // BVD signals
+                const isBVDFakeBull = bvd?.direction === 'bull' && bvd.isFakeBreakout;   // Upthrust → bearish
+                const isBVDRealBull = bvd?.direction === 'bull' && bvd.isRealBreakout;   // confirmed breakout
+                const isBVDFakeBear = bvd?.direction === 'bear' && bvd.isFakeBreakout;   // Spring → bullish
+                const isBVDRealBear = bvd?.direction === 'bear' && bvd.isRealBreakout;   // confirmed breakdown
+
+                // Score: BVD has high weight (±2) because it directly addresses
+                // the core question "is this breakout real or a trap?"
+                const bullScore = (bias === 'BULLISH' ? 2 : 0)
+                  + (isVSABull ? 1 : 0) + (isWyBull ? 1 : 0) + (isVCPReady ? 1 : 0)
+                  + (evr > 0.3 ? 1 : 0)
+                  + (isBVDRealBull ? 2 : 0)   // confirmed bull breakout +2
+                  + (isBVDFakeBear ? 2 : 0);  // fake breakdown (spring) +2
+
+                const bearScore = (bias === 'BEARISH' ? 2 : 0)
+                  + (isVSABear ? 1 : 0) + (isWyBear ? 1 : 0)
+                  + (isBVDRealBear ? 2 : 0)   // confirmed breakdown +2
+                  + (isBVDFakeBull ? 2 : 0);  // fake breakout (upthrust) +2
+
+                // BVD context string
+                const bvdCtx = isBVDFakeBull
+                  ? ` ⚠️ BVD: Breakout PALSU — bear vol ${bvd!.bearPct}% dominan, kemungkinan besar Upthrust/jebakan! Hindari entry.`
+                  : isBVDRealBull
+                  ? ` 🚀 BVD: Breakout VALID — bull vol ${bvd!.bullPct}% dominan, institusi mendorong harga naik.`
+                  : isBVDFakeBear
+                  ? ` 🌱 BVD: Breakdown PALSU (Spring) — bull vol ${bvd!.bullPct}% dominan di area support, peluang reversal naik!`
+                  : isBVDRealBear
+                  ? ` 📉 BVD: Breakdown VALID — bear vol ${bvd!.bearPct}% dominan, jauhi posisi long.`
+                  : '';
 
                 let icon = '⬜', col = 'bg-gray-700/30 border-gray-600/30 text-gray-300', text = '';
 
-                if (bullScore >= 4) {
+                // Fake breakout overrides everything — strongest warning
+                if (isBVDFakeBull && bearScore >= 2) {
+                  icon = '🚨'; col = 'bg-red-900/40 border-red-500/50 text-red-200';
+                  text = `JEBAKAN BREAKOUT (Upthrust)! Bear vol ${bvd!.bearPct}% mendominasi saat harga tembus resistance — institusi DISTRIBUSI di atas level ini. CPP ${cpp}.${isVSABear ? ' VSA juga konfirmasi distribusi.' : ''} Sangat disarankan TIDAK entry atau segera kurangi posisi.`;
+                // Spring / fake breakdown = strong buy setup
+                } else if (isBVDFakeBear && bullScore >= 2) {
+                  icon = '🌱'; col = 'bg-green-900/40 border-green-500/50 text-green-200';
+                  text = `SPRING terdeteksi! Harga sempat tembus support tapi bull vol ${bvd!.bullPct}% dominan — smart money AKUMULASI di bawah support. CPP ${cpp > 0 ? '+' : ''}${cpp}.${isVSABull ? ' VSA konfirmasi kekuatan.' : ''} Setup reversal naik berkualitas tinggi.`;
+                // Real breakout confirmed
+                } else if (isBVDRealBull && bullScore >= 3) {
                   icon = '🚀'; col = 'bg-green-900/30 border-green-600/30 text-green-200';
-                  text = `Sinyal KUAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp} momentum bullish kuat.${isHAKA ? ' 🔥 HAKA Cooldown: markup agresif sebelumnya dengan sell vol rendah — berpotensi naik lagi!' : ''}${isVCPReady ? ' VCP pivot terbentuk, risiko/reward optimal.' : ''}${isVSABull && !isHAKA ? ' VSA konfirmasi akumulasi institusi.' : ''} Pertimbangkan entry dengan stop di bawah support.`;
+                  text = `Breakout VALID — bull vol ${bvd!.bullPct}% konfirmasi momentum naik. CPP ${cpp > 0 ? '+' : ''}${cpp}.${isHAKA ? ' 🔥 HAKA Cooldown mendukung.' : ''}${isVCPReady ? ' VCP pivot siap.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup aktif.' : 'akumulasi.') : ''} Entry dengan stop di bawah level yang ditembus.`;
+                // Real breakdown
+                } else if (isBVDRealBear && bearScore >= 3) {
+                  icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
+                  text = `Breakdown VALID — bear vol ${bvd!.bearPct}% konfirmasi tekanan jual.${bvdCtx} CPP ${cpp}.${isWyBear ? ' Wyckoff markdown aktif.' : ''} Hindari posisi baru, pertimbangkan cut loss.`;
+                // Standard scoring without BVD
+                } else if (bullScore >= 4) {
+                  icon = '🚀'; col = 'bg-green-900/30 border-green-600/30 text-green-200';
+                  text = `Sinyal KUAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp} momentum bullish kuat.${isHAKA ? ' 🔥 HAKA Cooldown: markup agresif dengan sell vol rendah — berpotensi naik lagi!' : ''}${isVCPReady ? ' VCP pivot terbentuk, risiko/reward optimal.' : ''}${isVSABull && !isHAKA ? ' VSA konfirmasi akumulasi institusi.' : ''}${bvdCtx} Entry dengan stop di bawah support.`;
                 } else if (bullScore >= 2 && bearScore === 0) {
                   icon = '🟢'; col = 'bg-green-900/20 border-green-700/30 text-green-300';
-                  text = `Sinyal MODERAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp}.${isHAKA ? ' 🔥 HAKA Cooldown terdeteksi.' : isVSABull ? ' VSA bullish.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup aktif.' : 'akumulasi.') : ''} Tunggu konfirmasi volume sebelum entry penuh.`;
+                  text = `Sinyal MODERAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp}.${isHAKA ? ' 🔥 HAKA Cooldown.' : isVSABull ? ' VSA bullish.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup.' : 'akumulasi.') : ''}${bvdCtx} Tunggu konfirmasi volume.`;
                 } else if (bearScore >= 4) {
                   icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
-                  text = `Sinyal KUAT JUAL — CPP ${cpp}.${isVSABear ? ' VSA distribusi institusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'markdown aktif.' : 'distribusi.') : ''} Hindari posisi baru, pertimbangkan cut loss.`;
+                  text = `Sinyal KUAT JUAL — CPP ${cpp}.${isVSABear ? ' VSA distribusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'markdown.' : 'distribusi.') : ''}${bvdCtx} Hindari posisi baru, cut loss.`;
                 } else if (bearScore >= 2 && bullScore === 0) {
                   icon = '🟡'; col = 'bg-yellow-900/20 border-yellow-700/30 text-yellow-200';
-                  text = `Sinyal WASPADA — Momentum melemah (CPP ${cpp}).${isVSABear ? ' Ada tanda distribusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'downtrend.' : 'distribusi.') : ''} Kurangi posisi atau pasang trailing stop.`;
+                  text = `Sinyal WASPADA — CPP ${cpp} melemah.${isVSABear ? ' Tanda distribusi.' : ''}${bvdCtx} Kurangi posisi atau trailing stop.`;
                 } else {
                   icon = '⬜'; col = 'bg-gray-700/20 border-gray-600/30 text-gray-300';
-                  text = `Sinyal NETRAL — CPP ${cpp}, supply-demand seimbang.${isVCPReady ? ' VCP base terbentuk, pantau breakout dengan volume.' : ''} Tunggu sinyal tegas sebelum posisi baru.`;
+                  text = `Sinyal NETRAL — CPP ${cpp}, supply-demand seimbang.${isVCPReady ? ' VCP base, pantau breakout+volume.' : ''}${bvdCtx} Tunggu sinyal tegas.`;
                 }
 
                 return (

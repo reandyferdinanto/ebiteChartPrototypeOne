@@ -17,12 +17,28 @@ export interface FibonacciData { f382: MovingAverageData[]; f500: MovingAverageD
 export interface SupportResistanceZone { level: number; top: number; bottom: number; startIndex: number; type: 'support' | 'resistance'; }
 export interface SupportResistanceData { zones: SupportResistanceZone[]; }
 export interface RMVData { time: number; value: number; color: string; }
+
+// ── NEW: Breakout Volume Delta ──────────────────────────────────────────────
+export interface BreakoutDeltaResult {
+  time: number;
+  direction: 'bull' | 'bear';         // upside break vs downside break
+  bullPct: number;                     // 0-100 — buying volume dominance
+  bearPct: number;                     // 0-100 — selling volume dominance
+  totalVol: number;
+  isRealBreakout: boolean;             // bull% ≥ 55% for upside, bear% ≥ 55% for downside
+  isFakeBreakout: boolean;             // opposite dominance ≥ 55%
+  label: string;                       // human-readable label
+  level: number;                       // pivot level that was broken
+}
+
 export interface IndicatorResult {
   ma5: MovingAverageData[]; ma20: MovingAverageData[]; ma50: MovingAverageData[]; ma200: MovingAverageData[];
   momentum: HistogramData[]; awesomeOscillator: HistogramData[]; fibonacci: FibonacciData;
   supportResistance: SupportResistanceData;
   candlePowerMarkers: MarkerData[]; candlePowerAnalysis: string;
   vsaMarkers: MarkerData[]; rmvData: RMVData[];
+  breakoutDeltaMarkers: MarkerData[];
+  latestBreakoutDelta: BreakoutDeltaResult | null;
   signals: { bandar: string; wyckoffPhase: string; vcpStatus: string; evrScore: number; cppScore: number; cppBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; };
 }
 
@@ -726,6 +742,162 @@ export function calculateIntradayScalpMarkers(
 }
 
 // ============================================================================
+// BREAKOUT VOLUME DELTA
+//
+// Ported from PineScript "Breakout Volume Delta | Flux Charts"
+// Detects swing H/L pivots, then when price breaks through one, measures:
+//   bullPct = buying volume share at the breakout candle
+//   bearPct = selling volume share
+//
+// REAL breakout  (upside): bullPct ≥ 55% — buyers dominate → trend likely to continue
+// FAKE breakout  (upside): bearPct ≥ 55% — sellers dominate → Upthrust / trap likely
+// REAL breakdown (bear):   bearPct ≥ 55% — sellers dominate → trend likely to continue
+// FAKE breakdown (bear):   bullPct ≥ 55% — buyers dominate → Spring / shakeout
+//
+// Volume split proxy (no LTF data available):
+//   Bull Vol at bar = volume if close > open, else volume × closePos
+//   Bear Vol at bar = volume if close < open, else volume × (1 - closePos)
+//
+// This is added on top of existing VSA markers without replacing them.
+// ============================================================================
+export function detectBreakoutVolumeDelta(
+  data: ChartData[],
+  pivotLeft = 7,
+  pivotRight = 7,
+  maxLevels = 5,
+  brVolFilter = false,
+  brVolPct = 55,
+): { markers: MarkerData[]; breakouts: BreakoutDeltaResult[]; latestBreakout: BreakoutDeltaResult | null } {
+  const markers: MarkerData[] = [];
+  const breakouts: BreakoutDeltaResult[] = [];
+  let latestBreakout: BreakoutDeltaResult | null = null;
+  const N = data.length;
+  if (N < pivotLeft + pivotRight + 20) return { markers, breakouts, latestBreakout };
+
+  // ── 1. Detect swing pivots ────────────────────────────────────────────────
+  interface Pivot { value: number; index: number; mitigated: boolean; }
+  const pivotsHi: Pivot[] = [];
+  const pivotsLo: Pivot[] = [];
+
+  for (let i = pivotLeft; i < N - pivotRight; i++) {
+    let isH = true, isL = true;
+    for (let j = i - pivotLeft; j <= i + pivotRight; j++) {
+      if (j === i) continue;
+      if (data[j].high >= data[i].high) isH = false;
+      if (data[j].low  <= data[i].low)  isL = false;
+    }
+    if (isH) pivotsHi.push({ value: data[i].high, index: i, mitigated: false });
+    if (isL) pivotsLo.push({ value: data[i].low,  index: i, mitigated: false });
+  }
+
+  // Keep only the most recent `maxLevels` on each side
+  const activeHi = pivotsHi.slice(-maxLevels);
+  const activeLo = pivotsLo.slice(-maxLevels);
+
+  // ── 2. Helper: estimate bull/bear volume split for a single candle ────────
+  // Since we don't have lower-timeframe bars, we proxy with close position:
+  //   If close > open  → mostly buying:  bullV = vol, bearV = 0
+  //   If close < open  → mostly selling: bullV = 0,  bearV = vol
+  //   Doji / small body → split proportionally by close position
+  function splitVolume(bar: ChartData): { bullV: number; bearV: number } {
+    const vol  = bar.volume || 0;
+    const rng  = bar.high - bar.low;
+    const cPos = rng > 0 ? (bar.close - bar.low) / rng : 0.5;
+    if (bar.close > bar.open) return { bullV: vol,       bearV: 0 };
+    if (bar.close < bar.open) return { bullV: 0,         bearV: vol };
+    // Doji: split by close position
+    return { bullV: vol * cPos, bearV: vol * (1 - cPos) };
+  }
+
+  // ── 3. Check each bar for breakouts of unmitigated pivots ─────────────────
+  for (let i = pivotRight + pivotLeft; i < N; i++) {
+    const bar = data[i];
+    const { bullV, bearV } = splitVolume(bar);
+    const totalV = bullV + bearV;
+    const bullPct = totalV > 0 ? (bullV / totalV) * 100 : 50;
+    const bearPct = 100 - bullPct;
+    const brVolThr = brVolFilter ? brVolPct : 0; // 0 = always pass filter
+
+    // ── Upside breakout (resistance break) ──
+    for (const pivot of activeHi) {
+      if (pivot.mitigated) continue;
+      if (pivot.index >= i) continue; // pivot must be before breakout bar
+
+      const broke = bar.close > pivot.value; // break by close
+      if (!broke) continue;
+
+      // Volume filter: only count if dominant side meets threshold
+      const volOk = !brVolFilter || bullPct >= brVolThr;
+      if (!volOk) { pivot.mitigated = true; continue; }
+
+      pivot.mitigated = true; // consume this level
+
+      const isReal = bullPct >= 55;
+      const isFake = bearPct >= 55;
+      const label  = isReal
+        ? `🚀 REAL BR ↑ Bull:${Math.round(bullPct)}%`
+        : isFake
+        ? `⚠️ FAKE BR ↑ Bear:${Math.round(bearPct)}% (Upthrust!)`
+        : `🔶 BREAK ↑ Bull:${Math.round(bullPct)}%`;
+
+      const color  = isReal ? '#00b894' : isFake ? '#e74c3c' : '#fdcb6e';
+      const pos: 'aboveBar' | 'belowBar' = isFake ? 'aboveBar' : 'belowBar';
+      const shape: 'arrowUp' | 'arrowDown' = isFake ? 'arrowDown' : 'arrowUp';
+
+      markers.push({ time: bar.time, position: pos, color, shape, text: isFake ? '⚠️UT' : '🚀BR' });
+
+      const result: BreakoutDeltaResult = {
+        time: bar.time, direction: 'bull',
+        bullPct: Math.round(bullPct), bearPct: Math.round(bearPct),
+        totalVol: totalV, isRealBreakout: isReal, isFakeBreakout: isFake,
+        label, level: pivot.value,
+      };
+      breakouts.push(result);
+      if (i >= N - 5) latestBreakout = result;
+    }
+
+    // ── Downside breakdown (support break) ──
+    for (const pivot of activeLo) {
+      if (pivot.mitigated) continue;
+      if (pivot.index >= i) continue;
+
+      const broke = bar.close < pivot.value; // break by close
+      if (!broke) continue;
+
+      const volOk = !brVolFilter || bearPct >= brVolThr;
+      if (!volOk) { pivot.mitigated = true; continue; }
+
+      pivot.mitigated = true;
+
+      const isReal = bearPct >= 55;
+      const isFake = bullPct >= 55;
+      const label  = isReal
+        ? `📉 REAL BD ↓ Bear:${Math.round(bearPct)}%`
+        : isFake
+        ? `🌱 FAKE BD ↓ Bull:${Math.round(bullPct)}% (Spring!)`
+        : `🔶 BREAK ↓ Bear:${Math.round(bearPct)}%`;
+
+      const color  = isReal ? '#d63031' : isFake ? '#00b894' : '#fdcb6e';
+      const pos: 'aboveBar' | 'belowBar' = isFake ? 'belowBar' : 'aboveBar';
+      const shape: 'arrowUp' | 'arrowDown' = isFake ? 'arrowUp' : 'arrowDown';
+
+      markers.push({ time: bar.time, position: pos, color, shape, text: isFake ? '🌱SP' : '📉BD' });
+
+      const result: BreakoutDeltaResult = {
+        time: bar.time, direction: 'bear',
+        bullPct: Math.round(bullPct), bearPct: Math.round(bearPct),
+        totalVol: totalV, isRealBreakout: isReal, isFakeBreakout: isFake,
+        label, level: pivot.value,
+      };
+      breakouts.push(result);
+      if (i >= N - 5) latestBreakout = result;
+    }
+  }
+
+  return { markers, breakouts, latestBreakout };
+}
+
+// ============================================================================
 // SUPPORT & RESISTANCE ZONES (Pivot-based + ATR zones)
 // ============================================================================
 export function calculateSupportResistance(
@@ -765,10 +937,13 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
   const supportResistance = calculateSupportResistance(data);
   const vsaResult = detectVSA(data);
   const cpResult = calculateCandlePower(data);
+  const bvdResult = detectBreakoutVolumeDelta(data);
   return {
     ma5, ma20, ma50, ma200, momentum, awesomeOscillator, fibonacci, supportResistance,
     candlePowerMarkers: cpResult.markers, candlePowerAnalysis: cpResult.analysis,
     vsaMarkers: vsaResult.markers, rmvData: vsaResult.rmvData,
+    breakoutDeltaMarkers: bvdResult.markers,
+    latestBreakoutDelta: bvdResult.latestBreakout,
     signals: {
       bandar: vsaResult.signal, wyckoffPhase: vsaResult.wyckoffPhase,
       vcpStatus: vsaResult.vcpStatus, evrScore: vsaResult.evrScore,
