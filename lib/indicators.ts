@@ -536,6 +536,74 @@ export function detectVSA(data: ChartData[]): {
       }
     }
 
+    // ── HAKA COOLDOWN DETECTION ──────────────────────────────────────────────
+    // Aggressive markup candle followed by healthy cooldown bars with low sell vol
+    if (i >= N - 20) {
+      // Find the most recent HAKA candle within last 15 bars before i
+      let hakaIdx = -1;
+      let hakaVolRatio = 0;
+      const curAvgVol = avgVol;
+      for (let k = Math.max(0, i - 15); k < i - 1; k++) {
+        const sp_k = data[k].high - data[k].low;
+        const body_k = Math.abs(data[k].close - data[k].open);
+        const vr_k = (data[k].volume || 0) / (curAvgVol || 1);
+        const bp_k = sp_k > 0 ? (data[k].close - data[k].low) / sp_k : 0;
+        // HAKA = aggressive green breakout candle: high vol, large body, closes near top
+        if (data[k].close > data[k].open && vr_k > 1.8 && body_k > sp_k * 0.55 && bp_k > 0.65 && vr_k > hakaVolRatio) {
+          hakaIdx = k;
+          hakaVolRatio = vr_k;
+        }
+      }
+
+      if (hakaIdx >= 0) {
+        const cooldownLen = i - hakaIdx;
+        if (cooldownLen >= 2 && cooldownLen <= 8) {
+          // Check cooldown bars: sell volume < 40% of total
+          let cdSell = 0, cdTotal = 0;
+          for (let k = hakaIdx + 1; k <= i; k++) {
+            if (data[k].close < data[k].open) cdSell += (data[k].volume || 0);
+            cdTotal += (data[k].volume || 0);
+          }
+          const sellRatio = cdTotal > 0 ? cdSell / cdTotal : 0;
+
+          // MA20 check
+          let ma20sum = 0;
+          for (let k = i - 19; k <= i; k++) ma20sum += data[k].close;
+          const ma20cur = ma20sum / 20;
+
+          // Pullback < 5% from HAKA close
+          const pullback = (data[hakaIdx].close - cur.close) / data[hakaIdx].close * 100;
+
+          // Accumulation ratio current
+          let bvC = 0, svC = 0;
+          for (let k = Math.max(0, i - 9); k <= i; k++) {
+            if (data[k].close > data[k].open) bvC += (data[k].volume || 0);
+            else if (data[k].close < data[k].open) svC += (data[k].volume || 0);
+          }
+          const accCur = bvC / (svC || 1);
+
+          const isHakaReady =
+            sellRatio < 0.40 &&
+            pullback < 5 &&
+            cur.close > ma20cur &&
+            accCur > 0.9;
+
+          if (isHakaReady && !markers.find(m => m.time === cur.time)) {
+            markers.push({
+              time: cur.time,
+              position: 'belowBar',
+              color: '#fd7e14',
+              shape: 'arrowUp',
+              text: `🔥 HAKA`
+            });
+            if (i >= N - 3) {
+              latestSignal = `🔥 HAKA COOLDOWN (${cooldownLen}b, sell:${Math.round(sellRatio * 100)}%) — Ready to Markup!`;
+            }
+          }
+        }
+      }
+    }
+
     // ── RMV HISTOGRAM ────────────────────────────────────────────────────────
     if (i >= 20) {
       const rmv = calculateRMV(atr5, i, 20);

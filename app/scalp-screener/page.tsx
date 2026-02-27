@@ -20,6 +20,9 @@ interface ScalpResult {
   cppBias?: string;
   wyckoff?: string;
   rmv?: number;
+  isHakaReady?: boolean;
+  cooldownBars?: number;
+  hakaClose?: number;
 }
 
 // All Indonesian stocks from IDX
@@ -219,7 +222,7 @@ export default function ScalpScreener() {
         const analysis = analyzeScalpingOpportunity(histData.data);
 
         if (analysis.entry) {
-          console.log(`? ${ticker}: ${analysis.signal} (Power: ${analysis.candlePower}, Mom: ${analysis.momentum}%)`);
+          console.log(`✅ ${ticker}: ${analysis.signal} (Power: ${analysis.candlePower}, Mom: ${analysis.momentum}%)`);
           newResults.push({
             symbol: ticker,
             price: quoteData.price,
@@ -237,6 +240,9 @@ export default function ScalpScreener() {
             cppBias: analysis.cppBias,
             wyckoff: analysis.wyckoff,
             rmv: analysis.rmv,
+            isHakaReady: analysis.isHakaReady,
+            cooldownBars: analysis.cooldownBars,
+            hakaClose: analysis.hakaClose,
           });
 
           // Sort and update in real-time
@@ -395,6 +401,56 @@ export default function ScalpScreener() {
     const wyckoff = inUptrend ? 'MARKUP' : inDowntrend ? 'MARKDOWN'
                   : curClose > ma20 * 0.95 ? 'ACCUMULATION' : 'DISTRIBUTION';
 
+    // ── HAKA COOLDOWN DETECTION ─────────────────────────────────────────
+    // Identify: prior aggressive markup candle (HAKA) → then cooldown bars
+    // with LOW sell volume → next candle likely to resume markup
+    //
+    // Conditions:
+    //   1. Within last 15 bars: at least one HAKA candle (vol > 2x, green, body > 60% range, close > MA20)
+    //   2. After that HAKA: 2-5 cooldown bars with avg vol < 80% of HAKA vol, accRatio > 0.8
+    //   3. Current price still above MA20 (trend intact)
+    //   4. CPP score is not bearish (no heavy selling)
+    //   5. Momentum has not reversed below -2% (still positive or mild pullback)
+
+    let hakaIndex = -1;
+    let hakaVol = 0;
+    for (let k = Math.max(0, i - 15); k < i - 1; k++) {
+      const sp_k = highs[k] - lows[k];
+      const body_k = Math.abs(closes[k] - opens[k]);
+      const vr_k = volumes[k] / (volAvg20 || 1);
+      const bp_k = sp_k > 0 ? (closes[k] - lows[k]) / sp_k : 0;
+      const ma20_k = calcSMA(closes, 20, k);
+      const isHAKA = closes[k] > opens[k] && vr_k > 1.8 && body_k > sp_k * 0.55 && bp_k > 0.65 && closes[k] > ma20_k;
+      if (isHAKA && vr_k > hakaVol) { hakaIndex = k; hakaVol = vr_k; }
+    }
+
+    const cooldownBars = hakaIndex >= 0 ? i - hakaIndex : 0;
+    const isHakaCooldown =
+      hakaIndex >= 0 &&
+      cooldownBars >= 2 &&
+      cooldownBars <= 8 &&
+      curClose > ma20 &&      // Still above MA20 (uptrend intact)
+      cppBias !== 'BEARISH';  // CPP not showing sell pressure
+
+    // Verify cooldown bars have low sell volume
+    let cooldownSellVol = 0, cooldownTotalVol = 0;
+    if (isHakaCooldown) {
+      for (let k = hakaIndex + 1; k <= i; k++) {
+        if (closes[k] < opens[k]) cooldownSellVol += volumes[k];
+        cooldownTotalVol += volumes[k];
+      }
+    }
+    // Sell pressure in cooldown < 40% = healthy consolidation
+    const cooldownSellRatio = cooldownTotalVol > 0 ? cooldownSellVol / cooldownTotalVol : 0;
+    const isHealthyCooldown = isHakaCooldown && cooldownSellRatio < 0.40;
+
+    // Price hasn't pulled back more than 5% from HAKA close
+    const hakaClose = hakaIndex >= 0 ? closes[hakaIndex] : curClose;
+    const pullbackPct = hakaIndex >= 0 ? (hakaClose - curClose) / hakaClose * 100 : 0;
+    const isShallowPullback = pullbackPct < 5;
+
+    const isHakaReady = isHealthyCooldown && isShallowPullback && accRatio > 0.9;
+
     // ── Scalp Signal Priority (bearish signals → skip, bullish → show) ──
     // REJECT bearish immediately
     const isBearish = isUpthrust || isNoDemand ||
@@ -402,8 +458,10 @@ export default function ScalpScreener() {
       (volRatio > 2 && upperWick / (spread || 1) > 0.5);     // Shooting star
     if (isBearish) return { entry: null };
 
+    // HAKA Cooldown = highest priority (aggressive markup → healthy pause → ready to go again)
     // Sniper = VCP pivot + dry up + above MA + CPP bullish
-    const isSniper = (isVCPPivot || (isVCP && isDryUp)) && curClose > ma20 && accRatio > 1.0 && cppBias !== 'BEARISH';
+    const isSniper = isHakaReady ||
+      ((isVCPPivot || (isVCP && isDryUp)) && curClose > ma20 && accRatio > 1.0 && cppBias !== 'BEARISH');
     // Breakout = strong green candle on high volume above MA
     const isBreakout = isGreen && volRatio > 2.0 && closePos > 0.75 && curClose > ma20 && cppBias === 'BULLISH';
     // Watch = dry up, iceberg, no supply, selling climax
@@ -420,7 +478,8 @@ export default function ScalpScreener() {
 
     // Signal label
     let signal: string;
-    if (isSniper)             signal = isVCPPivot ? '🎯 SCALP SNIPER (VCP Pivot)' : '🎯 SCALP SNIPER';
+    if (isHakaReady)          signal = `🔥 HAKA COOLDOWN (${cooldownBars}b, sell:${Math.round(cooldownSellRatio * 100)}%)`;
+    else if (isSniper)        signal = isVCPPivot ? '🎯 SCALP SNIPER (VCP Pivot)' : '🎯 SCALP SNIPER';
     else if (isBreakout)      signal = '⚡ SCALP BREAKOUT';
     else if (isSellingClimax) signal = '🟢 Selling Climax (SC)';
     else if (isNoSupply)      signal = '🟢 No Supply (NS)';
@@ -448,6 +507,9 @@ export default function ScalpScreener() {
       cppBias,
       wyckoff,
       rmv: Math.round(rmv),
+      isHakaReady,
+      cooldownBars,
+      hakaClose,
       reason,
     };
   };
@@ -664,22 +726,22 @@ export default function ScalpScreener() {
             Signal Guide — Wyckoff + VSA + CPP
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div className="backdrop-blur-md bg-orange-500/10 border border-orange-500/30 p-3 rounded-xl">
+              <div className="font-bold text-orange-300 mb-1">🔥 HAKA COOLDOWN</div>
+              <div className="text-gray-300 text-xs">
+                Prior aggressive markup candle (Vol &gt;1.8x, green, body &gt;55%) then 2-8 cooldown bars with sell volume &lt;40%. Still above MA20. Ready to resume markup!
+              </div>
+            </div>
             <div className="backdrop-blur-md bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-xl">
               <div className="font-bold text-yellow-400 mb-1">🎯 SCALP SNIPER</div>
               <div className="text-gray-300 text-xs">
-                VCP Pivot (RMV≤20) + Dry Up + above MA20 + CPP Bullish. Wyckoff No Supply near support. Highest probability intraday entry.
+                VCP Pivot (RMV≤20) + Dry Up + above MA20 + CPP bullish. Wyckoff No Supply near support. Highest probability intraday entry.
               </div>
             </div>
             <div className="backdrop-blur-md bg-green-500/10 border border-green-500/20 p-3 rounded-xl">
               <div className="font-bold text-green-400 mb-1">⚡ SCALP BREAKOUT</div>
               <div className="text-gray-300 text-xs">
                 High volume breakout (Vol &gt;2x) + green body &gt;75% + above MA20 + CPP Bullish. Wyckoff Sign of Strength. Momentum entry.
-              </div>
-            </div>
-            <div className="backdrop-blur-md bg-cyan-500/10 border border-cyan-500/20 p-3 rounded-xl">
-              <div className="font-bold text-cyan-400 mb-1">👀 WATCH</div>
-              <div className="text-gray-300 text-xs">
-                NS (No Supply), SC (Selling Climax), Hammer at MA, Iceberg, Dry Up. Wyckoff accumulation signals. Monitor for confirmation.
               </div>
             </div>
           </div>
@@ -723,7 +785,14 @@ export default function ScalpScreener() {
                   {filteredResults.map((r, idx) => (
                     <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition">
                       <td className="py-3 px-3 font-bold text-white">
-                        <div>{r.symbol}</div>
+                        <div className="flex items-center gap-2">
+                          {r.isHakaReady && (
+                            <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30 animate-pulse">
+                              🔥 HAKA
+                            </span>
+                          )}
+                          {r.symbol}
+                        </div>
                         <div className="text-xs text-gray-400 sm:hidden">{r.signal}</div>
                       </td>
                       <td className="py-3 px-3 text-right text-white">
@@ -783,7 +852,7 @@ export default function ScalpScreener() {
                       </td>
                       <td className="py-3 px-3 text-center">
                         <Link
-                          href={`/?symbol=${r.symbol}&interval=${r.timeframe}`}
+                          href={`/?symbol=${r.symbol}&interval=${r.timeframe}&scalpSignal=${encodeURIComponent(r.entry || '')}&scalpLabel=${encodeURIComponent(r.signal)}`}
                           className="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition"
                         >
                           View

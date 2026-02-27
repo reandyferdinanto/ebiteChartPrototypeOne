@@ -23,18 +23,33 @@ export default function StockChart({ data }: StockChartProps) {
   const chartRef = useRef<any>(null);
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick');
   const [showControls, setShowControls] = useState(true);
+  // scalpSignal: populated when chart is opened from scalp screener
+  const [scalpSignal, setScalpSignal] = useState<{ type: string; label: string } | null>(null);
   const [showIndicators, setShowIndicators] = useState({
-    ma: true,       // Keep MA20/50 for trend
-    momentum: true, // MACD enabled by default
+    ma: true,
+    momentum: true,
     ao: false,
     fibonacci: false,
-    vsa: false,     // Disabled by default
-    vcp: false,     // Disabled by default
-    candlePower: false, // User must explicitly enable
-    sr: true,       // Support/Resistance enabled by default
-    signals: true   // Always show signals panel
+    vsa: false,
+    vcp: false,
+    candlePower: false,
+    sr: true,
+    signals: true
   });
   const [indicators, setIndicators] = useState<IndicatorResult | null>(null);
+
+  // Read scalpSignal from URL params when chart mounts
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const sig  = params.get('scalpSignal');
+    const lbl  = params.get('scalpLabel');
+    if (sig && lbl) {
+      setScalpSignal({ type: sig, label: decodeURIComponent(lbl) });
+      // Auto-enable VSA mode so user sees the markers immediately
+      setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, candlePower: false, signals: true }));
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   // Quick preset modes - Reorganized for better UX
@@ -843,10 +858,10 @@ export default function StockChart({ data }: StockChartProps) {
 
                 if (bullScore >= 4) {
                   icon = '🚀'; col = 'bg-green-900/30 border-green-600/30 text-green-200';
-                  text = `Sinyal KUAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp} momentum bullish kuat.${isVCPReady ? ' VCP pivot terbentuk, risiko/reward optimal.' : ''}${isVSABull ? ' VSA konfirmasi akumulasi institusi.' : ''} Pertimbangkan entry dengan stop di bawah support.`;
+                  text = `Sinyal KUAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp} momentum bullish kuat.${isHAKA ? ' 🔥 HAKA Cooldown: markup agresif sebelumnya dengan sell vol rendah — berpotensi naik lagi!' : ''}${isVCPReady ? ' VCP pivot terbentuk, risiko/reward optimal.' : ''}${isVSABull && !isHAKA ? ' VSA konfirmasi akumulasi institusi.' : ''} Pertimbangkan entry dengan stop di bawah support.`;
                 } else if (bullScore >= 2 && bearScore === 0) {
                   icon = '🟢'; col = 'bg-green-900/20 border-green-700/30 text-green-300';
-                  text = `Sinyal MODERAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp}.${isVSABull ? ' VSA bullish.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup aktif.' : 'akumulasi.') : ''} Tunggu konfirmasi volume sebelum entry penuh.`;
+                  text = `Sinyal MODERAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp}.${isHAKA ? ' 🔥 HAKA Cooldown terdeteksi.' : isVSABull ? ' VSA bullish.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup aktif.' : 'akumulasi.') : ''} Tunggu konfirmasi volume sebelum entry penuh.`;
                 } else if (bearScore >= 4) {
                   icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
                   text = `Sinyal KUAT JUAL — CPP ${cpp}.${isVSABear ? ' VSA distribusi institusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'markdown aktif.' : 'distribusi.') : ''} Hindari posisi baru, pertimbangkan cut loss.`;
