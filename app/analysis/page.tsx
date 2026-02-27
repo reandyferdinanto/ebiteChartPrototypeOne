@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -822,11 +823,26 @@ function ResultCard({ r }: { r: AnalysisResult }) {
 
 // ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 export default function AnalysisPage() {
+  const searchParams   = useSearchParams();
   const [ticker, setTicker]     = useState('');
   const [loading, setLoading]   = useState(false);
   const [result, setResult]     = useState<AnalysisResult | null>(null);
   const [error, setError]       = useState('');
   const [history, setHistory]   = useState<AnalysisResult[]>([]);
+  const didAutoRun = useRef(false);
+
+  // Auto-run analysis when ?symbol= param is present (e.g. from screener "Deep Analysis" button)
+  useEffect(() => {
+    if (didAutoRun.current) return;
+    const sym = searchParams.get('symbol');
+    if (sym) {
+      didAutoRun.current = true;
+      const clean = sym.trim().toUpperCase().replace(/\.JK$/i, '');
+      setTicker(clean);
+      analyze(clean);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const analyze = async (sym?: string) => {
     const raw = (sym || ticker).trim().toUpperCase();

@@ -210,9 +210,9 @@ export default function Home() {
       <div className="max-w-7xl mx-auto p-2 md:p-4 space-y-2">
 
         {/* ── Search + Timeframe Bar ────────────────────────────────────────── */}
-        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl p-2.5 shadow-2xl">
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl p-2.5 shadow-2xl space-y-2">
 
-          {/* Row 1: search input + search button + timeframe pills */}
+          {/* Row 1: search input + search button (full width on mobile) */}
           <form onSubmit={handleSearch} className="flex items-center gap-2">
             {/* Input */}
             <div className="relative flex-1 min-w-0">
@@ -223,8 +223,9 @@ export default function Home() {
                 type="text"
                 value={inputSymbol}
                 onChange={(e) => setInputSymbol(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch(e as any)}
                 placeholder="Ticker (BBCA, TLKM…)"
-                className="w-full pl-9 pr-2 py-2 backdrop-blur-md bg-black/30 border border-white/15 rounded-xl text-white placeholder:text-gray-600 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none transition"
+                className="w-full pl-9 pr-2 py-2.5 backdrop-blur-md bg-black/30 border border-white/15 rounded-xl text-white placeholder:text-gray-600 text-sm focus:ring-2 focus:ring-blue-500/50 focus:outline-none transition"
               />
             </div>
 
@@ -232,48 +233,48 @@ export default function Home() {
             <button
               type="submit"
               disabled={!inputSymbol.trim() || loading}
-              className={`flex-shrink-0 px-3 py-2 rounded-xl font-semibold transition text-sm flex items-center gap-1.5 shadow-md ${
+              className={`flex-shrink-0 px-3 py-2.5 rounded-xl font-semibold transition text-sm flex items-center gap-1.5 shadow-md ${
                 !inputSymbol.trim() || loading
                   ? 'bg-gray-500/20 text-gray-500 cursor-not-allowed border border-gray-500/20'
                   : 'bg-blue-500/30 hover:bg-blue-500/40 text-white border border-blue-500/30'
               }`}
             >
               {loading ? <IconSpin /> : <IconSearch />}
-              <span className="hidden md:inline">{loading ? 'Loading…' : 'Search'}</span>
+              <span className="hidden sm:inline">{loading ? 'Loading…' : 'Search'}</span>
             </button>
-
-            {/* Timeframe pills — compact, always visible */}
-            <div className="flex items-center gap-0.5 bg-white/5 border border-white/10 rounded-xl p-0.5 flex-shrink-0">
-              <span className="px-1 text-gray-500 hidden sm:block">
-                <IconClock />
-              </span>
-              {TIMEFRAMES.map((tf) => {
-                const isActive = timeframe === tf.value;
-                const isIntra  = tf.group === 'intra';
-                return (
-                  <button
-                    key={tf.value}
-                    type="button"
-                    onClick={() => handleTF(tf.value)}
-                    disabled={loading}
-                    className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center gap-0.5 ${
-                      isActive
-                        ? isIntra
-                          ? 'bg-emerald-500/30 text-emerald-300 ring-1 ring-emerald-400/40'
-                          : 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-400/40'
-                        : 'text-gray-400 hover:text-white hover:bg-white/10'
-                    } ${loading ? 'opacity-40 pointer-events-none' : ''}`}
-                  >
-                    {isActive && <IconCheck />}
-                    {tf.label}
-                  </button>
-                );
-              })}
-            </div>
           </form>
 
-          {/* Row 2: Quick access chips */}
-          <div className="flex flex-wrap gap-1 mt-2 items-center">
+          {/* Row 2: Timeframe pills — always on their own row so they're never hidden */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-hide">
+            <span className="text-gray-500 flex-shrink-0 mr-0.5">
+              <IconClock />
+            </span>
+            {TIMEFRAMES.map((tf) => {
+              const isActive = timeframe === tf.value;
+              const isIntra  = tf.group === 'intra';
+              return (
+                <button
+                  key={tf.value}
+                  type="button"
+                  onClick={() => handleTF(tf.value)}
+                  disabled={loading}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-0.5 ${
+                    isActive
+                      ? isIntra
+                        ? 'bg-emerald-500/30 text-emerald-300 ring-1 ring-emerald-400/40'
+                        : 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-400/40'
+                      : 'bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                  } ${loading ? 'opacity-40 pointer-events-none' : ''}`}
+                >
+                  {isActive && <IconCheck />}
+                  {tf.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Row 3: Quick access chips */}
+          <div className="flex flex-wrap gap-1 items-center">
             <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide flex items-center gap-1 mr-0.5">
               <IconFilter />
               <span className="hidden sm:inline">Quick</span>

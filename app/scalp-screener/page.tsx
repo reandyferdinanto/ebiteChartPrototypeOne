@@ -190,9 +190,17 @@ function calcRMV(H: number[], L: number[], C: number[], i: number): number {
 }
 
 // ── Core screener: Already ran ≥5% from recent price, now in calmdown ────────
-// MAIN CONDITION: current close must be ≥5% above a close within the last 1–5 bars.
-// This ensures the stock has ALREADY moved. Then we verify it's cooling down
-// with low sell vol and still has power to continue.
+// STRICT RULES:
+//  1. Current close ≥5% above a close within last 1–5 bars (the run already happened)
+//  2. Current close ≥ previous close (not falling today)
+//  3. Momentum10 > 0 (overall 10-day momentum is positive — not a -5% stock)
+//  4. Sell vol < 45% during calmdown (no distribution)
+//  5. Price holds ≥96% of the run peak (max 4% pullback)
+//  6. Above MA20
+//  7. AccRatio ≥ 1.0 (buyers still dominant)
+//  8. CPP not BEARISH
+//  Grading: only SNIPER (confirmed VSA) or WATCH (potential, needs confirmation)
+//  NO "BREAKOUT" label — if vol is low and no MA break, it's not a breakout
 function screenCalmdownAfterMarkup(data: any[]): Omit<CalmdownResult, 'symbol' | 'change' | 'changePercent'> | null {
   const C: number[] = [], O: number[] = [], H: number[] = [], L: number[] = [], V: number[] = [];
   for (const d of data) {
@@ -205,87 +213,106 @@ function screenCalmdownAfterMarkup(data: any[]): Omit<CalmdownResult, 'symbol' |
 
   const i = n - 1;
 
-  const ma20val  = calcSMA(C, 20, i);
-  const ma50val  = calcSMA(C, 50, i);
-  const atr14    = calcATR(H, L, C, 14, i);
-  const rmvVal   = calcRMV(H, L, C, i);
-  const cppRaw   = calcCPP(C, O, H, L, V, i);
-  const cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH' = cppRaw > 0.5 ? 'BULLISH' : cppRaw < -0.5 ? 'BEARISH' : 'NEUTRAL';
-  const cppScore = parseFloat(cppRaw.toFixed(2));
+  const ma20val = calcSMA(C, 20, i);
+  const ma50val = calcSMA(C, 50, i);
+  const atr14   = calcATR(H, L, C, 14, i);
+  const rmvVal  = calcRMV(H, L, C, i);
+  const cppRaw  = calcCPP(C, O, H, L, V, i);
+  const cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH' =
+    cppRaw > 0.5 ? 'BULLISH' : cppRaw < -0.5 ? 'BEARISH' : 'NEUTRAL';
+  const cppScore   = parseFloat(cppRaw.toFixed(2));
   const powerScore = Math.max(0, Math.min(100, Math.round(50 + (cppRaw / 1.5) * 45)));
 
+  // 20-bar averages
   let volSum = 0, spSum = 0;
   for (let k = i - 19; k <= i; k++) { volSum += V[k]; spSum += H[k] - L[k]; }
   const volAvg20 = volSum / 20;
-  const spAvg20  = spSum / 20;
+  const spAvg20  = spSum  / 20;
 
-  let buyVol = 0, sellVol = 0;
+  // 10-bar buy/sell pressure
+  let buyVol = 0, sellVolTen = 0;
   for (let k = i - 9; k <= i; k++) {
     if (C[k] > O[k]) buyVol += V[k];
-    else if (C[k] < O[k]) sellVol += V[k];
+    else if (C[k] < O[k]) sellVolTen += V[k];
   }
-  const accRatio   = buyVol / (sellVol || 1);
+  const accRatio   = buyVol / (sellVolTen || 1);
   const volRatioI  = V[i] / (volAvg20 || 1);
   const momentum10 = ((C[i] - C[i - 10]) / C[i - 10]) * 100;
 
-  // ── STEP 1: Stock must ALREADY be up ≥5% from a close in last 1–5 bars ──
-  // Compare current close to each of the last 1, 2, 3, 4, 5 bars.
-  // Pick the reference that gives the highest valid gain (≥5%).
-  // This is the core gate: if not already up 5%, skip.
-  let baseIdx = -1;
+  // ── GATE 0: Basic direction checks ───────────────────────────────────────
+  // Stock must be positive over 10 days (not a -5% stock sneaking through)
+  if (momentum10 <= 0) return null;
+  // Today's close must be >= yesterday's close (not falling right now)
+  if (C[i] < C[i - 1]) return null;
+  // Must be above MA20 (uptrend structure)
+  if (C[i] < ma20val * 0.99) return null;
+  // AccRatio must show buyers are dominant
+  if (accRatio < 1.0) return null;
+  // CPP must not be bearish
+  if (cppBias === 'BEARISH') return null;
+
+  // ── GATE 1: Stock must be up ≥5% from a RECENT close (last 1–5 bars) ────
+  // Strategy: find the closest bar where the gain from that close is ≥5%.
+  // Use CLOSEST match (smallest lookback first) to ensure recency.
+  // Also: the stock must NOT have given back more than 4% from its run peak.
+  let baseIdx     = -1;
   let gainFromBase = 0;
 
   for (let lookback = 1; lookback <= 5; lookback++) {
     const refIdx = i - lookback;
     if (refIdx < 0) continue;
     const gain = ((C[i] - C[refIdx]) / C[refIdx]) * 100;
-    if (gain >= 5 && gain > gainFromBase) {
+    if (gain >= 5) {
+      // Take the FIRST (most recent) one that qualifies
+      baseIdx      = refIdx;
       gainFromBase = gain;
-      baseIdx = refIdx;
+      break;
     }
   }
 
-  // Hard fail: stock hasn't moved ≥5% from any of last 5 closes
+  // Hard fail: not up ≥5% from any of last 5 closes
   if (baseIdx < 0 || gainFromBase < 5) return null;
 
-  // How many bars since the base (= calmdown window)
+  // Find the HIGH point since baseIdx (peak of the run)
+  let runPeak = C[baseIdx];
+  for (let k = baseIdx + 1; k <= i; k++) {
+    if (H[k] > runPeak) runPeak = H[k];
+  }
+  // Must not have pulled back more than 4% from the run peak
+  const pullbackFromPeak = ((runPeak - C[i]) / runPeak) * 100;
+  if (pullbackFromPeak > 4) return null;
+
+  // How many bars since the base
   const cooldownBars = i - baseIdx;
-  // Same bar (0) means it just ran today. Allow 0–8 bars of calmdown.
   if (cooldownBars > 8) return null;
 
-  // ── STEP 2: Verify healthy calmdown (not distribution) ───────────────────
-  // Measure sell pressure from the bar AFTER baseIdx through current bar
+  // ── GATE 2: Calmdown quality — no distribution ───────────────────────────
+  // Measure sell pressure in bars AFTER the base bar
   let cdSellVol = 0, cdTotalVol = 0, cdSpreadSum = 0;
-  // If cooldown is 0 (run happened today), measure the current bar only
-  for (let k = Math.min(baseIdx + 1, i); k <= i; k++) {
+  const cdStart = baseIdx + 1 <= i ? baseIdx + 1 : i;
+  for (let k = cdStart; k <= i; k++) {
     cdTotalVol  += V[k];
     cdSpreadSum += H[k] - L[k];
     if (C[k] < O[k]) cdSellVol += V[k];
   }
-  const sellVolRatio     = cdTotalVol > 0 ? cdSellVol / cdTotalVol : 0;
-  const avgCdSpread      = cooldownBars > 0 ? cdSpreadSum / Math.max(1, cooldownBars) : (H[i] - L[i]);
-  const baseBarSpread    = H[baseIdx] - L[baseIdx];
+  const sellVolRatio  = cdTotalVol > 0 ? cdSellVol / cdTotalVol : 0;
+  const avgCdSpread   = cooldownBars > 0 ? cdSpreadSum / Math.max(1, cooldownBars) : H[i] - L[i];
+  const baseBarSpread = H[baseIdx] - L[baseIdx];
   const isVolContracting = avgCdSpread < baseBarSpread * 0.9 || avgCdSpread < spAvg20 * 0.85;
 
-  // Price must still hold ≥95% of the run (max 5% giveback from base close)
-  if (C[i] < C[baseIdx] * 0.95)  return null; // gave back too much
-  // Must stay above MA20 (structure intact)
-  if (C[i] < ma20val * 0.98)      return null;
-  // Sell vol threshold: if cooldown has bars, sell vol < 50%
-  if (cooldownBars > 0 && sellVolRatio >= 0.50) return null;
+  // Sell vol during calmdown must be < 45%
+  if (cooldownBars > 0 && sellVolRatio >= 0.45) return null;
+  // Price must hold ≥96% of the base close (the run peak reference)
+  if (C[i] < C[baseIdx] * 0.96) return null;
 
-  // ── STEP 3: Power check — confirm still has energy to continue ───────────
-  if (cppBias === 'BEARISH') return null;
-  if (accRatio < 0.80)       return null;
-  if (momentum10 < -5)       return null;
-
+  // ── GATE 3: Power confirmation ────────────────────────────────────────────
   const hasPower1 = cppBias === 'BULLISH';
-  const hasPower2 = accRatio >= 1.2;
-  const hasPower3 = rmvVal <= 50;    // looser than before — run is fresh so RMV may be elevated
+  const hasPower2 = accRatio >= 1.3;
+  const hasPower3 = rmvVal <= 50;
   const powerCount = [hasPower1, hasPower2, hasPower3].filter(Boolean).length;
   if (powerCount < 2) return null;
 
-  // ── STEP 4: VSA on current bar ────────────────────────────────────────────
+  // ── VSA pattern on current candle ─────────────────────────────────────────
   const curSpread = H[i] - L[i];
   const curBody   = Math.abs(C[i] - O[i]);
   const isGreen   = C[i] >= O[i];
@@ -293,8 +320,8 @@ function screenCalmdownAfterMarkup(data: any[]): Omit<CalmdownResult, 'symbol' |
   const uWick     = H[i] - Math.max(O[i], C[i]);
 
   const isDryUp   = (!isGreen || curBody < curSpread * 0.3) && volRatioI <= 0.65 && accRatio > 0.8;
-  const isNSup    = !isGreen && curSpread < atr14 * 1.0 && volRatioI < 0.8;
-  const isIceberg = volRatioI > 1.2 && (curSpread / (spAvg20 || 1)) < 0.75 && accRatio > 1.2;
+  const isNSup    = !isGreen && curSpread < atr14 && volRatioI < 0.75 && accRatio > 1.0;
+  const isIceberg = volRatioI > 1.2 && (curSpread / (spAvg20 || 1)) < 0.75 && accRatio > 1.3;
   const isHammer  = lWick > curBody * 1.2 && uWick < curBody * 0.6 && (lWick / (curSpread || 1)) > 0.45;
 
   let cooldownVSA = 'NEUTRAL';
@@ -303,40 +330,44 @@ function screenCalmdownAfterMarkup(data: any[]): Omit<CalmdownResult, 'symbol' |
   else if (isIceberg) cooldownVSA = 'ICEBERG';
   else if (isHammer)  cooldownVSA = 'HAMMER';
 
-  // ── STEP 5: Grade ─────────────────────────────────────────────────────────
-  const hasBullVSA = ['DRY UP','NO SUPPLY','ICEBERG','HAMMER'].includes(cooldownVSA);
-  // VCP-like: spreading is contracting AND low sell vol AND compressed RMV
-  const isVCPLike  = isVolContracting && rmvVal <= 45 && sellVolRatio < 0.40;
+  const hasBullVSA = cooldownVSA !== 'NEUTRAL';
+  const isVCPLike  = isVolContracting && rmvVal <= 45 && sellVolRatio < 0.35;
 
+  // ── GRADING: only SNIPER or WATCH ─────────────────────────────────────────
+  // SNIPER = confirmed VSA signal + strong power (high conviction)
+  // WATCH  = no VSA confirmation yet, but structure is good (wait for entry)
+  // NO BREAKOUT label — volume/MA break not confirmed
   let grade: 'A+' | 'A' | 'B';
   let entryType: 'SNIPER' | 'BREAKOUT' | 'WATCH';
 
-  // A+ = all 3 power conditions + good VSA + VCP-like compression
   if (powerCount === 3 && hasBullVSA && isVCPLike) {
     grade = 'A+'; entryType = 'SNIPER';
-  // A = at least 2 power + either bullish VSA pattern or VCP compression
-  } else if (powerCount >= 2 && (hasBullVSA || isVCPLike)) {
+  } else if (powerCount >= 2 && hasBullVSA) {
     grade = 'A';  entryType = 'SNIPER';
-  // B = 2 power + CPP bullish (run is fresh, momentum still alive)
-  } else if (powerCount >= 2 && cppBias === 'BULLISH') {
-    grade = 'B';  entryType = 'BREAKOUT';
+  } else if (powerCount >= 2 && isVCPLike) {
+    // VCP structure but no VSA confirmation yet — watch for entry
+    grade = 'B';  entryType = 'WATCH';
+  } else if (powerCount >= 2 && cppBias === 'BULLISH' && accRatio >= 1.3 && momentum10 >= 5) {
+    // Strong momentum + buying pressure but no VSA — watch
+    grade = 'B';  entryType = 'WATCH';
   } else {
     return null;
   }
 
-  // ── Reason & SL/TP ───────────────────────────────────────────────────────
+  // ── Reason string ──────────────────────────────────────────────────────────
   const parts: string[] = [
-    `Already +${gainFromBase.toFixed(1)}% (${cooldownBars === 0 ? 'today' : cooldownBars + 'd ago'})`,
-    `Sell vol ${Math.round(sellVolRatio * 100)}% (${cooldownBars === 0 ? 'still running' : 'calmdown'})`,
+    `+${gainFromBase.toFixed(1)}% (${cooldownBars === 0 ? 'today' : cooldownBars + 'd ago'})`,
+    `Peak pullback ${pullbackFromPeak.toFixed(1)}%`,
+    `Sell vol ${Math.round(sellVolRatio * 100)}%`,
   ];
   if (hasBullVSA)            parts.push(cooldownVSA);
   if (isVCPLike)             parts.push(`VCP RMV=${Math.round(rmvVal)}`);
   if (cppBias === 'BULLISH') parts.push(`CPP +${cppScore}`);
-  if (accRatio >= 1.2)       parts.push(`Acc ${accRatio.toFixed(1)}x`);
-  parts.push(`Mtm ${momentum10 >= 0 ? '+' : ''}${momentum10.toFixed(1)}%`);
+  if (accRatio >= 1.3)       parts.push(`Acc ${accRatio.toFixed(1)}x`);
+  parts.push(`Mtm +${momentum10.toFixed(1)}%`);
 
   const slMult = isVCPLike ? 1.0 : 1.3;
-  const tpMult = grade === 'A+' ? 3.5 : 3.0;
+  const tpMult = grade === 'A+' ? 3.5 : grade === 'A' ? 3.0 : 2.5;
 
   return {
     price: C[i],
@@ -497,15 +528,17 @@ export default function ScalpScreener() {
               <span className="text-yellow-400 font-bold text-base shrink-0">②</span>
               <div>
                 <div className="text-white font-medium mb-0.5">Healthy Calmdown (Not Distribution)</div>
-                Sell vol &lt;50% of cooldown volume. Price holds &gt;95% of the run. Above MA20.
-                Signs: DRY UP, NO SUPPLY, HAMMER, or ICEBERG on current candle.
+                Sell vol &lt;45% during calmdown. Price holds &gt;96% of the run peak.
+                Must be above MA20. Today&apos;s close ≥ yesterday (not falling). Momentum10 must be <span className="text-emerald-400">positive</span>.
               </div>
             </div>
             <div className="flex gap-2">
               <span className="text-cyan-400 font-bold text-base shrink-0">③</span>
               <div>
-                <div className="text-white font-medium mb-0.5">Power to Continue</div>
-                CPP bullish, acc ratio strong ≥0.85, RMV compressing ≤40. Wyckoff No Supply / Dry Up = smart money holding.
+                <div className="text-white font-medium mb-0.5">Power + Signal</div>
+                <span className="text-orange-300">🎯 SNIPER</span> = VSA confirmation (Dry Up / No Supply / Iceberg / Hammer) + strong power.
+                <span className="text-purple-300 ml-1">👁️ WATCH</span> = VCP structure forming but no VSA signal yet — wait for entry confirmation.
+                <span className="text-red-400 ml-1">No BREAKOUT</span> = never shown without vol + MA break.
               </div>
             </div>
           </div>
@@ -637,8 +670,12 @@ export default function ScalpScreener() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-white font-bold text-lg">{r.symbol}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-bold text-white ${cfg.badge}`}>{r.grade}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${r.entryType === 'SNIPER' ? 'bg-orange-500/15 border-orange-500/30 text-orange-300' : 'bg-blue-500/15 border-blue-500/30 text-blue-300'}`}>
-                          {r.entryType === 'SNIPER' ? '🎯 Sniper' : '⚡ Breakout'}
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
+                          r.entryType === 'SNIPER'
+                            ? 'bg-orange-500/15 border-orange-500/30 text-orange-300'
+                            : 'bg-purple-500/15 border-purple-500/30 text-purple-300'
+                        }`}>
+                          {r.entryType === 'SNIPER' ? '🎯 Sniper' : '👁️ Watch'}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
