@@ -107,8 +107,8 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
     } else if (st === 'swing') {
       setShowIndicators(prev => ({ ...prev, vsa: true, vcp: true, candlePower: false, signals: true, ma: true }));
     } else if (st === 'spring') {
-      // For Spring: show VSA + signals (BVD markers will show 🌱SP) + MA context
-      setShowIndicators(prev => ({ ...prev, vsa: true, vcp: false, candlePower: true, signals: true, ma: true }));
+      // For Spring: VSA + signals so BVD 🌱SP markers are visible, MA for context
+      setShowIndicators(prev => ({ ...prev, vsa: true, vcp: false, candlePower: false, signals: true, ma: true }));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -186,6 +186,12 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
     // Calculate indicators
     const calculatedIndicators = calculateAllIndicators(data);
     setIndicators(calculatedIndicators);
+
+    // Detect if this chart was opened from the Spring screener (URL param)
+    const urlScreenerType = typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('screenerType')
+      : null;
+    const isSpringFromScreener = urlScreenerType === 'spring';
 
     const isMobile = window.innerWidth < 768;
     const isTablet = window.innerWidth >= 768 && window.innerWidth < 1024;
@@ -292,25 +298,28 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
           allMarkers.push(...calculatedIndicators.vsaMarkers);
         }
 
-        // Always include Breakout Volume Delta markers when signals are active
-        // These show 🚀BR (real breakout), ⚠️UT (fake / upthrust), 📉BD, 🌱SP (spring)
-        if (showIndicators.signals || showIndicators.vsa) {
+        // Always include Breakout Volume Delta markers when signals or vsa are active
+        // These show 🚀BR (real breakout), ⚠️UT (fake/upthrust), 📉BD, 🌱SP (spring)
+        // Also force-include when coming from spring screener regardless of toggles
+        if (showIndicators.signals || showIndicators.vsa || isSpringFromScreener) {
           allMarkers.push(...calculatedIndicators.breakoutDeltaMarkers);
         }
 
         if (allMarkers.length > 0) {
-          // Deduplicate by time (keep most informative marker — BVD priority for breakout bars)
+          // Deduplicate by time:
+          // For Spring screener: BVD markers (🌱SP) have highest priority
+          // For others: BVD overrides on breakout bars (more specific info)
           const markerMap = new Map<string, typeof allMarkers[0]>();
           // First pass: add VSA/candle power markers
           allMarkers.forEach(marker => {
             const key = marker.time.toString();
             if (!markerMap.has(key)) markerMap.set(key, marker);
           });
-          // Second pass: BVD markers override on breakout bars (more specific info)
+          // Second pass: BVD markers override on breakout/spring bars
           calculatedIndicators.breakoutDeltaMarkers.forEach(marker => {
             markerMap.set(marker.time.toString(), marker);
           });
-          const uniqueMarkers = Array.from(markerMap.values()).sort((a, b) => a.time - b.time);
+          const uniqueMarkers = Array.from(markerMap.values()).sort((a, b) => (a.time as number) - (b.time as number));
           candlestickSeries.setMarkers(uniqueMarkers as any);
         }
       }
