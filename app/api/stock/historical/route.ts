@@ -75,12 +75,12 @@ export async function GET(request: NextRequest) {
       period2: period2.toISOString()
     });
 
-    // Use chart() method instead of historical() - more reliable for intraday data
-    const result: any = await yahooFinance.chart(symbol, {
+    // Use chart() method with 15s timeout
+    const result: any = await withTimeout(yahooFinance.chart(symbol, {
       period1: period1,
       period2: period2,
       interval: actualInterval as any,
-    });
+    }), 15000);
 
     if (!result || !result.quotes || result.quotes.length === 0) {
       console.warn('No historical data returned for:', symbol, 'interval:', interval);

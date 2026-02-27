@@ -39,18 +39,19 @@ export default function Home() {
   const [timeframe, setTimeframe] = useState('1d');
   const [showSettings, setShowSettings] = useState(false);
 
+  // Persists across renders without causing re-renders
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const popularStocks = [
     'BBCA', 'BBRI', 'BMRI', 'BBNI', 'ASII', 'TLKM', 'UNVR', 'ICBP'
   ];
 
-  // Helper function to ensure .JK suffix
   const ensureJKSuffix = (ticker: string): string => {
     const trimmed = ticker.trim().toUpperCase();
     if (trimmed.endsWith('.JK')) return trimmed;
     return `${trimmed}.JK`;
   };
 
-  // Single effect: read URL params on mount and do initial fetch ONCE
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlSymbol = urlParams.get('symbol');
@@ -65,11 +66,18 @@ export default function Home() {
     setInputSymbol(resolvedInput);
     setTimeframe(resolvedInterval);
 
-    // Single direct fetch on mount — no cascading effects
     fetchStockData(resolvedSymbol, resolvedInterval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchStockData = async (sym: string, int: string) => {
+    // Cancel any previous in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const signal = controller.signal;
+
     setLoading(true);
     setError('');
     setChartData([]);
@@ -84,22 +92,26 @@ export default function Home() {
     } catch (_) {}
 
     try {
-      // Fetch quote
-      const quoteRes = await fetch(`/api/stock/quote?symbol=${sym}`);
+      // Fetch quote with timeout
+      const quoteRes = await fetch(`/api/stock/quote?symbol=${sym}`, { signal });
+      if (signal.aborted) return;
       if (!quoteRes.ok) {
         const stockTicker = sym.replace('.JK', '');
         throw new Error(`Stock "${stockTicker}" not found. Check the ticker symbol and try again.`);
       }
       const quoteData = await quoteRes.json();
+      if (signal.aborted) return;
       setStockQuote(quoteData);
 
-      // Fetch historical data
-      const historicalRes = await fetch(`/api/stock/historical?symbol=${sym}&interval=${int}`);
+      // Fetch historical data with timeout
+      const historicalRes = await fetch(`/api/stock/historical?symbol=${sym}&interval=${int}`, { signal });
+      if (signal.aborted) return;
       if (!historicalRes.ok) {
         const stockTicker = sym.replace('.JK', '');
         throw new Error(`No historical data for "${stockTicker}" at ${int} timeframe.`);
       }
       const historicalData = await historicalRes.json();
+      if (signal.aborted) return;
 
       if (!historicalData.data || historicalData.data.length === 0) {
         const stockTicker = sym.replace('.JK', '');
@@ -108,9 +120,13 @@ export default function Home() {
 
       setChartData(historicalData.data);
     } catch (err: any) {
+      // Ignore AbortError — it just means a newer request replaced this one
+      if (err?.name === 'AbortError' || signal.aborted) return;
       setError(err.message || 'Failed to fetch data. Please try again.');
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 

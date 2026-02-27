@@ -4,6 +4,16 @@ import YahooFinanceModule from 'yahoo-finance2';
 // Create YahooFinance instance (required for v3!)
 const yahooFinance = new YahooFinanceModule();
 
+// Helper: race a promise against a timeout
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Request timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 // GET /api/stock/quote?symbol=BBCA.JK
 export async function GET(request: NextRequest) {
   try {
@@ -17,8 +27,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Use quote method for yahoo-finance2 v3
-    const result: any = await yahooFinance.quote(symbol);
+    // Use quote method with 10s timeout
+    const result: any = await withTimeout(yahooFinance.quote(symbol), 10000);
 
     return NextResponse.json({
       symbol: result.symbol || symbol,
