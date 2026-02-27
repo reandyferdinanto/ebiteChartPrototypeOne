@@ -16,6 +16,10 @@ interface ScalpResult {
   volatility: number;
   entry: 'SNIPER' | 'BREAKOUT' | 'WATCH' | null;
   reason: string;
+  cppScore?: number;
+  cppBias?: string;
+  wyckoff?: string;
+  rmv?: number;
 }
 
 // All Indonesian stocks from IDX
@@ -229,6 +233,10 @@ export default function ScalpScreener() {
             volatility: analysis.volatility,
             entry: analysis.entry,
             reason: analysis.reason,
+            cppScore: analysis.cppScore,
+            cppBias: analysis.cppBias,
+            wyckoff: analysis.wyckoff,
+            rmv: analysis.rmv,
           });
 
           // Sort and update in real-time
@@ -252,170 +260,194 @@ export default function ScalpScreener() {
     setLoading(false);
   };
 
+  // ── Helper functions mirroring lib/indicators.ts logic ──────────────────
+  const calcSMA = (arr: number[], period: number, i: number): number => {
+    if (i < period - 1) return 0;
+    let s = 0;
+    for (let j = i - period + 1; j <= i; j++) s += arr[j];
+    return s / period;
+  };
+
+  const calcATR = (H: number[], L: number[], C: number[], period: number, i: number): number => {
+    if (i < period) return 0;
+    let s = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      const pc = C[j - 1] ?? C[j];
+      s += Math.max(H[j] - L[j], Math.abs(H[j] - pc), Math.abs(L[j] - pc));
+    }
+    return s / period;
+  };
+
+  // CPP — Candle Power Prediction (Power Directional Index from research)
+  const calcCPP = (C: number[], O: number[], H: number[], L: number[], V: number[], i: number, lookback = 5): number => {
+    if (i < lookback + 10) return 0;
+    let volSum = 0;
+    for (let k = 0; k < 10; k++) volSum += V[i - k];
+    const vSMA10 = volSum / 10 || 1;
+    let cpp = 0;
+    for (let j = 0; j < lookback; j++) {
+      const k = i - j;
+      const range = H[k] - L[k];
+      const safeRange = range === 0 ? 0.0001 : range;
+      const cbd = (C[k] - O[k]) / safeRange;          // Candle Body Dominance
+      const vam = V[k] / vSMA10;                        // Volume Anomaly Multiplier
+      const dp  = cbd * vam;                             // Daily Power
+      const wt  = (lookback - j) / lookback;            // Exponential weight
+      cpp += dp * wt;
+    }
+    return cpp;
+  };
+
+  // RMV — Relative Measured Volatility (VCP pivot gauge, from research)
+  const calcRMV = (H: number[], L: number[], C: number[], i: number): number => {
+    if (i < 25) return 50;
+    const atr5vals: number[] = [];
+    for (let k = i - 19; k <= i; k++) atr5vals.push(calcATR(H, L, C, 5, k));
+    const cur = atr5vals[atr5vals.length - 1];
+    const mn  = Math.min(...atr5vals);
+    const mx  = Math.max(...atr5vals);
+    if (mx === mn) return 50;
+    return ((cur - mn) / (mx - mn)) * 100;
+  };
+
   const analyzeScalpingOpportunity = (data: any[]): any => {
     const N = data.length;
-    if (N < 40) return { entry: null };
+    if (N < 50) return { entry: null };
 
-    // Extract OHLCV data
-    const closes: number[] = [];
-    const opens: number[] = [];
-    const highs: number[] = [];
-    const lows: number[] = [];
-    const volumes: number[] = [];
-
-    for (let i = 0; i < data.length; i++) {
-      if (data[i].close !== null && data[i].volume > 0) {
-        closes.push(data[i].close);
-        opens.push(data[i].open);
-        highs.push(data[i].high);
-        lows.push(data[i].low);
-        volumes.push(data[i].volume);
+    // Build clean OHLCV arrays
+    const closes: number[] = [], opens: number[] = [],
+          highs:  number[] = [], lows:  number[] = [],
+          volumes: number[] = [];
+    for (const d of data) {
+      if (d.close !== null && d.volume > 0) {
+        closes.push(d.close); opens.push(d.open);
+        highs.push(d.high);   lows.push(d.low);
+        volumes.push(d.volume);
       }
     }
-
     const n = closes.length;
-    if (n < 40) return { entry: null };
+    if (n < 50) return { entry: null };
 
-    // Look for best signal in last 5 candles (matching AppScript logic)
-    let bestSignal = "";
-    let barsAgo = 0;
-    let finalVolRatio = 0;
-    let finalAccRatio = 0;
+    const i = n - 1; // last bar
 
-    for (let c = n - 5; c < n; c++) {
-      // Calculate MA20 for this candle
-      const sma20Slice = closes.slice(c - 19, c + 1);
-      const sma20 = sma20Slice.reduce((a, b) => a + b, 0) / 20;
+    // ── Indicators ─────────────────────────────────────────────────────
+    const ma20   = calcSMA(closes, 20, i);
+    const ma50   = calcSMA(closes, 50, i);
+    const atr14  = calcATR(highs, lows, closes, 14, i);
+    const rmv    = calcRMV(highs, lows, closes, i);
 
-      // Calculate 20-period volume and spread average
-      let volAvg20 = 0;
-      let spreadSum20 = 0;
-      for (let i = c - 20; i < c; i++) {
-        volAvg20 += volumes[i];
-        spreadSum20 += (highs[i] - lows[i]);
-      }
-      volAvg20 /= 20;
-      const spreadAvg20 = spreadSum20 / 20;
-
-      const currentVol = volumes[c];
-      const volRatio = currentVol / (volAvg20 || 1);
-
-      const priceHigh = highs[c];
-      const priceLow = lows[c];
-      const priceClose = closes[c];
-      const priceOpen = opens[c];
-
-      const candleSpread = priceHigh - priceLow;
-      const bodySpread = Math.abs(priceClose - priceOpen);
-      const isGreen = priceClose > priceOpen;
-      const bodyPosition = candleSpread === 0 ? 0 : (priceClose - priceLow) / candleSpread;
-
-      // Calculate accumulation ratio (last 10 candles)
-      let buyVol = 0;
-      let sellVol = 0;
-      for (let i = c - 9; i <= c; i++) {
-        if (closes[i] > opens[i]) buyVol += volumes[i];
-        else if (closes[i] < opens[i]) sellVol += volumes[i];
-      }
-      const accRatio = buyVol / (sellVol === 0 ? 1 : sellVol);
-      const spreadRatio = candleSpread / (spreadAvg20 || 1);
-
-      // VCP detection (matching AppScript)
-      const highest30 = Math.max(...highs.slice(c - 29, c + 1));
-      const isNearHigh = priceClose > (highest30 * 0.85);
-
-      let spreadSum5 = 0;
-      let volSum5 = 0;
-      for (let i = c - 5; i < c; i++) {
-        spreadSum5 += (highs[i] - lows[i]);
-        volSum5 += volumes[i];
-      }
-      const isVCP = isNearHigh && (spreadSum5 / 5 < spreadAvg20 * 0.65) && (volSum5 / 5 < volAvg20 * 0.75);
-
-      // Pattern detection (EXACTLY matching AppScript SCREENER_SCALP_5M)
-      const isMicroDryUp = (!isGreen || bodySpread < candleSpread * 0.2) && (volRatio < 0.35) && (accRatio > 1.2);
-      const isScalpBreakout = isGreen && (volRatio > 2.5) && (bodyPosition > 0.8) && priceClose > sma20;
-      const isMicroIceberg = (volRatio > 1.5) && (spreadRatio < 0.5);
-      const isScalpDump = (!isGreen && volRatio > 2.5 && (bodySpread > candleSpread * 0.6));
-
-      const upperWick = priceHigh - Math.max(priceOpen, priceClose);
-      const isShootingStar = (volRatio > 2 && (upperWick / (candleSpread || 1) > 0.5));
-
-      // Signal priority (matching AppScript order)
-      let signal = "";
-      if (isScalpDump) signal = "?? SCALP DUMP";
-      else if (isShootingStar) signal = "?? PUCUK";
-      else if (isVCP && isMicroDryUp) signal = "?? SCALP SNIPER";
-      else if (isScalpBreakout) signal = "? SCALP BREAKOUT";
-      else if (isMicroIceberg) signal = "?? MICRO ICEBERG";
-      else if (isMicroDryUp) signal = "?? MICRO DRY UP";
-
-      if (signal !== "") {
-        bestSignal = signal;
-        barsAgo = (n - 1) - c;
-        finalVolRatio = volRatio;
-        finalAccRatio = accRatio;
-      }
+    // 20-bar averages
+    let volSum = 0, spSum = 0;
+    for (let k = i - 19; k <= i; k++) {
+      volSum += volumes[k];
+      spSum  += highs[k] - lows[k];
     }
+    const volAvg20  = volSum / 20;
+    const spAvg20   = spSum / 20;
 
-    if (bestSignal === "") return { entry: null };
+    const curClose = closes[i], curOpen = opens[i];
+    const curHigh  = highs[i],  curLow  = lows[i];
+    const curVol   = volumes[i];
+    const spread   = curHigh - curLow;
+    const body     = Math.abs(curClose - curOpen);
+    const isGreen  = curClose >= curOpen;
+    const volRatio = curVol / (volAvg20 || 1);
+    const spRatio  = spread / (spAvg20 || 1);
+    const closePos = spread > 0 ? (curClose - curLow) / spread : 0.5;
+    const upperWick= curHigh - Math.max(curOpen, curClose);
+    const lowerWick= Math.min(curOpen, curClose) - curLow;
 
-    // Determine entry type based on signal
-    let entry: 'SNIPER' | 'BREAKOUT' | 'WATCH' | null;
-    if (bestSignal.includes('SNIPER')) entry = 'SNIPER';
-    else if (bestSignal.includes('BREAKOUT')) entry = 'BREAKOUT';
-    else if (bestSignal.includes('DUMP') || bestSignal.includes('PUCUK')) entry = null; // Bearish - skip
-    else entry = 'WATCH'; // ICEBERG, DRY UP
-
-    const current = data[n - 1];
-
-    // Calculate momentum (last 10 candles)
-    const momentum = ((closes[n - 1] - closes[n - 10]) / closes[n - 10]) * 100;
-
-    // Calculate volatility (ATR)
-    let atrSum = 0;
-    for (let i = n - 14; i < n; i++) {
-      const tr = Math.max(
-        highs[i] - lows[i],
-        Math.abs(highs[i] - closes[i - 1]),
-        Math.abs(lows[i] - closes[i - 1])
-      );
-      atrSum += tr;
+    // Buying/selling pressure (last 10 bars)
+    let buyVol = 0, sellVol = 0;
+    for (let k = i - 9; k <= i; k++) {
+      if (closes[k] > opens[k]) buyVol  += volumes[k];
+      else if (closes[k] < opens[k]) sellVol += volumes[k];
     }
-    const atr = atrSum / 14;
-    const volatility = (atr / closes[n - 1]) * 100;
+    const accRatio = buyVol / (sellVol || 1);
 
-    // Calculate candle power based on AppScript logic
-    const spread = current.high - current.low;
-    const isGreenCurrent = current.close >= current.open;
-    const closePos = spread > 0 ? (current.close - current.low) / spread : 0.5;
+    // ── CPP/PDI — Power Directional Index ──────────────────────────────
+    const cppRaw  = calcCPP(closes, opens, highs, lows, volumes, i, 5);
+    const cppBias = cppRaw > 0.5 ? 'BULLISH' : cppRaw < -0.5 ? 'BEARISH' : 'NEUTRAL';
+    const powerScore = Math.max(0, Math.min(100, Math.round(50 + (cppRaw / 1.5) * 45)));
 
-    let candlePower = 50;
-    if (finalVolRatio > 1.5 && isGreenCurrent && closePos > 0.7) {
-      candlePower = 85 + (finalVolRatio * 3);
-    } else if (finalVolRatio < 0.4 && finalAccRatio > 1.2) {
-      candlePower = 92; // Dry up with accumulation
-    } else if (finalVolRatio > 2.5 && spread < atr * 0.6) {
-      candlePower = 88; // Iceberg
-    } else if (isGreenCurrent && finalVolRatio > 1.2) {
-      candlePower = 70 + (closePos * 15);
-    } else if (!isGreenCurrent && finalVolRatio < 0.6) {
-      candlePower = 30;
-    }
+    // ── VSA Signals (mirrors detectVSA in lib/indicators.ts) ───────────
+    const isDryUp    = (!isGreen || body < spread * 0.3) && volRatio <= 0.60 && accRatio > 0.8;
+    const isIceberg  = volRatio > 1.2 && spRatio < 0.75;
+    const isNoDemand = isGreen && spread < atr14 && volRatio < 0.8;
+    const isNoSupply =
+      curLow < (i > 0 ? lows[i - 1] : curLow) &&
+      spread < atr14 && volRatio < 0.8;
+    const isSellingClimax = spread > atr14 * 2 && volRatio > 2.5 && !isGreen && closePos > 0.4;
+    const isUpthrust = spread > atr14 * 1.5 && volRatio > 1.5 && closePos < 0.3;
+    const isHammer   = lowerWick > body * 1.2 && upperWick < body * 0.6 && (lowerWick / (spread || 1)) > 0.5;
 
-    candlePower = Math.max(0, Math.min(100, Math.round(candlePower)));
-    candlePower = Math.max(0, Math.min(100, Math.round(candlePower)));
+    // VCP detection
+    const last30High  = Math.max(...highs.slice(Math.max(0, i - 29), i + 1));
+    const isNearHigh  = curClose > last30High * 0.80;
+    let sp5 = 0, vl5 = 0;
+    for (let k = Math.max(0, i - 4); k <= i; k++) { sp5 += highs[k] - lows[k]; vl5 += volumes[k]; }
+    const isVCP = isNearHigh && (sp5 / 5) < spAvg20 * 0.75 && (vl5 / 5) < volAvg20 * 0.85;
+    const isVCPPivot = isVCP && rmv <= 20;
 
-    const timeText = barsAgo === 0 ? "(Now!)" : `(${barsAgo} bars ago)`;
-    const reason = `${bestSignal} ${timeText} - Vol: ${finalVolRatio.toFixed(1)}x, Acc: ${finalAccRatio.toFixed(1)}x`;
+    // Wyckoff phase
+    const inUptrend   = curClose > ma20 && curClose > ma50 && ma20 > ma50;
+    const inDowntrend = curClose < ma20 && curClose < ma50 && ma20 < ma50;
+    const wyckoff = inUptrend ? 'MARKUP' : inDowntrend ? 'MARKDOWN'
+                  : curClose > ma20 * 0.95 ? 'ACCUMULATION' : 'DISTRIBUTION';
+
+    // ── Scalp Signal Priority (bearish signals → skip, bullish → show) ──
+    // REJECT bearish immediately
+    const isBearish = isUpthrust || isNoDemand ||
+      (!isGreen && volRatio > 2.5 && body > spread * 0.6) || // Scalp dump
+      (volRatio > 2 && upperWick / (spread || 1) > 0.5);     // Shooting star
+    if (isBearish) return { entry: null };
+
+    // Sniper = VCP pivot + dry up + above MA + CPP bullish
+    const isSniper = (isVCPPivot || (isVCP && isDryUp)) && curClose > ma20 && accRatio > 1.0 && cppBias !== 'BEARISH';
+    // Breakout = strong green candle on high volume above MA
+    const isBreakout = isGreen && volRatio > 2.0 && closePos > 0.75 && curClose > ma20 && cppBias === 'BULLISH';
+    // Watch = dry up, iceberg, no supply, selling climax
+    const isWatch = (isDryUp || isIceberg || isNoSupply || isSellingClimax || isHammer) && !isBearish;
+
+    // Only surface if CPP is not strongly bearish OR signal is very strong
+    if (!isSniper && !isBreakout && !isWatch) return { entry: null };
+    if (cppBias === 'BEARISH' && !isSniper && !isSellingClimax) return { entry: null };
+
+    // Entry type
+    let entry: 'SNIPER' | 'BREAKOUT' | 'WATCH' | null =
+      isSniper ? 'SNIPER' : isBreakout ? 'BREAKOUT' : isWatch ? 'WATCH' : null;
+    if (!entry) return { entry: null };
+
+    // Signal label
+    let signal = '';
+    if (isSniper)             signal = isVCPPivot ? '🎯 SCALP SNIPER (VCP Pivot)' : '🎯 SCALP SNIPER';
+    else if (isBreakout)      signal = '⚡ SCALP BREAKOUT';
+    else if (isSellingClimax) signal = '🟢 Selling Climax (SC)';
+    else if (isNoSupply)      signal = '🟢 No Supply (NS)';
+    else if (isHammer)        signal = '🔨 Hammer Support';
+    else if (isDryUp)         signal = '🥷 Micro Dry Up';
+    else if (isIceberg)       signal = '🧊 Micro Iceberg';
+    else                      signal = '📊 Watch';
+
+    // Momentum over last 10 candles
+    const momentum = ((closes[i] - closes[i - 10]) / closes[i - 10]) * 100;
+
+    // Volatility (ATR %)
+    const volatility = atr14 / curClose * 100;
+
+    const reason = `${signal} | CPP:${cppRaw > 0 ? '+' : ''}${cppRaw.toFixed(2)} ${cppBias} | Vol:${volRatio.toFixed(1)}x | Acc:${accRatio.toFixed(1)}x | ${wyckoff} | RMV:${Math.round(rmv)}`;
 
     return {
       entry,
-      signal: bestSignal,
+      signal,
       momentum: parseFloat(momentum.toFixed(2)),
-      candlePower,
-      volume: parseFloat(finalVolRatio.toFixed(2)),
+      candlePower: powerScore,
+      volume: parseFloat(volRatio.toFixed(2)),
       volatility: parseFloat(volatility.toFixed(2)),
+      cppScore: parseFloat(cppRaw.toFixed(2)),
+      cppBias,
+      wyckoff,
+      rmv: Math.round(rmv),
       reason,
     };
   };
@@ -629,43 +661,33 @@ export default function ScalpScreener() {
             <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Signal Guide - Scalp Logic
+            Signal Guide — Wyckoff + VSA + CPP
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
             <div className="backdrop-blur-md bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-xl">
-              <div className="font-bold text-yellow-400 mb-1 flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                </svg>
-                SCALP SNIPER
-              </div>
+              <div className="font-bold text-yellow-400 mb-1">🎯 SCALP SNIPER</div>
               <div className="text-gray-300 text-xs">
-                VCP + Micro Dry Up. Volume &lt; 35%, Acc &gt; 1.2x. Perfect base building - sniper entry!
+                VCP Pivot (RMV≤20) + Dry Up + above MA20 + CPP Bullish. Wyckoff No Supply near support. Highest probability intraday entry.
               </div>
             </div>
             <div className="backdrop-blur-md bg-green-500/10 border border-green-500/20 p-3 rounded-xl">
-              <div className="font-bold text-green-400 mb-1 flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                SCALP BREAKOUT
-              </div>
+              <div className="font-bold text-green-400 mb-1">⚡ SCALP BREAKOUT</div>
               <div className="text-gray-300 text-xs">
-                High volume breakout above MA20. Vol &gt; 2.5x, body &gt; 80%, green candle = momentum!
+                High volume breakout (Vol &gt;2x) + green body &gt;75% + above MA20 + CPP Bullish. Wyckoff Sign of Strength. Momentum entry.
               </div>
             </div>
             <div className="backdrop-blur-md bg-cyan-500/10 border border-cyan-500/20 p-3 rounded-xl">
-              <div className="font-bold text-cyan-400 mb-1 flex items-center gap-1.5">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                WATCH
-              </div>
+              <div className="font-bold text-cyan-400 mb-1">👀 WATCH</div>
               <div className="text-gray-300 text-xs">
-                Iceberg / Dry Up patterns. Potential setup forming. Monitor closely for entry signal.
+                NS (No Supply), SC (Selling Climax), Hammer at MA, Iceberg, Dry Up. Wyckoff accumulation signals. Monitor for confirmation.
               </div>
             </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div className="bg-white/5 rounded p-2"><span className="text-green-400 font-bold">CPP +</span> = Next candle bullish bias</div>
+            <div className="bg-white/5 rounded p-2"><span className="text-red-400 font-bold">CPP -</span> = Next candle bearish bias</div>
+            <div className="bg-white/5 rounded p-2"><span className="text-blue-400 font-bold">MARKUP</span> = Wyckoff uptrend phase</div>
+            <div className="bg-white/5 rounded p-2"><span className="text-blue-400 font-bold">ACCUM</span> = Wyckoff base building</div>
           </div>
         </div>
 
@@ -690,6 +712,8 @@ export default function ScalpScreener() {
                     <th className="text-right py-3 px-3 text-gray-400">Change</th>
                     <th className="text-center py-3 px-3 text-gray-400">Entry</th>
                     <th className="text-center py-3 px-3 text-gray-400">Power</th>
+                    <th className="text-center py-3 px-3 text-gray-400 hidden sm:table-cell">CPP</th>
+                    <th className="text-center py-3 px-3 text-gray-400 hidden md:table-cell">Wyckoff</th>
                     <th className="text-right py-3 px-3 text-gray-400 hidden md:table-cell">Mom%</th>
                     <th className="text-left py-3 px-3 text-gray-400 hidden lg:table-cell">Signal</th>
                     <th className="text-center py-3 px-3 text-gray-400">Chart</th>
@@ -698,7 +722,10 @@ export default function ScalpScreener() {
                 <tbody>
                   {filteredResults.map((r, idx) => (
                     <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition">
-                      <td className="py-3 px-3 font-bold text-white">{r.symbol}</td>
+                      <td className="py-3 px-3 font-bold text-white">
+                        <div>{r.symbol}</div>
+                        <div className="text-xs text-gray-400 sm:hidden">{r.signal}</div>
+                      </td>
                       <td className="py-3 px-3 text-right text-white">
                         Rp {r.price.toLocaleString('id-ID', { maximumFractionDigits: 0 })}
                       </td>
@@ -709,9 +736,9 @@ export default function ScalpScreener() {
                       </td>
                       <td className="py-3 px-3 text-center">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                          r.entry === 'SNIPER' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
+                          r.entry === 'SNIPER'   ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
                           r.entry === 'BREAKOUT' ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
-                          'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                                                   'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
                         }`}>
                           {r.entry}
                         </span>
@@ -721,9 +748,29 @@ export default function ScalpScreener() {
                           r.candlePower >= 85 ? 'bg-green-900/50 text-green-300' :
                           r.candlePower >= 70 ? 'bg-blue-900/50 text-blue-300' :
                           r.candlePower >= 55 ? 'bg-yellow-900/50 text-yellow-300' :
-                          'bg-gray-800 text-gray-400'
+                                                'bg-gray-800 text-gray-400'
                         }`}>
                           {r.candlePower}
+                        </span>
+                      </td>
+                      {/* CPP bias */}
+                      <td className="py-3 px-3 text-center hidden sm:table-cell">
+                        <span className={`text-xs font-bold ${
+                          r.cppBias === 'BULLISH' ? 'text-green-400' :
+                          r.cppBias === 'BEARISH' ? 'text-red-400' : 'text-gray-400'
+                        }`}>
+                          {r.cppBias === 'BULLISH' ? '📈' : r.cppBias === 'BEARISH' ? '📉' : '➡️'}
+                          {r.cppScore !== undefined ? ` ${r.cppScore > 0 ? '+' : ''}${r.cppScore.toFixed(2)}` : ''}
+                        </span>
+                      </td>
+                      {/* Wyckoff */}
+                      <td className="py-3 px-3 text-center hidden md:table-cell">
+                        <span className={`text-xs ${
+                          r.wyckoff === 'MARKUP'       ? 'text-green-400' :
+                          r.wyckoff === 'ACCUMULATION' ? 'text-blue-400' :
+                          r.wyckoff === 'MARKDOWN'     ? 'text-red-400' : 'text-yellow-400'
+                        }`}>
+                          {r.wyckoff}
                         </span>
                       </td>
                       <td className="py-3 px-3 text-right hidden md:table-cell">

@@ -10,10 +10,17 @@ interface VCPCandidate {
   changePercent: number;
   volume: number;
   vpcScore: number;
+  cppScore: number;
+  cppBias: string;
+  evrScore: number;
+  wyckoffPhase: string;
   isVCP: boolean;
   isDryUp: boolean;
   isIceberg: boolean;
   isSniperEntry: boolean;
+  isNoSupply: boolean;
+  isSellingClimax: boolean;
+  rmv: number;
   pattern: string;
   recommendation: string;
 }
@@ -119,6 +126,8 @@ export default function VCPScreener() {
                   <th className="text-right py-2 md:py-3 px-2 md:px-3 text-gray-400">Change</th>
                   <th className="text-right py-2 md:py-3 px-2 md:px-3 text-gray-400 hidden sm:table-cell">Volume</th>
                   <th className="text-center py-2 md:py-3 px-2 md:px-3 text-gray-400">Score</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-3 text-gray-400 hidden md:table-cell">CPP</th>
+                  <th className="text-center py-2 md:py-3 px-2 md:px-3 text-gray-400 hidden md:table-cell">Wyckoff</th>
                   <th className="text-left py-2 md:py-3 px-2 md:px-3 text-gray-400 hidden lg:table-cell">Pattern</th>
                   <th className="text-left py-2 md:py-3 px-2 md:px-3 text-gray-400 hidden lg:table-cell">Action</th>
                   <th className="text-center py-2 md:py-3 px-2 md:px-3 text-gray-400">Chart</th>
@@ -126,63 +135,65 @@ export default function VCPScreener() {
               </thead>
               <tbody>
                 {candidates.map((candidate, idx) => (
-                  <tr
-                    key={idx}
-                    className="border-b border-gray-800 hover:bg-gray-800/50 transition"
-                  >
+                  <tr key={idx} className="border-b border-gray-800 hover:bg-gray-800/50 transition">
                     <td className="py-2 md:py-3 px-2 md:px-3 font-semibold text-white">
-                      {candidate.symbol}
+                      <div>{candidate.symbol}</div>
+                      {/* Mobile: show pattern below ticker */}
+                      <div className="text-xs text-gray-400 md:hidden">{candidate.pattern}</div>
                     </td>
                     <td className="py-2 md:py-3 px-2 md:px-3 text-right text-white">
-                      <div className="text-xs md:text-sm">
-                        Rp {candidate.price.toLocaleString('id-ID', { maximumFractionDigits: 0 })}
-                      </div>
+                      Rp {candidate.price.toLocaleString('id-ID', { maximumFractionDigits: 0 })}
                     </td>
                     <td className="py-2 md:py-3 px-2 md:px-3 text-right">
-                      <span
-                        className={`text-xs md:text-sm ${
-                          candidate.change >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
-                      >
-                        {candidate.change >= 0 ? '+' : ''}
-                        {candidate.changePercent.toFixed(2)}%
+                      <span className={`text-xs md:text-sm ${candidate.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {candidate.change >= 0 ? '+' : ''}{candidate.changePercent.toFixed(2)}%
                       </span>
                     </td>
                     <td className="py-2 md:py-3 px-2 md:px-3 text-right text-gray-300 hidden sm:table-cell">
-                      <div className="text-xs md:text-sm">
-                        {(candidate.volume / 1000000).toFixed(1)}M
-                      </div>
+                      {(candidate.volume / 1000000).toFixed(1)}M
                     </td>
                     <td className="py-2 md:py-3 px-2 md:px-3 text-center">
-                      <span
-                        className={`px-2 md:px-3 py-1 rounded font-bold text-xs md:text-sm ${
-                          candidate.vpcScore >= 90
-                            ? 'bg-green-900 text-green-200'
-                            : candidate.vpcScore >= 80
-                            ? 'bg-blue-900 text-blue-200'
-                            : candidate.vpcScore >= 70
-                            ? 'bg-yellow-900 text-yellow-200'
-                            : 'backdrop-blur-md bg-black/30 text-gray-300'
-                        }`}
-                      >
+                      <span className={`px-2 py-1 rounded font-bold text-xs ${
+                        candidate.vpcScore >= 90 ? 'bg-green-900 text-green-200'
+                        : candidate.vpcScore >= 80 ? 'bg-blue-900 text-blue-200'
+                        : candidate.vpcScore >= 70 ? 'bg-yellow-900 text-yellow-200'
+                        : 'bg-gray-800 text-gray-300'
+                      }`}>
                         {candidate.vpcScore}
                       </span>
                     </td>
-                    <td className="py-2 md:py-3 px-2 md:px-3 text-xs md:text-sm text-gray-300 hidden lg:table-cell">
+                    {/* CPP bias column */}
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-center hidden md:table-cell">
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
+                        candidate.cppBias === 'BULLISH' ? 'bg-green-900/50 text-green-300'
+                        : candidate.cppBias === 'BEARISH' ? 'bg-red-900/50 text-red-300'
+                        : 'bg-gray-800 text-gray-400'
+                      }`}>
+                        {candidate.cppBias === 'BULLISH' ? '📈' : candidate.cppBias === 'BEARISH' ? '📉' : '➡️'}
+                        {' '}{candidate.cppScore > 0 ? '+' : ''}{candidate.cppScore}
+                      </span>
+                    </td>
+                    {/* Wyckoff phase */}
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-center hidden md:table-cell">
+                      <span className={`text-xs ${
+                        candidate.wyckoffPhase === 'MARKUP' ? 'text-green-400'
+                        : candidate.wyckoffPhase === 'ACCUMULATION' ? 'text-blue-400'
+                        : candidate.wyckoffPhase === 'MARKDOWN' ? 'text-red-400'
+                        : 'text-yellow-400'
+                      }`}>
+                        {candidate.wyckoffPhase}
+                      </span>
+                    </td>
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-xs text-gray-300 hidden lg:table-cell">
                       {candidate.pattern}
                     </td>
-                    <td className="py-2 md:py-3 px-2 md:px-3 text-xs md:text-sm hidden lg:table-cell">
-                      <span
-                        className={`${
-                          candidate.recommendation.includes('STRONG')
-                            ? 'text-green-400 font-bold'
-                            : candidate.recommendation.includes('BUY')
-                            ? 'text-green-300'
-                            : candidate.recommendation.includes('ENTRY')
-                            ? 'text-yellow-300'
-                            : 'text-blue-300'
-                        }`}
-                      >
+                    <td className="py-2 md:py-3 px-2 md:px-3 text-xs hidden lg:table-cell">
+                      <span className={`${
+                        candidate.recommendation.includes('KUAT') ? 'text-green-400 font-bold'
+                        : candidate.recommendation.includes('BELI') ? 'text-green-300'
+                        : candidate.recommendation.includes('ENTRY') ? 'text-yellow-300'
+                        : 'text-blue-300'
+                      }`}>
                         {candidate.recommendation}
                       </span>
                     </td>
@@ -386,25 +397,39 @@ export default function VCPScreener() {
         )}
 
         {/* Legend */}
-        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl rounded p-3 md:p-4">
-          <h3 className="font-semibold mb-3 text-sm md:text-base">📖 Pattern Guide</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs md:text-sm">
-            <div>
-              <span className="font-semibold text-red-300">🎯 Sniper Entry</span>
-              <p className="text-gray-400">VCP base + dry up = Perfect sniper entry point</p>
+        <div className="backdrop-blur-xl bg-black/40 border border-white/10 rounded-2xl shadow-2xl p-3 md:p-4">
+          <h3 className="font-semibold mb-3 text-sm md:text-base">📖 Pattern Guide — Wyckoff + VSA + CPP</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs md:text-sm mb-3">
+            <div className="bg-white/5 rounded p-2">
+              <span className="font-semibold text-yellow-300">🎯 Sniper Entry</span>
+              <p className="text-gray-400 mt-0.5">VCP Pivot (RMV≤15) + Dry Up + above MA + CPP bullish. Highest confidence setup.</p>
             </div>
-            <div>
+            <div className="bg-white/5 rounded p-2">
               <span className="font-semibold text-blue-300">📉 VCP Base</span>
-              <p className="text-gray-400">Low volatility & volume near 52-week high</p>
+              <p className="text-gray-400 mt-0.5">Volatility Contraction Pattern near recent high. Minervini's base-building stage.</p>
             </div>
-            <div>
-              <span className="font-semibold text-yellow-300">🥷 Dry Up</span>
-              <p className="text-gray-400">Low volume support test. Institutional accumulation</p>
+            <div className="bg-white/5 rounded p-2">
+              <span className="font-semibold text-cyan-300">🥷 Dry Up</span>
+              <p className="text-gray-400 mt-0.5">Wyckoff No Demand / No Supply. Low vol + small body = penjual habis.</p>
             </div>
-            <div>
-              <span className="font-semibold text-green-300">🧊 Iceberg</span>
-              <p className="text-gray-400">High volume but low spread. Hidden buying activity</p>
+            <div className="bg-white/5 rounded p-2">
+              <span className="font-semibold text-teal-300">🧊 Iceberg</span>
+              <p className="text-gray-400 mt-0.5">Tinggi volume, spread sempit. Akumulasi tersembunyi institusi (Wyckoff absorption).</p>
             </div>
+            <div className="bg-white/5 rounded p-2">
+              <span className="font-semibold text-green-300">🟢 No Supply / Selling Climax</span>
+              <p className="text-gray-400 mt-0.5">Wyckoff VSA: SC = kapitulasi panik terserap institusi. NS = supply habis.</p>
+            </div>
+            <div className="bg-white/5 rounded p-2">
+              <span className="font-semibold text-purple-300">📈 CPP / Wyckoff</span>
+              <p className="text-gray-400 mt-0.5">CPP = Power Directional Index (prediksi candle besok). Wyckoff = fase pasar saat ini.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs border-t border-white/10 pt-2">
+            <div className="text-gray-400"><span className="text-green-400 font-bold">Score 90+</span> = Premium setup</div>
+            <div className="text-gray-400"><span className="text-blue-400 font-bold">Score 70-89</span> = Good setup</div>
+            <div className="text-gray-400"><span className="text-yellow-400 font-bold">CPP +</span> = Next candle bullish bias</div>
+            <div className="text-gray-400"><span className="text-cyan-400 font-bold">RMV≤15</span> = Extreme VCP pivot</div>
           </div>
         </div>
       </div>

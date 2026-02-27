@@ -111,225 +111,306 @@ interface VCPCandidate {
   changePercent: number;
   volume: number;
   vpcScore: number;
+  cppScore: number;
+  cppBias: string;
+  evrScore: number;
+  wyckoffPhase: string;
   isVCP: boolean;
   isDryUp: boolean;
   isIceberg: boolean;
   isSniperEntry: boolean;
+  isNoSupply: boolean;
+  isSellingClimax: boolean;
+  rmv: number;
   pattern: string;
   recommendation: string;
+}
+
+// ── Shared helper functions (mirrors lib/indicators.ts logic exactly) ──────
+
+function calcSMA(arr: number[], period: number, idx: number): number {
+  if (idx < period - 1) return 0;
+  let s = 0;
+  for (let i = idx - period + 1; i <= idx; i++) s += arr[i];
+  return s / period;
+}
+
+function calcATR(highs: number[], lows: number[], closes: number[], period: number, idx: number): number {
+  if (idx < period) return 0;
+  let s = 0;
+  for (let i = idx - period + 1; i <= idx; i++) {
+    const h = highs[i], l = lows[i], pc = closes[i - 1] ?? closes[i];
+    s += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+  }
+  return s / period;
+}
+
+// Power Directional Index — same formula as calculateCandlePower in indicators.ts
+function calcCPP(closes: number[], opens: number[], highs: number[], lows: number[], volumes: number[], idx: number, lookback = 5): number {
+  if (idx < lookback + 10) return 0;
+  let volSum = 0;
+  for (let i = 0; i < 10; i++) volSum += volumes[idx - i];
+  const volSMA10 = volSum / 10 || 1;
+  let cpp = 0;
+  for (let j = 0; j < lookback; j++) {
+    const i = idx - j;
+    const range = highs[i] - lows[i];
+    const safeRange = range === 0 ? 0.0001 : range;
+    const cbd = (closes[i] - opens[i]) / safeRange;
+    const vam = volumes[i] / volSMA10;
+    const dp = cbd * vam;
+    const weight = (lookback - j) / lookback;
+    cpp += dp * weight;
+  }
+  return cpp;
+}
+
+// EVR Score — Effort vs Result (mirrors detectVSA in indicators.ts)
+function calcEVR(highs: number[], lows: number[], closes: number[], opens: number[], volumes: number[], idx: number, period = 14): number {
+  if (idx < period + 1) return 0;
+  const atr = calcATR(highs, lows, closes, period, idx);
+  if (!atr) return 0;
+  const volSMA = calcSMA(volumes, 20, idx);
+  const spread = highs[idx] - lows[idx];
+  const effort = volumes[idx] / (volSMA || 1);
+  const result2 = spread / atr;
+  return Math.round((result2 - effort) * 100) / 100;
+}
+
+// Wyckoff phase classifier — same thresholds as detectVSA in indicators.ts
+function classifyWyckoff(closes: number[], ma20: number, ma50: number): string {
+  const cur = closes[closes.length - 1];
+  const inUptrend  = cur > ma20 && cur > ma50 && ma20 > ma50;
+  const inDowntrend= cur < ma20 && cur < ma50 && ma20 < ma50;
+  if (inUptrend)   return 'MARKUP';
+  if (inDowntrend) return 'MARKDOWN';
+  if (cur > ma20 * 0.95) return 'ACCUMULATION';
+  return 'DISTRIBUTION';
+}
+
+// RMV — Relative Measured Volatility (from research: VCP detection)
+function calcRMV(highs: number[], lows: number[], closes: number[], idx: number): number {
+  if (idx < 25) return 50;
+  // ATR5 array for last 20 bars
+  const atr5vals: number[] = [];
+  for (let i = idx - 19; i <= idx; i++) {
+    atr5vals.push(calcATR(highs, lows, closes, 5, i));
+  }
+  const curAtr5 = atr5vals[atr5vals.length - 1];
+  const minA = Math.min(...atr5vals);
+  const maxA = Math.max(...atr5vals);
+  if (maxA === minA) return 50;
+  return ((curAtr5 - minA) / (maxA - minA)) * 100;
 }
 
 // Analyze single stock for VCP/Sniper pattern
 async function analyzeStockVCP(symbol: string): Promise<VCPCandidate | null> {
   try {
     const result = await yahooFinance.historical(symbol, {
-      period1: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      period1: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       period2: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       interval: '1d',
     });
 
-    if (!result || result.length < 50) {
-      console.log(`${symbol}: Not enough data (${result?.length || 0} bars)`);
+    if (!result || result.length < 60) {
       return null;
     }
 
-    const data = result.slice(-50);
-    const closes = data.map(d => d.close || 0);
-    const highs = data.map(d => d.high || 0);
-    const lows = data.map(d => d.low || 0);
-    const volumes = data.map(d => d.volume || 0);
-    const opens = data.map(d => d.open || 0);
-
-    const N = data.length;
-    const current = data[N - 1];
+    // Use last 100 bars (enough for all indicators)
+    const raw = result.slice(-100);
+    const closes  = raw.map(d => d.close  || 0);
+    const highs   = raw.map(d => d.high   || 0);
+    const lows    = raw.map(d => d.low    || 0);
+    const opens   = raw.map(d => d.open   || 0);
+    const volumes = raw.map(d => d.volume || 0);
+    const N = closes.length;
+    const idx = N - 1; // last candle index
 
     // Get latest quote
     let quoteData: any;
     try {
       quoteData = await yahooFinance.quote(symbol);
-    } catch (e) {
-      console.log(`${symbol}: Could not fetch quote`);
+    } catch {
       return null;
     }
 
-    // Calculate 20-period average
-    let volSum = 0;
-    let spreadSum = 0;
-    for (let i = N - 20; i < N; i++) {
-      volSum += volumes[i];
-      spreadSum += highs[i] - lows[i];
-    }
-    const volAvg = volSum / 20;
-    const spreadAvg = spreadSum / 20;
-
-    // Current candle metrics
-    const spread = current.high - current.low;
-    const body = Math.abs(current.close - current.open);
-    const volRatio = current.volume / (volAvg || 1);
-    const spreadRatio = spread / (spreadAvg || 1);
-    const isGreen = current.close >= current.open;
-
-    // Calculate MA for trend confirmation
-    let ma20 = 0;
-    let ma50 = 0;
-    for (let i = N - 20; i < N; i++) {
-      ma20 += closes[i];
-    }
-    ma20 /= 20;
-
-    if (N >= 50) {
-      for (let i = N - 50; i < N; i++) {
-        ma50 += closes[i];
-      }
-      ma50 /= 50;
-    } else {
-      ma50 = ma20; // Fallback if not enough data
-    }
-
-    const aboveMA20 = current.close > ma20;
-    const aboveMA50 = current.close > ma50;
+    // ── Moving Averages ──────────────────────────────────────────────────
+    const ma20 = calcSMA(closes, 20, idx);
+    const ma50 = calcSMA(closes, 50, idx);
+    const aboveMA20 = closes[idx] > ma20;
+    const aboveMA50 = closes[idx] > ma50;
     const maUptrend = ma20 > ma50;
 
-    // VCP DETECTION - More lenient for screening (match chart logic)
-    const last30High = Math.max(...highs.slice(-30));
-    const last52WeekHigh = Math.max(...highs.slice(-250)); // ~1 year
-    const isNearRecentHigh = current.close > (last30High * 0.85); // Within 15% of 30-day high
+    // ── ATR (14) ─────────────────────────────────────────────────────────
+    const atr14 = calcATR(highs, lows, closes, 14, idx);
 
-    // Calculate volatility contraction
-    let spread5Sum = 0;
-    let vol5Sum = 0;
-    let spread20Sum = 0;
-    let vol20Sum = 0;
-
-    for (let i = N - 5; i < N; i++) {
-      spread5Sum += highs[i] - lows[i];
-      vol5Sum += volumes[i];
+    // ── 20-period averages ───────────────────────────────────────────────
+    let volSum = 0, spreadSum = 0;
+    for (let i = idx - 19; i <= idx; i++) {
+      volSum   += volumes[i];
+      spreadSum += highs[i] - lows[i];
     }
-    for (let i = N - 20; i < N; i++) {
-      spread20Sum += highs[i] - lows[i];
-      vol20Sum += volumes[i];
-    }
+    const volAvg20    = volSum / 20;
+    const spreadAvg20 = spreadSum / 20;
 
-    const spread5Avg = spread5Sum / 5;
-    const spread20Avg = spread20Sum / 20;
-    const vol5Avg = vol5Sum / 5;
-    const vol20Avg = vol20Sum / 20;
+    // Current candle
+    const curClose  = closes[idx];
+    const curOpen   = opens[idx];
+    const curHigh   = highs[idx];
+    const curLow    = lows[idx];
+    const curVol    = volumes[idx];
+    const spread    = curHigh - curLow;
+    const body      = Math.abs(curClose - curOpen);
+    const isGreen   = curClose >= curOpen;
+    const volRatio  = curVol / (volAvg20 || 1);
+    const spreadRatio = spread / (spreadAvg20 || 1);
+    const closePos  = spread > 0 ? (curClose - curLow) / spread : 0.5;
+    const upperWick = curHigh - Math.max(curOpen, curClose);
+    const lowerWick = Math.min(curOpen, curClose) - curLow;
 
-    // Basic VCP = Near highs + contraction (LENIENT for screening)
-    const isVolatilityContraction = spread5Avg < (spread20Avg * 0.75); // < 75%
-    const isVolumeContraction = vol5Avg < (vol20Avg * 0.80); // < 80%
-
-    const isVCP = isNearRecentHigh &&
-                  isVolatilityContraction &&
-                  isVolumeContraction;
-
-    // Buying/selling pressure
-    let buyVol = 0;
-    let sellVol = 0;
-    for (let i = N - 10; i < N; i++) {
-      if (closes[i] > opens[i]) buyVol += volumes[i];
-      else if (closes[i] < opens[i]) sellVol += volumes[i];
+    // ── Buying / Selling Pressure (last 10 bars) ─────────────────────────
+    let buyVol = 0, sellVol = 0;
+    for (let k = idx - 9; k <= idx; k++) {
+      if (closes[k] > opens[k]) buyVol  += volumes[k];
+      else if (closes[k] < opens[k]) sellVol += volumes[k];
     }
     const accRatio = buyVol / (sellVol || 1);
 
-    // DRY UP DETECTION - More lenient for screening
-    const isDryUp = (volRatio < 0.65) && // < 65% volume (lenient)
-                    (body < spread * 0.5) && // Small body (lenient)
-                    (accRatio > 0.85); // Buying > selling (lenient)
+    // ── VSA pattern flags (mirrors detectVSA in lib/indicators.ts) ───────
+    const isDistribution = !isGreen && volRatio > 1.5 && accRatio < 0.5;
+    const isDryUp  = (!isGreen || body < spread * 0.3) && volRatio <= 0.60 && accRatio > 0.8;
+    const isIceberg = volRatio > 1.2 && spreadRatio < 0.75;
 
-    // ICEBERG DETECTION - More lenient for screening
-    const isIceberg = (volRatio > 1.2) && // > 1.2x volume (lenient)
-                      (spreadRatio < 0.75) && // Tight spread
-                      (accRatio > 1.1); // Some buying pressure (lenient)
+    // VSA named signals (mirrors detectVSA)
+    const isNoSupply =
+      curLow < (idx > 0 ? lows[idx - 1] : curLow) &&
+      spread < atr14 &&
+      volRatio < (idx > 1 ? volumes[idx - 1] / volAvg20 : 1) &&
+      volRatio < (idx > 2 ? volumes[idx - 2] / volAvg20 : 1);
 
-    // SNIPER ENTRY - VERY STRICT (only perfect setups)
-    const isNearAllTimeHigh = current.close > (last52WeekHigh * 0.90); // 90% of 52-week
-    const hasSupport = (current.low <= ma20 * 1.02) && (current.close > ma20 * 0.98);
+    const isSellingClimax =
+      spread > atr14 * 2 &&
+      volRatio > 2.5 &&
+      !isGreen &&
+      closePos > 0.4;
 
-    let priceRangeSum = 0;
-    for (let i = N - 5; i < N; i++) {
-      priceRangeSum += Math.abs(highs[i] - lows[i]) / closes[i];
+    const isUpthrust =
+      spread > atr14 * 1.5 &&
+      volRatio > 1.5 &&
+      closePos < 0.3;
+
+    const isNoDemand =
+      isGreen &&
+      spread < atr14 &&
+      curHigh > (idx > 0 ? highs[idx - 1] : curHigh) &&
+      volRatio < (idx > 1 ? volumes[idx - 1] / volAvg20 : 1);
+
+    // ── VCP detection (mirrors detectVSA VCP block) ───────────────────────
+    const last30High    = Math.max(...highs.slice(idx - 29, idx + 1));
+    const isNearHigh    = curClose > last30High * 0.80;
+    let sp5 = 0, vl5 = 0;
+    for (let j = Math.max(0, idx - 4); j <= idx; j++) {
+      sp5 += highs[j] - lows[j];
+      vl5 += volumes[j];
     }
-    const avgPriceRange = priceRangeSum / 5;
-    const isTightPrice = avgPriceRange < 0.03; // < 3% daily range
+    const isLowSpread5  = (sp5 / 5) < spreadAvg20 * 0.75;
+    const isLowVol5     = (vl5 / 5) < volAvg20 * 0.85;
+    const isVCP         = isNearHigh && isLowSpread5 && isLowVol5;
 
-    const isSignificantVCContraction = spread5Avg < (spread20Avg * 0.65); // < 65% (tight)
-    const isStrictVolumeContraction = vol5Avg < (vol20Avg * 0.75); // < 75%
+    // ── RMV — Relative Measured Volatility (VCP pivot gauge) ─────────────
+    const rmv = calcRMV(highs, lows, closes, idx);
+    const isVCPPivot = isVCP && rmv <= 15;
 
-    // SNIPER = Perfect VCP + Perfect DRY UP + Perfect trend
-    const isSniperEntry = isNearAllTimeHigh && // 90% of 52-week high
-                          aboveMA20 &&
-                          aboveMA50 &&
-                          maUptrend &&
-                          isSignificantVCContraction &&
-                          isStrictVolumeContraction &&
-                          isTightPrice &&
-                          (volRatio < 0.50) && // Very low volume
-                          (accRatio > 1.2) && // Strong buying
-                          hasSupport;
+    // ── Sniper Entry = VCP Pivot + DryUp + Trend aligned ─────────────────
+    const isSniperEntry = isVCPPivot && isDryUp && aboveMA20 && aboveMA50 && maUptrend && accRatio > 1.0;
 
-    // DEBUG: Log criteria for monitoring
-    if (Math.random() < 0.05) { // Log ~5% of stocks
-      console.log(`${symbol}: Sniper=${isSniperEntry} VCP=${isVCP} DryUp=${isDryUp} Ice=${isIceberg} Vol=${volRatio.toFixed(2)} Acc=${accRatio.toFixed(2)} MA20=${aboveMA20} MA50=${aboveMA50}`);
-    }
+    // ── CPP / PDI — Candle Power Prediction (mirrors calculateCandlePower) ─
+    const cppRaw   = calcCPP(closes, opens, highs, lows, volumes, idx, 5);
+    const cppScore = Math.round(cppRaw * 100) / 100;
+    const cppBias  = cppRaw > 0.5 ? 'BULLISH' : cppRaw < -0.5 ? 'BEARISH' : 'NEUTRAL';
 
-    // VCP Score calculation - Reflect actual pattern quality
-    let vpcScore = 50; // Base score
+    // Map CPP to 0-100 power score (same as chart)
+    let powerScore = Math.round(50 + (cppRaw / 1.5) * 45);
+    powerScore = Math.max(0, Math.min(100, powerScore));
 
-    // Premium patterns (highest scores)
-    if (isSniperEntry) {
-      vpcScore = 95; // SNIPER ENTRY = highest quality
-    } else if (isVCP && isDryUp) {
-      vpcScore = 92; // VCP + DRY UP (very close to sniper)
-    } else if (isVCP && isIceberg) {
-      vpcScore = 88; // VCP + ICEBERG
-    } else if (isVCP) {
-      vpcScore = 82; // VCP BASE alone
-    } else if (isDryUp && accRatio > 1.5) {
-      vpcScore = 78; // Strong DRY UP
-    } else if (isDryUp) {
-      vpcScore = 72; // Regular DRY UP
-    } else if (isIceberg && accRatio > 1.5) {
-      vpcScore = 75; // Strong ICEBERG
-    } else if (isIceberg) {
-      vpcScore = 68; // Regular ICEBERG
-    } else if (aboveMA20 && aboveMA50 && maUptrend && isGreen) {
-      vpcScore = 60; // Good uptrend but no specific pattern
-    }
+    // ── EVR — Effort vs Result ────────────────────────────────────────────
+    const evrScore = calcEVR(highs, lows, closes, opens, volumes, idx, 14);
 
-    // Bonus adjustments
-    if (accRatio > 1.5) vpcScore += 3;
-    if (isTightPrice) vpcScore += 2;
-    if (volRatio < 0.5) vpcScore += 2;
+    // ── Wyckoff phase ─────────────────────────────────────────────────────
+    const wyckoffPhase = classifyWyckoff(closes.slice(idx - 4, idx + 1), ma20, ma50);
 
-    // Ensure score is within bounds
-    vpcScore = Math.max(50, Math.min(100, vpcScore));
+    // ── Pattern & Score ───────────────────────────────────────────────────
+    // Score is a weighted blend: CPP power (40%) + VSA pattern bonus (40%) + RMV tightness (20%)
+    let vpcScore = powerScore * 0.40;
 
+    // VSA pattern bonus
+    if (isSniperEntry)                        vpcScore += 40;
+    else if (isVCP && isDryUp)                vpcScore += 36;
+    else if (isVCP && isIceberg)              vpcScore += 33;
+    else if (isSellingClimax)                 vpcScore += 32; // SC = accumulation opportunity
+    else if (isNoSupply && aboveMA20)         vpcScore += 30;
+    else if (isVCP)                           vpcScore += 28;
+    else if (isDryUp && accRatio > 1.5)       vpcScore += 25;
+    else if (isDryUp)                         vpcScore += 20;
+    else if (isIceberg && accRatio > 1.5)     vpcScore += 22;
+    else if (isIceberg)                       vpcScore += 18;
+    else if (aboveMA20 && maUptrend && isGreen) vpcScore += 10;
+
+    // RMV bonus (tighter = better setup)
+    const rmvBonus = rmv <= 15 ? 20 : rmv <= 30 ? 12 : rmv <= 50 ? 6 : 0;
+    vpcScore += rmvBonus;
+
+    // Penalty for bearish signals
+    if (isDistribution)   vpcScore -= 15;
+    if (isUpthrust)       vpcScore -= 12;
+    if (isNoDemand)       vpcScore -= 8;
+    if (!aboveMA20)       vpcScore -= 5;
+
+    vpcScore = Math.max(0, Math.min(100, Math.round(vpcScore)));
+
+    // Pattern label — mirrors chart VSA markers text exactly
     let pattern = '⬜ Netral';
     let recommendation = 'Wait';
 
-    // Pattern classification matching chart logic
     if (isSniperEntry) {
       pattern = '🎯 SNIPER ENTRY';
-      recommendation = '⚡ STRONG BUY - Perfect setup!';
+      recommendation = '⚡ KUAT BELI – Perfect VCP Pivot!';
     } else if (isVCP && isDryUp) {
-      pattern = '🎯 VCP DRY-UP (Near Sniper)';
-      recommendation = '🚀 BUY - High probability!';
+      pattern = '🎯 VCP DRY-UP';
+      recommendation = '🚀 BELI – High probability!';
+    } else if (isSellingClimax && aboveMA20) {
+      pattern = '🟢 Selling Climax';
+      recommendation = '🚀 BELI – SC + above MA20, akumulasi!';
+    } else if (isNoSupply && aboveMA20) {
+      pattern = '🟢 No Supply';
+      recommendation = '🛒 BELI – Penjual habis, siap naik';
     } else if (isVCP && isIceberg) {
       pattern = '🧊 VCP ICEBERG';
-      recommendation = '🚀 BUY - Strong accumulation!';
+      recommendation = '🚀 BELI – Strong accumulation!';
+    } else if (isVCPPivot) {
+      pattern = '📍 VCP PIVOT (RMV' + Math.round(rmv) + ')';
+      recommendation = '⏳ WATCH – Tunggu dry up/breakout';
     } else if (isVCP) {
       pattern = '📉 VCP BASE';
-      recommendation = '⏳ WATCH - Wait for dry up or breakout';
+      recommendation = '⏳ WATCH – Base forming';
+    } else if (isDryUp && accRatio > 1.5) {
+      pattern = '🥷 DRY UP Kuat';
+      recommendation = '📍 ENTRY – Support test + buying';
     } else if (isDryUp) {
       pattern = '🥷 DRY UP';
-      recommendation = '📍 ENTRY - Support test';
+      recommendation = '📍 ENTRY – Support test';
     } else if (isIceberg) {
       pattern = '🧊 ICEBERG';
-      recommendation = '👀 WATCH - Hidden accumulation';
+      recommendation = '👀 WATCH – Hidden accumulation';
+    } else if (isDistribution) {
+      pattern = '🩸 DISTRIBUSI';
+      recommendation = '❌ HINDARI – Distribusi institusi';
+    } else if (isUpthrust) {
+      pattern = '⚡ UPTHRUST';
+      recommendation = '❌ HINDARI – Jebakan breakout';
     } else if (vpcScore > 55) {
-      pattern = '📈 BUILDING SETUP';
-      recommendation = '⏳ MONITOR - Developing pattern';
+      pattern = '📈 DEVELOPING';
+      recommendation = '⏳ MONITOR – Setup berkembang';
     }
 
     return {
@@ -339,10 +420,17 @@ async function analyzeStockVCP(symbol: string): Promise<VCPCandidate | null> {
       changePercent: quoteData.regularMarketChangePercent || 0,
       volume: quoteData.regularMarketVolume || 0,
       vpcScore,
+      cppScore,
+      cppBias,
+      evrScore,
+      wyckoffPhase,
       isVCP,
       isDryUp,
       isIceberg,
       isSniperEntry,
+      isNoSupply,
+      isSellingClimax,
+      rmv: Math.round(rmv),
       pattern,
       recommendation
     };
@@ -421,11 +509,17 @@ export async function GET(request: NextRequest) {
     // Sort by VCP score
     candidates.sort((a, b) => b.vpcScore - a.vpcScore);
 
-    // Group by pattern
+    // Group by pattern — consistent with chart indicator labels
     const grouped = {
-      sniperEntry: candidates.filter(c => c.pattern.includes('Sniper')).slice(0, Math.ceil(limit / 3)),
-      vcp: candidates.filter(c => c.pattern.includes('VCP') && !c.pattern.includes('Sniper')).slice(0, Math.ceil(limit / 3)),
-      dryUp: candidates.filter(c => c.pattern.includes('DRY UP')).slice(0, Math.ceil(limit / 3))
+      sniperEntry: candidates.filter(c =>
+        c.isSniperEntry || (c.isVCP && c.isDryUp)
+      ).slice(0, Math.ceil(limit / 3)),
+      vcp: candidates.filter(c =>
+        c.isVCP && !c.isSniperEntry && !c.isDryUp
+      ).slice(0, Math.ceil(limit / 3)),
+      dryUp: candidates.filter(c =>
+        (c.isDryUp || c.isNoSupply || c.isSellingClimax) && !c.isSniperEntry
+      ).slice(0, Math.ceil(limit / 3))
     };
 
     return NextResponse.json({
