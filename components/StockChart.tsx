@@ -1056,17 +1056,54 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 // Predicta V4 contribution to conviction
                 const p4Bull = p4?.longPerfect ? 3 : (p4?.verdict === 'BULL' ? 1 : 0);
                 const p4Bear = p4?.shortPerfect ? 3 : (p4?.verdict === 'BEAR' ? 1 : 0);
-                const p4Ctx = p4
+                // ── Helper: human-readable plain-language explanation ──────
+                // Returns [technical_summary, plain_explanation]
+                const p4Plain = (p4: NonNullable<typeof indicators.predictaV4>): [string, string] => {
+                  const regime = p4.volRegime === 'HIGH' ? 'volatilitas tinggi (ATR high)' : p4.volRegime === 'LOW' ? 'volatilitas rendah (ATR low)' : 'volatilitas normal';
+                  const trendTxt   = p4.isUptrend ? 'Supertrend bullish ✓' : 'Supertrend bearish';
+                  const macdTxt    = p4.macdHistValue > 0 ? `MACD hist +${Math.abs(p4.macdHistValue).toFixed(2)} (bullish)` : `MACD hist ${p4.macdHistValue.toFixed(2)} (bearish)`;
+                  const deltaTxt   = p4.deltaBullish ? `Volume Delta positif +${Math.round(p4.volumeDeltaValue).toLocaleString('id-ID')} (buy pressure)` : `Volume Delta negatif ${Math.round(p4.volumeDeltaValue).toLocaleString('id-ID')} (sell pressure)`;
+                  const rsiTxt     = `RSI ${p4.rsiValue} (${p4.rsiAbove50 ? 'di atas 50, momentum naik' : 'di bawah 50, momentum lemah'})`;
+                  const stochTxt   = `Stoch K${p4.stochK}/D${p4.stochD} (${p4.stochAbove50 ? 'area bullish' : 'area bearish'})`;
+                  const adxTxt     = `ADX ${p4.adxValue} (${p4.adxStrong ? 'tren kuat' : 'tren lemah'})`;
+                  const volTxt     = `Vol Ratio ${p4.volRatio}x avg (${p4.volRatio >= 1.5 ? 'tinggi' : p4.volRatio >= 0.8 ? 'normal' : 'sepi'})`;
+                  const emaTxt     = p4.ema8 > p4.ema21 ? 'EMA8>EMA21 (short-term bullish)' : 'EMA8<EMA21 (short-term bearish)';
+                  const confTxt    = `Confluence ${p4.longPct >= p4.shortPct ? p4.confluenceLong : p4.confluenceShort}/8`;
+
+                  const tech = [trendTxt, macdTxt, deltaTxt, rsiTxt, stochTxt, adxTxt, volTxt, emaTxt, confTxt, regime].join(' · ');
+
+                  // Plain language
+                  let plain = '';
+                  if (p4.longPerfect) {
+                    plain = `Sistem Predicta V4 mendeteksi kondisi IDEAL untuk naik: seluruh 8 indikator (tren, MACD, volume delta, RSI, Stochastic, ADX, volume, dan EMA) selaras bullish dengan ${p4.confluenceLong}/8 poin konfirmasi. Volume delta (beli vs jual) positif — leading indicator paling kuat — memastikan ini bukan sinyal palsu. Probabilitas candle berikutnya naik: ${p4.longPct}%. Kondisi sangat optimal untuk entry, tapi tetap pasang stop loss.`;
+                  } else if (p4.shortPerfect) {
+                    plain = `Sistem Predicta V4 mendeteksi kondisi IDEAL untuk turun: seluruh indikator selaras bearish dengan ${p4.confluenceShort}/8 konfirmasi. Volume delta negatif (jual dominan) — tanda distribusi nyata. Probabilitas candle berikutnya turun: ${p4.shortPct}%. Hindari posisi beli baru.`;
+                  } else if (p4.verdict === 'BULL') {
+                    plain = `Predicta V4 menunjukkan kecenderungan NAIK (${p4.longPct}% probabilitas) dengan ${p4.confluenceLong}/8 indikator mendukung. ${p4.deltaBullish ? 'Volume beli lebih besar dari jual — sinyal positif.' : 'Volume delta belum sepenuhnya mendukung — perlu hati-hati.'} ${p4.adxStrong ? 'Tren cukup kuat.' : 'Tren masih lemah.'} Simpulan: setup cukup menarik tapi belum sempurna, tunggu 1-2 konfirmasi lagi.`;
+                  } else if (p4.verdict === 'BEAR') {
+                    plain = `Predicta V4 menunjukkan kecenderungan TURUN (${p4.shortPct}% probabilitas) dengan ${p4.confluenceShort}/8 indikator menekan. ${!p4.deltaBullish ? 'Volume jual dominan — tanda pelemahan serius.' : ''} Lebih aman wait & see atau kurangi posisi.`;
+                  } else {
+                    plain = `Predicta V4 menunjukkan kondisi NETRAL — tidak ada bias yang cukup kuat. ${p4.longPct}% cenderung naik, ${p4.shortPct}% cenderung turun. ${p4.deltaBullish ? 'Volume beli masih sedikit lebih besar, tapi belum meyakinkan.' : 'Volume jual sedikit dominan.'} ${p4.adxStrong ? 'ADX masih kuat, tren sedang berlangsung.' : 'ADX lemah — pasar sedang konsolidasi.'} Sebaiknya tunggu hingga salah satu arah lebih jelas.`;
+                  }
+                  return [tech, plain];
+                };
+
+                const p4TechShort = p4
                   ? p4.longPerfect
-                    ? ` ⚡ Predicta V4 PERFECT LONG (${p4.longPct}% bull, confluence ${p4.confluenceLong}/8) — Delta+Trend+MACD+RSI semua aligned.`
+                    ? `Predicta V4 ⚡ PERFECT LONG: ${p4.longPct}%L, ${p4.confluenceLong}/8 confluence, Supertrend+MACD+Delta+RSI+Stoch+ADX aligned.`
                     : p4.shortPerfect
-                    ? ` ⚡ Predicta V4 PERFECT SHORT (${p4.shortPct}% bear, confluence ${p4.confluenceShort}/8).`
+                    ? `Predicta V4 ⚡ PERFECT SHORT: ${p4.shortPct}%S, ${p4.confluenceShort}/8 confluence.`
                     : p4.verdict === 'BULL'
-                    ? ` Predicta V4: BULL ${p4.longPct}% (${p4.confluenceLong}/8 confluence).`
+                    ? `Predicta V4: BULL ${p4.longPct}% (${p4.confluenceLong}/8 confluence, Delta ${p4.deltaBullish ? 'buy+' : 'sell-'}, RSI ${p4.rsiValue}, ADX ${p4.adxValue}).`
                     : p4.verdict === 'BEAR'
-                    ? ` Predicta V4: BEAR ${p4.shortPct}% (${p4.confluenceShort}/8 confluence).`
-                    : ` Predicta V4: NEUTRAL (${p4.longPct}%L / ${p4.shortPct}%S).`
+                    ? `Predicta V4: BEAR ${p4.shortPct}% (${p4.confluenceShort}/8 confluence, Delta ${p4.deltaBullish ? 'buy' : 'sell-'}).`
+                    : `Predicta V4: NEUTRAL (${p4.longPct}%L/${p4.shortPct}%S, ${p4.confluenceLong}/8 confluence, RSI ${p4.rsiValue}, ADX ${p4.adxValue}, Delta ${p4.deltaBullish ? '+buy' : '-sell'}).`
                   : '';
+
+                const p4PlainText = p4 ? p4Plain(p4)[1] : '';
+
+                // Combined context: technical short + plain explanation
+                const p4Ctx = p4 ? ` ${p4TechShort} ${p4PlainText}` : '';
 
                 const bullScore = (bias === 'BULLISH' ? 2 : 0)
                   + (isVSABull ? 1 : 0) + (isWyBull ? 1 : 0) + (isVCPReady ? 1 : 0)
@@ -1081,58 +1118,74 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                   + (isBVDFakeBull ? 2 : 0)
                   + p4Bear;
 
-                // BVD context string
+                // BVD context (technical + plain)
                 const bvdCtx = isBVDFakeBull
-                  ? ` ⚠️ BVD: Breakout PALSU — bear vol ${bvd!.bearPct}% dominan, kemungkinan besar Upthrust/jebakan! Hindari entry.`
+                  ? ` ⚠️ BVD Upthrust: bull vol ${bvd!.bullPct}% vs bear vol ${bvd!.bearPct}% — bear dominan saat harga tembus resistance. Artinya: harga memang sempat naik menembus level atas, tapi yang JUAL lebih banyak dari yang BELI di momen itu — pertanda bandar buang saham di harga tinggi. Jangan terburu-buru BELI di breakout seperti ini.`
                   : isBVDRealBull
-                  ? ` 🚀 BVD: Breakout VALID — bull vol ${bvd!.bullPct}% dominan, institusi mendorong harga naik.`
+                  ? ` 🚀 BVD Real Breakout: bull vol ${bvd!.bullPct}% dominan. Artinya: saat harga tembus resistance, volume BELI jauh lebih besar — tanda institusi sungguh-sungguh mendorong harga naik, bukan jebakan.`
                   : isBVDFakeBear
-                  ? ` 🌱 BVD: Breakdown PALSU (Spring) — bull vol ${bvd!.bullPct}% dominan di area support, peluang reversal naik!`
+                  ? ` 🌱 BVD Spring: bull vol ${bvd!.bullPct}% dominan meski harga sempat breakdown. Artinya: harga dipaksa turun menembus support tapi yang BELI jauh lebih banyak — tanda smart money mengambil posisi di bawah support untuk markup selanjutnya.`
                   : isBVDRealBear
-                  ? ` 📉 BVD: Breakdown VALID — bear vol ${bvd!.bearPct}% dominan, jauhi posisi long.`
+                  ? ` 📉 BVD Real Breakdown: bear vol ${bvd!.bearPct}% dominan. Artinya: penjual sangat agresif saat harga jebol support — konfirmasi tekanan jual serius, bukan sekadar fluktuasi normal.`
                   : '';
 
                 let icon = '⬜', col = 'bg-gray-700/30 border-gray-600/30 text-gray-300', text = '';
 
-                // Fake breakout overrides everything — strongest warning
+                // Fake breakout — strongest warning
                 if (isBVDFakeBull && bearScore >= 2) {
                   icon = '🚨'; col = 'bg-red-900/40 border-red-500/50 text-red-200';
-                  text = `JEBAKAN BREAKOUT (Upthrust)! Bear vol ${bvd!.bearPct}% mendominasi saat harga tembus resistance — institusi DISTRIBUSI di atas level ini. CPP ${cpp}.${p4?.shortPerfect ? ' ⚡ Predicta V4 SHORT PERFECT mempertegas distribusi!' : p4Ctx}${isVSABear ? ' VSA juga konfirmasi distribusi.' : ''} Sangat disarankan TIDAK entry atau segera kurangi posisi.`;
-                // Spring / fake breakdown = strong buy setup
+                  text = `BVD Upthrust — bear vol ${bvd!.bearPct}% dominan, breakout palsu.${isVSABear ? ' VSA: distribusi aktif.' : ''}${p4?.shortPerfect ? ' Predicta V4 PERFECT SHORT konfirmasi distribusi.' : (p4 ? ` ${p4TechShort}` : '')} CPP ${cpp}.`
+                    + ` Artinya: harga naik menembus resistance tapi yang JUAL lebih banyak dari yang BELI — ini jebakan klasik (Wyckoff Upthrust). Bandar memanfaatkan euforia ritel untuk buang saham di harga tinggi. JANGAN entry, dan jika sudah punya posisi sebaiknya kurangi dulu.${p4PlainText ? ' ' + p4PlainText : ''}`;
+                // Spring
                 } else if (isBVDFakeBear && bullScore >= 2) {
                   icon = '🌱'; col = 'bg-green-900/40 border-green-500/50 text-green-200';
-                  text = `SPRING terdeteksi! Harga sempat tembus support tapi bull vol ${bvd!.bullPct}% dominan — smart money AKUMULASI di bawah support. CPP ${cpp > 0 ? '+' : ''}${cpp}.${p4Ctx}${isVSABull ? ' VSA konfirmasi kekuatan.' : ''} Setup reversal naik berkualitas tinggi.`;
-                // Real breakout confirmed
+                  text = `BVD Spring — bull vol ${bvd!.bullPct}% dominan di bawah support.${isVSABull ? ' VSA bullish.' : ''}${p4 ? ` ${p4TechShort}` : ''} CPP ${cpp > 0 ? '+' : ''}${cpp}.`
+                    + ` Artinya: harga sempat turun menembus support untuk "mengecoh" ritel agar panik jual, tapi pembeli (smart money) justru lebih dominan di bawah sana. Ini adalah setup reversal terkuat dalam teori Wyckoff — harga kemungkinan besar akan berbalik naik signifikan.${p4PlainText ? ' ' + p4PlainText : ''}`;
+                // Real breakout
                 } else if (isBVDRealBull && bullScore >= 3) {
                   icon = '🚀'; col = 'bg-green-900/30 border-green-600/30 text-green-200';
-                  text = `Breakout VALID — bull vol ${bvd!.bullPct}% konfirmasi momentum naik. CPP ${cpp > 0 ? '+' : ''}${cpp}.${p4Ctx}${isHAKA ? ' 🔥 HAKA Cooldown mendukung.' : ''}${isVCPReady ? ' VCP pivot siap.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup aktif.' : 'akumulasi.') : ''} Entry dengan stop di bawah level yang ditembus.`;
+                  text = `BVD Real Breakout — bull vol ${bvd!.bullPct}% konfirmasi.${isHAKA ? ' HAKA Cooldown aktif.' : ''}${isVCPReady ? ' VCP pivot terbentuk.' : ''}${isWyBull ? ` Wyckoff ${wyckoff.includes('MARKUP') ? 'markup' : 'akumulasi'}.` : ''}${p4 ? ` ${p4TechShort}` : ''} CPP ${cpp > 0 ? '+' : ''}${cpp}.`
+                    + ` Artinya: breakout ini VALID — saat harga menembus resistance, pembeli jauh lebih agresif dari penjual. Institusi sungguh-sungguh mendorong harga naik. Momentum ini cenderung berlanjut.${p4PlainText ? ' ' + p4PlainText : ''} Entry dengan stop loss di bawah level yang ditembus.`;
                 // Real breakdown
                 } else if (isBVDRealBear && bearScore >= 3) {
                   icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
-                  text = `Breakdown VALID — bear vol ${bvd!.bearPct}% konfirmasi tekanan jual.${bvdCtx} CPP ${cpp}.${p4Ctx}${isWyBear ? ' Wyckoff markdown aktif.' : ''} Hindari posisi baru, pertimbangkan cut loss.`;
-                // Predicta V4 Perfect Time (overrides standard scoring if strong)
+                  text = `BVD Real Breakdown — bear vol ${bvd!.bearPct}% dominan.${isWyBear ? ' Wyckoff markdown aktif.' : ''}${p4 ? ` ${p4TechShort}` : ''} CPP ${cpp}.`
+                    + ` Artinya: jebolnya support ini NYATA — penjual sangat dominan dan institusi tidak menahan harga. Tekanan jual serius, potensi turun lebih lanjut. Hindari beli, pertimbangkan cut loss.${p4PlainText ? ' ' + p4PlainText : ''}`;
+                // Predicta V4 Perfect Long
                 } else if (p4?.longPerfect && bullScore >= 3) {
                   icon = '⚡'; col = 'bg-emerald-900/40 border-emerald-500/50 text-emerald-200';
-                  text = `⚡ PREDICTA V4 PERFECT TIME LONG! ${p4.longPct}% probabilitas bullish. ${p4.confluenceLong}/8 confluence terpenuhi. Delta ${p4.deltaBullish ? 'bullish' : 'bearish'} — leading indicator konfirmasi. CPP ${cpp > 0 ? '+' : ''}${cpp}.${isHAKA ? ' 🔥 HAKA Cooldown.' : ''}${isVCPReady ? ' VCP pivot ready.' : ''}${isVSABull ? ' VSA bullish.' : ''}${bvdCtx} Kondisi optimal untuk entry.`;
+                  text = `${p4TechShort}${isHAKA ? ' HAKA Cooldown.' : ''}${isVCPReady ? ' VCP pivot.' : ''}${isVSABull ? ' VSA bullish.' : ''} CPP ${cpp > 0 ? '+' : ''}${cpp}.`
+                    + ` Artinya: ini adalah kondisi TERBAIK untuk masuk posisi beli. Semua 8 sistem indikator (tren, momentum, volume delta, RSI, Stochastic, ADX, volume, dan arah EMA) menunjukkan sinyal bullish sekaligus. Yang terpenting: volume delta (selisih beli vs jual di setiap candle) positif dan terkonfirmasi — ini leading indicator paling awal sebelum harga bergerak. Probabilitas naik ${p4.longPct}%.${bvdCtx}`;
+                // Predicta V4 Perfect Short
                 } else if (p4?.shortPerfect && bearScore >= 3) {
                   icon = '⚡'; col = 'bg-red-900/40 border-red-500/50 text-red-200';
-                  text = `⚡ PREDICTA V4 PERFECT TIME SHORT! ${p4.shortPct}% probabilitas bearish. ${p4.confluenceShort}/8 confluence. Delta bearish konfirmasi. CPP ${cpp}.${isVSABear ? ' VSA distribusi.' : ''}${bvdCtx} Kurangi/hindari posisi long.`;
-                // Standard scoring without BVD
+                  text = `${p4TechShort}${isVSABear ? ' VSA distribusi.' : ''} CPP ${cpp}.`
+                    + ` Artinya: kondisi IDEAL untuk menghindari atau keluar dari posisi beli. Seluruh indikator menekan ke bawah, dan volume delta negatif (jual lebih besar dari beli) — tanda distribusi serius oleh institusi. Probabilitas turun ${p4.shortPct}%.${bvdCtx}`;
+                // Standard: strong bull
                 } else if (bullScore >= 4) {
                   icon = '🚀'; col = 'bg-green-900/30 border-green-600/30 text-green-200';
-                  text = `Sinyal KUAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp} momentum bullish kuat.${p4Ctx}${isHAKA ? ' 🔥 HAKA Cooldown: markup agresif dengan sell vol rendah — berpotensi naik lagi!' : ''}${isVCPReady ? ' VCP pivot terbentuk, risiko/reward optimal.' : ''}${isVSABull && !isHAKA ? ' VSA konfirmasi akumulasi institusi.' : ''}${bvdCtx} Entry dengan stop di bawah support.`;
+                  text = `VSA: ${vsa || 'bullish'}. Wyckoff: ${wyckoff || 'akumulasi/markup'}. CPP ${cpp > 0 ? '+' : ''}${cpp} bullish. EVR ${evr > 0 ? '+' : ''}${evr.toFixed(2)}.${isVCPReady ? ' VCP pivot.' : ''}${p4 ? ` ${p4TechShort}` : ''}`
+                    + ` Artinya: banyak sinyal teknikal yang selaras ke atas sekaligus — tekanan beli dari institusi, pola akumulasi Wyckoff, dan momentum yang kuat. Ini adalah setup berkualitas tinggi.${isHAKA ? ' Saham sudah spike kuat lalu tenang (HAKA Cooldown) — biasanya ini jeda sebelum lanjut naik lagi.' : ''}${isVCPReady ? ' VCP pivot terbentuk: volatilitas sangat menyempit, siap meledak.' : ''}${p4PlainText ? ' ' + p4PlainText : ''}${bvdCtx} Entry dengan stop di bawah support terdekat.`;
+                // Moderate bull
                 } else if (bullScore >= 2 && bearScore === 0) {
                   icon = '🟢'; col = 'bg-green-900/20 border-green-700/30 text-green-300';
-                  text = `Sinyal MODERAT BELI — CPP ${cpp > 0 ? '+' : ''}${cpp}.${p4Ctx}${isHAKA ? ' 🔥 HAKA Cooldown.' : isVSABull ? ' VSA bullish.' : ''}${isWyBull ? ' Wyckoff ' + (wyckoff.includes('MARKUP') ? 'markup.' : 'akumulasi.') : ''}${bvdCtx} Tunggu konfirmasi volume.`;
+                  text = `VSA: ${vsa || 'netral-bullish'}. Wyckoff: ${wyckoff || '-'}. CPP ${cpp > 0 ? '+' : ''}${cpp}.${p4 ? ` ${p4TechShort}` : ''}`
+                    + ` Artinya: ada beberapa tanda positif tapi belum semua sinyal selaras. ${isHAKA ? 'HAKA Cooldown: saham sedang jeda setelah spike — tunggu volume konfirmasi untuk entry.' : isVSABull ? 'VSA menunjukkan akumulasi institusi, tapi volume konfirmasi belum muncul.' : 'Tren terlihat ke atas tapi masih perlu bukti dari volume.'} ${p4PlainText ? p4PlainText : 'Tunggu 1-2 candle konfirmasi sebelum entry.'}${bvdCtx}`;
+                // Strong bear
                 } else if (bearScore >= 4) {
                   icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
-                  text = `Sinyal KUAT JUAL — CPP ${cpp}.${p4Ctx}${isVSABear ? ' VSA distribusi.' : ''}${isWyBear ? ' Wyckoff ' + (wyckoff.includes('MARKDOWN') ? 'markdown.' : 'distribusi.') : ''}${bvdCtx} Hindari posisi baru, cut loss.`;
+                  text = `VSA: ${vsa || 'bearish'}. Wyckoff: ${wyckoff || 'distribusi/markdown'}. CPP ${cpp}.${p4 ? ` ${p4TechShort}` : ''}`
+                    + ` Artinya: banyak sinyal teknikal yang selaras ke bawah — distribusi oleh institusi, Wyckoff markdown, dan momentum yang melemah. Sangat tidak disarankan membuka posisi baru. Jika masih pegang saham, pertimbangkan cut loss atau trailing stop.${p4PlainText ? ' ' + p4PlainText : ''}${bvdCtx}`;
+                // Moderate bear
                 } else if (bearScore >= 2 && bullScore === 0) {
                   icon = '🟡'; col = 'bg-yellow-900/20 border-yellow-700/30 text-yellow-200';
-                  text = `Sinyal WASPADA — CPP ${cpp} melemah.${p4Ctx}${isVSABear ? ' Tanda distribusi.' : ''}${bvdCtx} Kurangi posisi atau trailing stop.`;
+                  text = `VSA: ${vsa || 'melemah'}. CPP ${cpp} (melemah).${p4 ? ` ${p4TechShort}` : ''}`
+                    + ` Artinya: ada tanda-tanda pelemahan yang mulai muncul. Bukan waktu terbaik untuk entry baru. Jika punya posisi, pertimbangkan untuk pasang trailing stop atau kurangi sebagian.${p4PlainText ? ' ' + p4PlainText : ''}${bvdCtx}`;
+                // Neutral
                 } else {
                   icon = '⬜'; col = 'bg-gray-700/20 border-gray-600/30 text-gray-300';
-                  text = `Sinyal NETRAL — CPP ${cpp}, supply-demand seimbang.${p4Ctx}${isVCPReady ? ' VCP base, pantau breakout+volume.' : ''}${bvdCtx} Tunggu sinyal tegas.`;
+                  text = `CPP ${cpp}. VSA: ${vsa || 'netral'}. Wyckoff: ${wyckoff || 'konsolidasi'}.${isVCPReady ? ' VCP base terbentuk.' : ''}${p4 ? ` ${p4TechShort}` : ''}`
+                    + ` Artinya: pasar sedang tidak punya arah yang jelas — kekuatan beli dan jual hampir seimbang. ${isVCPReady ? 'VCP base sedang terbentuk: volatilitas menyempit, pantau kapan volume meledak untuk konfirmasi breakout.' : 'Ini saatnya menunggu, bukan bertindak.'} ${p4PlainText ? p4PlainText : 'Tunggu sinyal yang lebih tegas sebelum entry.'}${bvdCtx}`;
                 }
 
                 return (
