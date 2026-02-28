@@ -272,13 +272,52 @@ function calcRyanFilbert(C: number[], H: number[], L: number[], V: number[], i: 
   if (rs >= 65) score += 10; if (baseLength >= 5 && baseRange < 15) score += 8;
   if (baseCount >= 3) score -= (baseCount - 2) * 5;
   score = Math.max(0, Math.min(100, Math.round(score)));
+  // ── Missing criteria diagnostics ──
+  const missingCriteria: string[] = [];
+  if (!aboveMA150)      missingCriteria.push('harga belum di atas MA150');
+  if (!aboveMA200)      missingCriteria.push('harga belum di atas MA200');
+  if (!ma150AboveMA200) missingCriteria.push('MA150 belum di atas MA200');
+  if (!ma50Rising)      missingCriteria.push('MA50 belum naik');
+  if (!baseVolumeDryUp) missingCriteria.push('volume belum dry-up (penjual masih aktif)');
+  if (baseRange >= 20)  missingCriteria.push(`base terlalu lebar (${Math.round(baseRange)}%, idealnya <20%)`);
+
   let signal: RFResult['signal']; let signalReason: string;
-  if (phase === 4 || (!aboveMA150 && !aboveMA200)) { signal = 'AVOID'; signalReason = 'Fase 4 / Di bawah MA150 & MA200. Trend rusak, hindari.'; }
-  else if (phase === 2 && score >= 65 && baseVolumeDryUp && baseRange < 20) { signal = 'BUY'; signalReason = `Fase 2 B${baseCount}: Setup bullish kuat. Base ${Math.round(baseRange)}% range, vol kering. Pivot Rp${pivotEntry.toLocaleString('id-ID')}, SL Rp${sl.toLocaleString('id-ID')}, TP Rp${tp.toLocaleString('id-ID')} (R:R ${rr}x)`; }
-  else if (phase === 2 && score >= 50) { signal = 'WAIT'; signalReason = `Fase 2 B${baseCount}: Trend bagus tapi belum ideal. Tunggu vol dry-up & base lebih ketat.`; }
-  else if (phase === 1) { signal = 'WAIT'; signalReason = 'Fase 1 / Basing: Monitor. Tunggu breakout Phase 2 dengan volume tinggi.'; }
-  else { signal = 'WAIT'; signalReason = `Fase ${phase}: Belum memenuhi semua kriteria Ryan Filbert. Score: ${score}/100.`; }
-  const setupQuality: RFResult['setupQuality'] = score >= 80 && phase === 2 && baseCount <= 2 ? 'PERFECT' : score >= 65 && phase === 2 ? 'GOOD' : score >= 45 ? 'FAIR' : 'POOR';
+  if (phase === 4 || (!aboveMA150 && !aboveMA200)) {
+    signal = 'AVOID';
+    signalReason = 'Fase 4 / Di bawah MA150 & MA200 — trend rusak. Jangan masuk, tunggu saham masuk Fase 1 basing dulu.';
+  } else if (phase === 2 && score >= 65 && baseVolumeDryUp && baseRange < 20) {
+    signal = 'BUY';
+    signalReason = `✅ SEMUA KRITERIA TERPENUHI. Base B${baseCount} ketat (${Math.round(baseRange)}%), volume sudah kering, MA alignment bullish. Pivot Rp${pivotEntry.toLocaleString('id-ID')}, SL Rp${sl.toLocaleString('id-ID')}, TP Rp${tp.toLocaleString('id-ID')} (R:R ${rr}x). Beli saat harga menembus pivot dengan volume ≥1.5× rata-rata.`;
+  } else if (phase === 2 && score >= 65 && !baseVolumeDryUp && baseRange < 20) {
+    signal = 'WAIT';
+    signalReason = `⏳ MA alignment bagus (score ${score}/100), base ketat ✓ — TAPI volume belum kering, penjual masih aktif. Tunggu 1–3 hari hingga volume harian < rata-rata × 0.7. Pivot target: Rp${pivotEntry.toLocaleString('id-ID')}.`;
+  } else if (phase === 2 && score >= 65 && baseVolumeDryUp && baseRange >= 20) {
+    signal = 'WAIT';
+    signalReason = `⏳ Volume sudah kering ✓ — TAPI base masih lebar (${Math.round(baseRange)}%, idealnya <20%). Tunggu VCP kontraksi lebih lanjut hingga range menyempit. Supply belum bersih sepenuhnya.`;
+  } else if (phase === 2 && score >= 50) {
+    const missing = missingCriteria.length > 0 ? ` Belum terpenuhi: ${missingCriteria.slice(0,3).join(', ')}.` : '';
+    signal = 'WAIT';
+    signalReason = `⏳ Fase 2 benar (uptrend aktif), score ${score}/100 — belum semua kriteria Ryan Filbert terpenuhi.${missing} Pantau terus, setup sedang terbentuk.`;
+  } else if (phase === 1) {
+    signal = 'WAIT';
+    signalReason = 'Fase 1 — Basing: Saham masih membangun base. Tunggu breakout ke Fase 2 dengan volume tinggi (≥1.5× rata-rata). Belum saatnya masuk.';
+  } else if (phase === 3) {
+    signal = 'WAIT';
+    signalReason = 'Fase 3 — Topping: Harga di area puncak, risiko distribusi tinggi. Jangan beli baru. Jika sudah pegang, pasang trailing stop ketat.';
+  } else {
+    signal = 'WAIT';
+    signalReason = `Fase ${phase} — Score ${score}/100, belum memenuhi standar minimum.${missingCriteria.length > 0 ? ' Kurang: ' + missingCriteria.slice(0,2).join(' & ') + '.' : ''}`;
+  }
+  // setupQuality MUST be consistent with signalReason to prevent confusing "PERFECT but WAIT" display
+  // PERFECT = BUY signal (all criteria met: phase2 + score≥65 + volDryUp + tight base)
+  // GOOD    = WAIT with phase2 correct + score≥65 (almost there — 1-2 criteria missing)
+  // FAIR    = WAIT with decent phase2 score ≥50 but more criteria missing
+  // POOR    = phase 3/4 or low score
+  const setupQuality: RFResult['setupQuality'] =
+    signal === 'BUY' ? 'PERFECT' :
+    phase === 2 && score >= 65 ? 'GOOD' :
+    phase === 2 && score >= 50 ? 'FAIR' :
+    score >= 45 ? 'FAIR' : 'POOR';
   return { phase, phaseLabel, baseLabel: `B${baseCount}`, baseCount, pivotEntry, stopLoss: sl, targetPrice: tp, riskReward: rr, aboveMA150, aboveMA200, ma150AboveMA200, ma50Rising, breakoutVolumeConfirmed, baseVolumeDryUp, relativeStrength: rs, rsLabel, signal, signalReason, score, setupQuality };
 }
 
@@ -521,7 +560,16 @@ function RyanFilbertPanel({rf}:{rf:RFResult}){
   const phaseBg:Record<string,string>={UPTREND:'bg-emerald-900/20 border-emerald-500/30',BASING:'bg-cyan-900/20 border-cyan-500/30',TOPPING:'bg-orange-900/20 border-orange-500/30',DOWNTREND:'bg-red-900/20 border-red-500/30'};
   const sigColors:Record<string,string>={BUY:'text-emerald-400 bg-emerald-500/15 border-emerald-500/40',WAIT:'text-yellow-400 bg-yellow-500/15 border-yellow-500/40',AVOID:'text-red-400 bg-red-500/15 border-red-500/40'};
   const qCol={PERFECT:'text-emerald-300',GOOD:'text-green-400',FAIR:'text-yellow-400',POOR:'text-red-400'};
-  const phaseDesc={UPTREND:'Fase 2 — Uptrend aktif. Harga di atas semua MA, alignment bullish.',BASING:'Fase 1 — Basing/Konsolidasi. Membangun base, monitor breakout.',TOPPING:'Fase 3 — Topping. Harga dekat puncak, waspadai distribusi.',DOWNTREND:'Fase 4 — Downtrend. Hindari. Tunggu basing kembali.'};
+  const phaseDesc={UPTREND:'Fase 2 — Uptrend aktif. Harga di atas MA, struktur bullish.',BASING:'Fase 1 — Basing/Konsolidasi. Membangun base, monitor breakout.',TOPPING:'Fase 3 — Topping. Harga dekat puncak, waspadai distribusi.',DOWNTREND:'Fase 4 — Downtrend. Hindari. Tunggu basing kembali.'};
+  const signalSubtitle = rf.signal === 'BUY'
+    ? `✅ Semua kriteria terpenuhi — Setup PERFECT, siap entry.`
+    : rf.signal === 'WAIT' && rf.setupQuality === 'GOOD'
+    ? `⏳ Setup GOOD — Hampir sempurna! 1–2 kriteria lagi sebelum entry. Lihat checklist.`
+    : rf.signal === 'WAIT' && rf.phase === 2
+    ? `⏳ Setup ${rf.setupQuality} — Fase benar, belum semua kriteria terpenuhi. Lihat checklist.`
+    : rf.signal === 'AVOID'
+    ? `🚫 Trend rusak — jangan beli, tunggu base terbentuk.`
+    : `⏳ Belum memenuhi kriteria. Score: ${rf.score}/100.`;
   return(
     <div className={`rounded-xl border overflow-hidden ${phaseBg[rf.phaseLabel]||'bg-gray-900/20 border-gray-700/30'}`}>
       {/* Header */}
@@ -534,8 +582,9 @@ function RyanFilbertPanel({rf}:{rf:RFResult}){
         <span className={`text-xs font-bold ${phaseColors[rf.phaseLabel]}`}>Fase {rf.phase} — {rf.phaseLabel}</span>
       </div>
       {/* Phase description */}
-      <div className="px-3 pt-2 pb-1">
+      <div className="px-3 pt-2 pb-1 space-y-1">
         <p className={`text-xs ${phaseColors[rf.phaseLabel]} leading-relaxed`}>{phaseDesc[rf.phaseLabel]}</p>
+        <p className="text-xs text-gray-300 leading-relaxed">{signalSubtitle}</p>
       </div>
       {/* Metrics grid */}
       <div className="grid grid-cols-3 gap-px bg-gray-700/20 text-center text-xs mx-3 mb-2 rounded-lg overflow-hidden">
@@ -550,9 +599,9 @@ function RyanFilbertPanel({rf}:{rf:RFResult}){
           <div className={`text-xs ${rf.rsLabel==='STRONG'?'text-emerald-500':rf.rsLabel==='NEUTRAL'?'text-yellow-500':'text-red-500'}`}>{rf.rsLabel}</div>
         </div>
         <div className="bg-gray-900/60 py-2 px-1">
-          <div className="text-gray-500 text-xs">Setup</div>
-          <div className={`font-bold ${qCol[rf.setupQuality]}`}>{rf.setupQuality}</div>
-          <div className="text-gray-500 text-xs">{rf.score}/100</div>
+          <div className="text-gray-500 text-xs">Score</div>
+          <div className={`font-bold ${qCol[rf.setupQuality]}`}>{rf.score}/100</div>
+          <div className={`text-xs font-semibold ${qCol[rf.setupQuality]}`}>{rf.setupQuality}</div>
         </div>
       </div>
       {/* MA alignment */}
@@ -729,9 +778,16 @@ function ResultCard({r}:{r:AnalysisResult}){
     // Ryan Filbert
     const{rf}=r;
     if(rf){
-      const pfMap={UPTREND:'Fase 2 UPTREND (Ryan Filbert): Saham dalam kondisi ideal swing trade — harga di atas MA50, MA150, MA200 dalam alignment bullish. Ini fase terbaik untuk beli dan hold.',BASING:'Fase 1 BASING (Ryan Filbert): Harga sedang konsolidasi membangun base. Potensi ada, tapi butuh breakout konfirmasi volume tinggi dulu.',TOPPING:'Fase 3 TOPPING (Ryan Filbert): Tanda-tanda distribusi. Harga dekat puncak, MA mulai mendatar. Hati-hati beli baru.',DOWNTREND:'Fase 4 DOWNTREND (Ryan Filbert): Hindari. Harga di bawah semua MA besar. Tunggu base terbentuk kembali.'};
-      const bcMsg=rf.baseCount<=2?`${rf.baseLabel} (base segar, potensi terbaik)`:`${rf.baseLabel} (base ke-${rf.baseCount}, risiko lebih tinggi)`;
-      techLines.push(`📚 Ryan Filbert (${rf.phaseLabel}): ${pfMap[rf.phaseLabel]} Base count: ${bcMsg}. RS: ${rf.relativeStrength} (${rf.rsLabel}). Setup quality: ${rf.setupQuality} (${rf.score}/100). ${rf.signalReason}`);
+      const pfMap={UPTREND:'Fase 2 UPTREND — Kondisi ideal swing trade. Harga di atas MA50/150/200 dalam alignment bullish.',BASING:'Fase 1 BASING — Harga konsolidasi membangun base. Tunggu breakout volume tinggi.',TOPPING:'Fase 3 TOPPING — Tanda distribusi. Hindari beli baru, pasang trailing stop jika sudah hold.',DOWNTREND:'Fase 4 DOWNTREND — Hindari. Tunggu base terbentuk kembali.'};
+      const bcMsg=rf.baseCount<=2?`${rf.baseLabel} (segar)`:`${rf.baseLabel} (late stage, risiko lebih tinggi)`;
+      const missingItems:string[]=[];
+      if(!rf.aboveMA150) missingItems.push('harga di atas MA150');
+      if(!rf.aboveMA200) missingItems.push('harga di atas MA200');
+      if(!rf.ma150AboveMA200) missingItems.push('MA150>MA200');
+      if(!rf.ma50Rising) missingItems.push('MA50 naik');
+      if(!rf.baseVolumeDryUp) missingItems.push('volume dry-up');
+      const missingStr=missingItems.length>0?` Belum terpenuhi: ${missingItems.slice(0,3).join(', ')}.`:'';
+      techLines.push(`📚 Ryan Filbert: ${pfMap[rf.phaseLabel]} Score: ${rf.score}/100 | Setup: ${rf.setupQuality} | Base: ${bcMsg} | RS: ${rf.relativeStrength} (${rf.rsLabel}).${missingStr} Aksi: ${rf.signalReason}`);
     }
     // ── BAGIAN 3: Saran aksi dengan penjelasan "position size konservatif" ──
     let actionAdvice='';

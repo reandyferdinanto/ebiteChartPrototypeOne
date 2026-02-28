@@ -27,8 +27,21 @@ interface SwingResult {
   accRatio: number; cppScore: number; cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
   powerScore: number; rmv: number; volRatio: number; momentum10: number;
   ma20: number; ma50: number; cooldownVSA: string;
-  grade: 'A+' | 'A' | 'B'; entryType: 'SNIPER' | 'BREAKOUT' | 'WATCH';
+  grade: 'PERFECT' | 'GOOD'; entryType: 'SNIPER' | 'BREAKOUT' | 'WATCH';
   reason: string; stopLoss: number; target: number;
+  // Ryan Filbert / Stan Weinstein fields
+  rfPhase: 2 | 1;
+  rfPhaseLabel: string;
+  rfScore: number;
+  aboveMA150: boolean;
+  aboveMA200: boolean;
+  ma150AboveMA200: boolean;
+  ma50Rising: boolean;
+  ma200Rising: boolean;
+  baseVolumeDryUp: boolean;
+  breakoutVolumeConfirmed: boolean;
+  baseLabel: string;
+  relativeStrength: number;
 }
 interface ScalpResult {
   symbol: string; price: number; changePercent: number;
@@ -37,7 +50,7 @@ interface ScalpResult {
   accRatio: number; volRatio: number; cppScore: number;
   cppBias: 'BULLISH' | 'NEUTRAL' | 'BEARISH'; powerScore: number;
   rmv: number; aboveMA20: boolean; aboveMA50: boolean; vsaSignal: string;
-  grade: 'A+' | 'A' | 'B'; entryType: 'SNIPER' | 'WATCH';
+  grade: 'PERFECT' | 'GOOD'; entryType: 'SNIPER' | 'WATCH';
   stopLoss: number; target: number; reason: string;
 }
 interface SpringResult {
@@ -53,7 +66,7 @@ interface SpringResult {
   // VSA around spring
   vsaSignal: string; // NO SUPPLY, DRY UP, HAMMER, etc
   springType: 'STRONG' | 'MODERATE' | 'WEAK'; // strength of the spring
-  grade: 'A+' | 'A' | 'B';
+  grade: 'PERFECT' | 'GOOD';
   stopLoss: number; target: number; reason: string;
 }
 
@@ -197,50 +210,227 @@ function calcRMV(H: number[], L: number[], C: number[], i: number): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SWING LOGIC
+// SWING LOGIC — Ryan Filbert / Stan Weinstein Method (REBUILT)
 // ─────────────────────────────────────────────────────────────────────────────
-function screenSwing(data: any[], todayChg: number): Omit<SwingResult,'symbol'|'change'|'changePercent'> | null {
+// WAJIB FASE 2 (Stan Weinstein): Harga > MA50 > MA150 > MA200
+// MA50 naik, MA150 > MA200 (bullish stack), MA200 flat/naik
+// BASE: konsolidasi setelah BO, volume kering ≤60% avg, spread menyempit
+// BREAKOUT (HAKA): hijau, vol ≥1.5×avg, close upper 60% range, body ≥35% range
+// SL: di bawah base low atau MA terdekat
+// TP: R:R minimum 1.5×, ideal 2×–3×
+// ─────────────────────────────────────────────────────────────────────────────
+function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|'change'|'changePercent'> | null {
   const C: number[]=[], O: number[]=[], H: number[]=[], L: number[]=[], V: number[]=[];
-  for (const d of data) { if (d.close!==null && d.volume>0) { C.push(d.close);O.push(d.open);H.push(d.high);L.push(d.low);V.push(d.volume); } }
-  const n=C.length; if (n<60) return null; const i=n-1;
-  const ma20=calcSMA(C,20,i), ma50=calcSMA(C,50,i), atr14=calcATR(H,L,C,14,i), rmvVal=calcRMV(H,L,C,i);
-  const cppRaw=calcCPP(C,O,H,L,V,i);
-  const cppBias: 'BULLISH'|'NEUTRAL'|'BEARISH' = cppRaw>0.4?'BULLISH':cppRaw<-0.4?'BEARISH':'NEUTRAL';
-  const cppScore=parseFloat(cppRaw.toFixed(2)), powerScore=Math.max(0,Math.min(100,Math.round(50+(cppRaw/1.5)*45)));
-  let vs=0,ss=0; for (let k=i-19;k<=i;k++){vs+=V[k];ss+=H[k]-L[k];} const va=vs/20,sa=ss/20;
-  let bv=0,sv=0; for (let k=i-9;k<=i;k++){if(C[k]>O[k])bv+=V[k];else if(C[k]<O[k])sv+=V[k];}
-  const acc=bv/(sv||1), vr=V[i]/(va||1), mom10=((C[i]-C[i-10])/C[i-10])*100;
-  if (mom10<=-5||cppBias==='BEARISH'||acc<0.8||C[i]<ma20*0.97) return null;
-  let baseIdx=-1,gainFromBase=0;
-  if (todayChg>=3){baseIdx=i-1;gainFromBase=todayChg;}
-  if (baseIdx<0) for (let lb=1;lb<=8;lb++){const r=i-lb;if(r<0)continue;const g=((C[i]-C[r])/C[r])*100;if(g>=3){baseIdx=r;gainFromBase=g;break;}}
-  if (baseIdx<0||gainFromBase<3) return null;
-  let peak=C[baseIdx]; for (let k=baseIdx+1;k<=i;k++){if(H[k]>peak)peak=H[k];}
-  const pb=((peak-C[i])/peak)*100; if (pb>7) return null;
-  const cd=i-baseIdx; if (cd>10) return null;
-  let csv=0,ctv=0,css=0; const cs=baseIdx+1<=i?baseIdx+1:i;
-  for (let k=cs;k<=i;k++){ctv+=V[k];css+=H[k]-L[k];if(C[k]<O[k])csv+=V[k];}
-  const svr=ctv>0?csv/ctv:0, acs=cd>0?css/Math.max(1,cd):H[i]-L[i], bbs=H[baseIdx]-L[baseIdx];
-  const ivc=acs<bbs*0.9||acs<sa*0.85;
-  if (cd>0&&svr>=0.55) return null; if (C[i]<C[baseIdx]*0.93) return null;
-  const p1=cppBias==='BULLISH',p2=acc>=1.2,p3=rmvVal<=55,p4=mom10>=3,p5=todayChg>=3;
-  const pc=[p1,p2,p3,p4,p5].filter(Boolean).length; if (pc<2) return null;
-  const cs2=H[i]-L[i],cb=Math.abs(C[i]-O[i]),ig=C[i]>=O[i];
-  const lw=Math.min(O[i],C[i])-L[i],uw=H[i]-Math.max(O[i],C[i]);
-  const du=(!ig||cb<cs2*0.3)&&vr<=0.70&&acc>0.8;
-  const ns=!ig&&cs2<atr14&&vr<0.80&&acc>0.9;
-  const ib=vr>1.1&&(cs2/(sa||1))<0.80&&acc>1.1;
-  const hm=lw>cb&&uw<cb*0.7&&(lw/(cs2||1))>0.4;
-  const tgc=todayChg>=3&&ig&&svr<0.3;
-  let vsa='NEUTRAL';
-  if(tgc&&du)vsa='DRY UP';else if(du)vsa='DRY UP';else if(ns)vsa='NO SUPPLY';else if(ib)vsa='ICEBERG';else if(hm)vsa='HAMMER';else if(tgc)vsa='GAINER HOLD';
-  const hbv=vsa!=='NEUTRAL', vcp=ivc&&rmvVal<=50&&svr<0.40;
-  let grade:'A+'|'A'|'B', et:'SNIPER'|'BREAKOUT'|'WATCH';
-  if(pc>=4&&hbv&&vcp){grade='A+';et='SNIPER';}else if(pc>=3&&hbv){grade='A';et='SNIPER';}else if(pc>=3&&vcp){grade='A';et='SNIPER';}else if(pc>=2&&hbv){grade='A';et='SNIPER';}else if(pc>=2&&vcp){grade='B';et='WATCH';}else if(pc>=2&&p1&&acc>=1.1){grade='B';et='WATCH';}else if(pc>=2&&p5){grade='B';et='WATCH';}else return null;
-  const pts=[`+${gainFromBase.toFixed(1)}% (${cd===0?'today':cd+'d ago'})`,`Pullback ${pb.toFixed(1)}%`,`Sell ${Math.round(svr*100)}%`];
-  if(hbv)pts.push(vsa);if(vcp)pts.push(`VCP ${Math.round(rmvVal)}`);if(p1)pts.push(`CPP +${cppScore}`);if(acc>=1.2)pts.push(`Acc ${acc.toFixed(1)}x`);pts.push(`Mtm +${mom10.toFixed(1)}%`);
-  const sm=vcp?1.0:1.3,tm=grade==='A+'?3.5:grade==='A'?3.0:2.5;
-  return {price:C[i],gainFromBase,cooldownBars:cd,sellVolRatio:svr,accRatio:acc,cppScore,cppBias,powerScore,rmv:rmvVal,volRatio:vr,momentum10:mom10,ma20,ma50,cooldownVSA:vsa,grade,entryType:et,reason:pts.join(' · '),stopLoss:parseFloat((C[i]-atr14*sm).toFixed(0)),target:parseFloat((C[i]+atr14*tm).toFixed(0))};
+  for (const d of data) {
+    if (d.close !== null && d.volume > 0) {
+      C.push(d.close); O.push(d.open); H.push(d.high); L.push(d.low); V.push(d.volume);
+    }
+  }
+  const n = C.length; if (n < 60) return null;
+  const i = n - 1;
+
+  // ── MA (Ryan Filbert uses MA50, MA150, MA200) ─────────────────────────────
+  const ma20  = calcSMA(C, 20, i);
+  const ma50  = calcSMA(C, 50, i);
+  const ma150 = n >= 150 ? calcSMA(C, 150, i) : 0;
+  const ma200 = n >= 200 ? calcSMA(C, 200, i) : 0;
+  const atr14 = calcATR(H, L, C, 14, i);
+  const rmvVal = calcRMV(H, L, C, i);
+
+  // MA slopes
+  const ma50Prev   = calcSMA(C, 50,  Math.max(49, i - 5));
+  const ma150Prev  = n >= 155 ? calcSMA(C, 150, Math.max(149, i - 5)) : 0;
+  const ma200Prev  = n >= 210 ? calcSMA(C, 200, Math.max(199, i - 10)) : 0;
+  const ma50Rising  = ma50 > ma50Prev * 1.0003;
+  const ma200Rising = ma200 > 0 && ma200 >= ma200Prev;
+
+  // Phase 2 booleans
+  const aboveMA50  = C[i] > ma50;
+  const aboveMA150 = ma150 > 0 ? C[i] > ma150 : aboveMA50;
+  const aboveMA200 = ma200 > 0 ? C[i] > ma200 : aboveMA50;
+  const ma150AboveMA200 = (ma150 > 0 && ma200 > 0) ? ma150 > ma200 : false;
+
+  // GATE: must be Phase 2 (above MA50 + MA50 rising)
+  if (!aboveMA50 || !ma50Rising) return null;
+  if (ma200 > 0 && C[i] < ma200 * 0.93) return null;
+
+  const rfPhase2Strong = aboveMA150 && aboveMA200 && ma150AboveMA200 && ma50Rising;
+  const rfPhaseLabel = rfPhase2Strong ? 'UPTREND KUAT' : 'UPTREND';
+
+  // ── Volume & Spread Baselines ─────────────────────────────────────────────
+  let volSum = 0, spreadSum = 0;
+  for (let k = i - 19; k <= i; k++) { volSum += V[k]; spreadSum += H[k] - L[k]; }
+  const volAvg20    = volSum / 20;
+  const spreadAvg20 = spreadSum / 20;
+
+  let buyVol = 0, sellVol = 0;
+  for (let k = i - 9; k <= i; k++) {
+    if (C[k] > O[k]) buyVol += V[k]; else if (C[k] < O[k]) sellVol += V[k];
+  }
+  const accRatio = buyVol / (sellVol || 1);
+  const volRatio  = V[i] / (volAvg20 || 1);
+  const mom10     = n > 11 ? ((C[i] - C[i-10]) / C[i-10]) * 100 : 0;
+
+  if (mom10 <= -10) return null;
+  if (accRatio < 0.6) return null;
+
+  // ── CPP & Power ───────────────────────────────────────────────────────────
+  const cppRaw = calcCPP(C, O, H, L, V, i);
+  const cppBias: 'BULLISH'|'NEUTRAL'|'BEARISH' = cppRaw > 0.3 ? 'BULLISH' : cppRaw < -0.3 ? 'BEARISH' : 'NEUTRAL';
+  const cppScore   = parseFloat(cppRaw.toFixed(2));
+  const powerScore = Math.max(0, Math.min(100, Math.round(50 + (cppRaw / 1.5) * 45)));
+  if (cppBias === 'BEARISH' && accRatio < 1.0) return null;
+
+  // ── STEP 1: Find Breakout Candle (HAKA) ───────────────────────────────────
+  let boIdx = -1, boGain = 0;
+  for (let lb = 1; lb <= 20; lb++) {
+    const j = i - lb; if (j < 20) break;
+    const spread_j = H[j] - L[j];
+    const body_j   = C[j] - O[j];
+    const closePos = spread_j > 0 ? (C[j] - L[j]) / spread_j : 0;
+    const vr_j     = V[j] / (volAvg20 || 1);
+    const isBO = body_j > 0 && vr_j >= 1.5 && closePos >= 0.60 && body_j >= spread_j * 0.35 && spread_j >= spreadAvg20 * 0.7;
+    if (!isBO) continue;
+    const g = ((C[i] - C[j]) / C[j]) * 100;
+    if (g < -5 || g > 25) continue;
+    if (g < 1 && lb > 2) continue;
+    boIdx = j; boGain = g; break;
+  }
+  if (boIdx < 0) return null;
+  const breakoutVolumeConfirmed = V[boIdx] / (volAvg20 || 1) >= 1.5;
+
+  // ── STEP 2: Base/Cooldown Phase ───────────────────────────────────────────
+  const cooldownBars = i - boIdx;
+  if (cooldownBars < 1 || cooldownBars > 15) return null;
+  let peakHigh = H[boIdx];
+  for (let k = boIdx + 1; k <= i; k++) if (H[k] > peakHigh) peakHigh = H[k];
+  const pullbackPct = ((peakHigh - C[i]) / peakHigh) * 100;
+  if (pullbackPct > 12) return null;
+  if (C[i] < C[boIdx] * 0.90) return null;
+
+  let coolSellVol = 0, coolTotalVol = 0, coolSpreads = 0, coolVolArr: number[] = [];
+  for (let k = boIdx + 1; k <= i; k++) {
+    coolTotalVol += V[k]; coolVolArr.push(V[k]);
+    if (C[k] < O[k]) coolSellVol += V[k];
+    coolSpreads += H[k] - L[k];
+  }
+  const sellVolRatio   = coolTotalVol > 0 ? coolSellVol / coolTotalVol : 0;
+  const coolAvgVol     = coolVolArr.length > 0 ? coolVolArr.reduce((a,b)=>a+b,0)/coolVolArr.length : volAvg20;
+  const coolAvgSpread  = cooldownBars > 0 ? coolSpreads / cooldownBars : H[i] - L[i];
+  const spreadContracted = coolAvgSpread < (H[boIdx] - L[boIdx]) * 0.75;
+
+  // KEY: Volume Dry-Up (supply habis) — Ryan Filbert utamakan ini
+  const baseVolumeDryUp = coolAvgVol <= volAvg20 * 0.65;
+  if (sellVolRatio > 0.55) return null;
+
+  // ── STEP 3: VSA Signal ────────────────────────────────────────────────────
+  const sp    = H[i] - L[i];
+  const body  = Math.abs(C[i] - O[i]);
+  const isGreen = C[i] >= O[i];
+  const lWick = Math.min(O[i], C[i]) - L[i];
+  const uWick = H[i] - Math.max(O[i], C[i]);
+  const isDryUp    = (!isGreen || body < sp * 0.3) && volRatio <= 0.70 && accRatio > 0.8;
+  const isNoSupply = !isGreen && sp < atr14 && volRatio < 0.80 && accRatio > 0.9;
+  const isIceberg  = volRatio > 1.1 && (sp / (spreadAvg20 || 1)) < 0.80 && accRatio > 1.1;
+  const isHammer   = lWick > body * 1.2 && uWick < body * 0.7 && (lWick / (sp || 1)) > 0.4;
+  const isNarrowBody = body < sp * 0.25 && Math.abs(C[i] - ma20) / C[i] < 0.02;
+  let cooldownVSA = 'NEUTRAL';
+  if (isDryUp) cooldownVSA = 'DRY UP';
+  else if (isNoSupply) cooldownVSA = 'NO SUPPLY';
+  else if (isIceberg) cooldownVSA = 'ICEBERG';
+  else if (isHammer) cooldownVSA = 'HAMMER';
+  else if (isNarrowBody) cooldownVSA = 'RESTING MA20';
+  const hasVSASignal = cooldownVSA !== 'NEUTRAL';
+
+  // ── STEP 4: Ryan Filbert 8-Point Checklist ────────────────────────────────
+  // p1–p8 map to the Ryan Filbert checklist shown in analysis page
+  const p1 = rfPhase2Strong;          // Full Phase 2 (MA50>MA150>MA200)
+  const p2 = aboveMA150;              // Price > MA150
+  const p3 = aboveMA200;              // Price > MA200
+  const p4 = ma50Rising;              // MA50 naik ↑
+  const p5 = ma150AboveMA200;         // MA150 > MA200
+  const p6 = baseVolumeDryUp;         // Volume kering di base (WAJIB)
+  const p7 = breakoutVolumeConfirmed; // BO candle vol confirmed ≥1.5×
+  const p8 = hasVSASignal || spreadContracted || accRatio >= 1.2; // VSA/quality
+
+  const rfScore = [p1,p2,p3,p4,p5,p6,p7,p8].filter(Boolean).length;
+  // ── QUALITY GATE: sync with analysis page setupQuality ────────────────────
+  // Only show setups that will show as GOOD or PERFECT in analysis (not FAIR)
+  // Ryan Filbert MANDATORY: above MA150 & MA200
+  if (!p2 || !p3) return null; // must be above MA150 & MA200
+  if (rfScore < 5) return null; // minimum 5/8 criteria
+  // Must have vol dry-up OR VSA signal — otherwise analysis shows FAIR/WAIT (confusing)
+  if (!p6 && !hasVSASignal) return null;
+
+  // Base label
+  let touchCount = 0;
+  for (let k = Math.max(0, i - 60); k < i; k++) {
+    if (L[k] <= ma50 * 1.03 && C[k] >= ma50 * 0.97) touchCount++;
+  }
+  const baseLabel = touchCount <= 2 ? 'B1' : touchCount <= 5 ? 'B2' : 'B3+';
+
+  // Relative Strength (approximated via 20-bar momentum)
+  const mom20 = n > 21 ? ((C[i] - C[i-20]) / C[i-20]) * 100 : 0;
+  const relativeStrength = Math.max(0, Math.min(100, Math.round(50 + mom20 * 2)));
+
+  // ── STEP 5: Grade & Entry ─────────────────────────────────────────────────
+  // PERFECT = all key criteria met (vol dry + VSA + full phase 2) → matches 'PERFECT' in analysis
+  // GOOD    = most criteria met (vol dry OR strong VSA, all mandatory MA)  → matches 'GOOD' in analysis
+  let grade: 'PERFECT' | 'GOOD';
+  let entryType: 'SNIPER' | 'BREAKOUT' | 'WATCH';
+  if      (rfScore >= 6 && p1 && p6 && hasVSASignal)  { grade = 'PERFECT'; entryType = 'SNIPER'; }
+  else if (rfScore >= 6 && p6 && p1)                   { grade = 'PERFECT'; entryType = 'SNIPER'; }
+  else if (rfScore >= 5 && p6 && hasVSASignal)         { grade = 'GOOD';    entryType = 'SNIPER'; }
+  else if (rfScore >= 6 && hasVSASignal)               { grade = 'GOOD';    entryType = 'SNIPER'; }
+  else if (rfScore >= 5 && p6)                         { grade = 'GOOD';    entryType = 'BREAKOUT'; }
+  else                                                  { grade = 'GOOD';    entryType = 'BREAKOUT'; } // rfScore≥5 + hasVSASignal (already gated)
+
+  // ── STEP 6: SL ────────────────────────────────────────────────────────────
+  const supports: number[] = [];
+  for (let k = boIdx; k <= i; k++) {
+    if ((k === 0 || L[k] < L[k-1]) && (k === n-1 || L[k] < L[k+1]) && L[k] < C[i] * 0.99) supports.push(L[k]);
+  }
+  if (ma20 < C[i] * 0.99 && ma20 > C[i] * 0.82) supports.push(ma20);
+  if (ma50 < C[i] * 0.99 && ma50 > C[i] * 0.80) supports.push(ma50);
+  if (L[boIdx] < C[i] * 0.99) supports.push(L[boIdx]);
+  supports.push(C[i] - atr14 * 1.5);
+  const nearestSupport = Math.max(...supports.filter(s => s < C[i] * 0.99));
+  const stopLoss = parseFloat((nearestSupport * 0.99).toFixed(0));
+  const riskPct = (C[i] - stopLoss) / C[i];
+  if (riskPct < 0.01 || riskPct > 0.15) return null;
+
+  // ── STEP 7: TP ────────────────────────────────────────────────────────────
+  const minRR   = grade === 'PERFECT' ? 2.5 : 2.0;
+  const riskAmt = C[i] - stopLoss;
+  const target  = parseFloat((C[i] + riskAmt * minRR).toFixed(0));
+  const actualRR = riskAmt > 0 ? parseFloat(((target - C[i]) / riskAmt).toFixed(1)) : minRR;
+
+  const slSource = nearestSupport === ma20 ? 'SL@MA20'
+    : nearestSupport === ma50 ? 'SL@MA50'
+    : nearestSupport === L[boIdx] ? 'SL@BO-Low' : 'SL@SwingLow';
+
+  const pts: string[] = [
+    `BO +${boGain.toFixed(1)}% (${cooldownBars}d ago)`,
+    `Sell ${Math.round(sellVolRatio*100)}%`,
+    `Pullback ${pullbackPct.toFixed(1)}%`,
+  ];
+  if (hasVSASignal) pts.push(cooldownVSA);
+  if (baseVolumeDryUp) pts.push('Vol-Kering✓');
+  if (spreadContracted) pts.push('Spread↓');
+  pts.push(slSource); pts.push(`R:R ${actualRR}x`);
+  if (rfPhase2Strong) pts.push('F2★'); else pts.push('F2');
+  if (cppBias === 'BULLISH') pts.push(`CPP +${cppScore}`);
+
+  return {
+    price: C[i], gainFromBase: boGain, cooldownBars, sellVolRatio, accRatio,
+    cppScore, cppBias, powerScore, rmv: rmvVal, volRatio, momentum10: mom10,
+    ma20, ma50, cooldownVSA, grade, entryType,
+    reason: pts.join(' · '), stopLoss, target,
+    rfPhase: 2, rfPhaseLabel, rfScore,
+    aboveMA150, aboveMA200, ma150AboveMA200, ma50Rising, ma200Rising,
+    baseVolumeDryUp, breakoutVolumeConfirmed,
+    baseLabel, relativeStrength,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -280,11 +470,11 @@ function screenScalp(data: any[], tf: '5m'|'15m'): Omit<ScalpResult,'symbol'|'ch
   let vsa2='NEUTRAL';
   if(du2)vsa2='DRY UP';else if(ns2)vsa2='NO SUPPLY';else if(ib2)vsa2='ICEBERG';else if(hm2)vsa2='HAMMER';
   const hbv2=vsa2!=='NEUTRAL';
-  let grade:'A+'|'A'|'B', et:'SNIPER'|'WATCH';
-  if(pcc>=4&&hbv2){grade='A+';et='SNIPER';}else if(pcc>=3&&hbv2){grade='A';et='SNIPER';}else if(pcc>=3){grade='A';et='SNIPER';}else if(pcc>=2&&hbv2){grade='A';et='SNIPER';}else if(pcc>=2){grade='B';et='WATCH';}else return null;
+  let grade:'PERFECT'|'GOOD', et:'SNIPER'|'WATCH';
+  if(pcc>=4&&hbv2){grade='PERFECT';et='SNIPER';}else if(pcc>=3&&hbv2){grade='GOOD';et='SNIPER';}else if(pcc>=3){grade='GOOD';et='SNIPER';}else if(pcc>=2&&hbv2){grade='GOOD';et='SNIPER';}else if(pcc>=2){grade='GOOD';et='WATCH';}else return null;
   const pts2=[`Spike +${rg.toFixed(1)}% (${rb}b)`,`Calm ${cb}b`,`Sell ${Math.round(svr*100)}%`,`Pb ${pb2.toFixed(1)}%`];
   if(hbv2)pts2.push(vsa2);if(cppBias==='BULLISH')pts2.push(`CPP +${cppScore}`);pts2.push(`Acc ${acc.toFixed(1)}x`);
-  const tm2=grade==='A+'?2.5:grade==='A'?2.0:1.5;
+  const tm2=grade==='PERFECT'?2.5:grade==='GOOD'?2.0:1.5;
   return {price:C[i],timeframe:tf,runGainPct:rg,runBars:rb,calmBars:cb,pullbackPct:pb2,sellVolRatio:svr,accRatio:acc,volRatio:vr,cppScore,cppBias,powerScore,rmv:rmvVal,aboveMA20:abma20,aboveMA50:C[i]>calcSMA(C,50,i),vsaSignal:vsa2,grade,entryType:et,reason:pts2.join(' · '),stopLoss:parseFloat((C[i]-atr14*1.0).toFixed(0)),target:parseFloat((C[i]+atr14*tm2).toFixed(0))};
 }
 
@@ -430,18 +620,18 @@ function screenSpring(data: any[]): Omit<SpringResult, 'symbol' | 'change' | 'ch
   const moderateSpring = springFound.bullPct >= 55 && cppBias !== 'BEARISH';
 
   let springType: 'STRONG' | 'MODERATE' | 'WEAK';
-  let grade: 'A+' | 'A' | 'B';
+  let grade: 'PERFECT' | 'GOOD';
 
   if (strongSpring && vsaSignal !== 'NEUTRAL' && springFound.barsAgo <= 5) {
-    springType = 'STRONG'; grade = 'A+';
+    springType = 'STRONG'; grade = 'PERFECT';
   } else if (strongSpring) {
-    springType = 'STRONG'; grade = 'A';
+    springType = 'STRONG'; grade = 'GOOD';
   } else if (moderateSpring && vsaSignal !== 'NEUTRAL') {
-    springType = 'MODERATE'; grade = 'A';
+    springType = 'MODERATE'; grade = 'GOOD';
   } else if (moderateSpring) {
-    springType = 'MODERATE'; grade = 'B';
+    springType = 'MODERATE'; grade = 'GOOD';
   } else {
-    springType = 'WEAK'; grade = 'B';
+    springType = 'WEAK'; grade = 'GOOD';
   }
 
   // ── Reason string ──
@@ -456,8 +646,8 @@ function screenSpring(data: any[]): Omit<SpringResult, 'symbol' | 'change' | 'ch
   pts.push(`Acc ${acc.toFixed(1)}x`);
   pts.push(`CPP ${cppScore > 0 ? '+' : ''}${cppScore}`);
 
-  const slMult = grade === 'A+' ? 1.0 : 1.2;
-  const tpMult = grade === 'A+' ? 3.0 : grade === 'A' ? 2.5 : 2.0;
+  const slMult = grade === 'PERFECT' ? 1.0 : 1.2;
+  const tpMult = grade === 'PERFECT' ? 3.0 : grade === 'GOOD' ? 2.5 : 2.0;
 
   return {
     price: C[i], bullPct: springFound.bullPct, bearPct: springFound.bearPct,
@@ -563,7 +753,7 @@ function ScreenerContent() {
   const [swScan, setSwScan] = useState(0);
   const [swMode, setSwMode] = useState<'LIQUID'|'ALL'>('LIQUID');
   const [swSort, setSwSort] = useState<'grade'|'gain'|'power'|'cpp'>('grade');
-  const [swGrade,setSwGrade]= useState<'ALL'|'A+'|'A'|'B'>('ALL');
+  const [swGrade,setSwGrade]= useState<'ALL'|'PERFECT'|'GOOD'>('ALL');
   const swAbort = useRef(false);
 
   // Scalp
@@ -573,7 +763,7 @@ function ScreenerContent() {
   const [scScan, setScScan] = useState(0);
   const [scMode, setScMode] = useState<'LIQUID'|'ALL'>('LIQUID');
   const [scTf, setScTf]     = useState<'5m'|'15m'>('15m');
-  const [scGrade,setScGrade]= useState<'ALL'|'A+'|'A'|'B'>('ALL');
+  const [scGrade,setScGrade]= useState<'ALL'|'PERFECT'|'GOOD'>('ALL');
   const scAbort = useRef(false);
 
   // Spring
@@ -582,7 +772,7 @@ function ScreenerContent() {
   const [spProg, setSpProg] = useState(0);
   const [spScan, setSpScan] = useState(0);
   const [spMode, setSpMode] = useState<'LIQUID'|'ALL'>('LIQUID');
-  const [spGrade,setSpGrade]= useState<'ALL'|'A+'|'A'|'B'>('ALL');
+  const [spGrade,setSpGrade]= useState<'ALL'|'PERFECT'|'GOOD'>('ALL');
   const [spType, setSpType] = useState<'ALL'|'STRONG'|'MODERATE'>('ALL');
   const spAbort = useRef(false);
 
@@ -602,7 +792,7 @@ function ScreenerContent() {
 
   // ── Swing scan ─────────────────────────────────────────────────────────────
   const sortSw = (arr: SwingResult[], by: string) => [...arr].sort((a,b)=>{
-    if(by==='grade'){const g:any={'A+':0,'A':1,'B':2};const d=g[a.grade]-g[b.grade];return d!==0?d:b.cppScore-a.cppScore;}
+    if(by==='grade'){const g:any={'PERFECT':0,'GOOD':1};const d=g[a.grade]-g[b.grade];return d!==0?d:b.cppScore-a.cppScore;}
     if(by==='gain')return b.gainFromBase-a.gainFromBase;
     if(by==='power')return b.powerScore-a.powerScore;
     return b.cppScore-a.cppScore;
@@ -693,7 +883,10 @@ function ScreenerContent() {
   };
 
   // ── Shared UI ──────────────────────────────────────────────────────────────
-  const gc = {'A+':{bg:'bg-emerald-500/15',border:'border-emerald-500/50',text:'text-emerald-300',badge:'bg-emerald-600'},'A':{bg:'bg-cyan-500/10',border:'border-cyan-500/40',text:'text-cyan-300',badge:'bg-cyan-600'},'B':{bg:'bg-yellow-500/10',border:'border-yellow-500/30',text:'text-yellow-300',badge:'bg-yellow-600'}};
+  const gc = {
+    'PERFECT':{bg:'bg-emerald-500/15',border:'border-emerald-500/50',text:'text-emerald-300',badge:'bg-emerald-600'},
+    'GOOD':   {bg:'bg-cyan-500/10',   border:'border-cyan-500/40',   text:'text-cyan-300',   badge:'bg-cyan-600'},
+  };
   const vc: Record<string,string> = {'DRY UP':'text-cyan-400','NO SUPPLY':'text-cyan-400','ICEBERG':'text-blue-400','HAMMER':'text-yellow-400','GAINER HOLD':'text-emerald-400','NEUTRAL':'text-gray-500'};
 
   // ── VCP tab ────────────────────────────────────────────────────────────────
@@ -768,7 +961,7 @@ function ScreenerContent() {
           {(['LIQUID','ALL'] as const).map(m=>(<button key={m} onClick={()=>setSwMode(m)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${swMode===m?'bg-blue-600 text-white':'text-gray-400 hover:text-white'}`}>{m==='LIQUID'?`⚡ Liquid (${LIQUID_STOCKS.length})`:`📊 All (${ALL_IDX.length})`}</button>))}
         </div>
         <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
-          {(['ALL','A+','A','B'] as const).map(g=>(<button key={g} onClick={()=>setSwGrade(g)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${swGrade===g?'bg-indigo-600 text-white':'text-gray-400 hover:text-white'}`}>{g}</button>))}
+          {(['ALL','PERFECT','GOOD'] as const).map(g=>(<button key={g} onClick={()=>setSwGrade(g)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${swGrade===g?'bg-indigo-600 text-white':'text-gray-400 hover:text-white'}`}>{g==='PERFECT'?'⭐ Perfect':g==='GOOD'?'✓ Good':'All'}</button>))}
         </div>
         <select value={swSort} onChange={e=>{setSwSort(e.target.value as any);setSwRes(p=>sortSw(p,e.target.value));}} className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-3 py-2 focus:outline-none">
           <option value="grade">Sort: Grade</option><option value="gain">Sort: Gain</option><option value="power">Sort: Power</option><option value="cpp">Sort: CPP</option>
@@ -786,33 +979,112 @@ function ScreenerContent() {
             const cfg=gc[r.grade]; const rr=r.price>r.stopLoss?Math.abs(r.target-r.price)/Math.abs(r.price-r.stopLoss):null;
             return (
               <div key={r.symbol} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4 space-y-3`}>
+                {/* Header */}
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-white font-bold text-lg">{r.symbol}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-bold text-white ${cfg.badge}`}>{r.grade}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${r.entryType==='SNIPER'?'bg-orange-500/15 border-orange-500/30 text-orange-300':'bg-purple-500/15 border-purple-500/30 text-purple-300'}`}>{r.entryType==='SNIPER'?'🎯 Sniper':'👁️ Watch'}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${r.entryType==='SNIPER'?'bg-orange-500/15 border-orange-500/30 text-orange-300':r.entryType==='BREAKOUT'?'bg-blue-500/15 border-blue-500/30 text-blue-300':'bg-purple-500/15 border-purple-500/30 text-purple-300'}`}>{r.entryType==='SNIPER'?'🎯 Sniper':r.entryType==='BREAKOUT'?'⚡ Breakout':'👁️ Watch'}</span>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5"><span className="text-white font-medium">Rp {r.price.toLocaleString('id-ID')}</span><span className={`text-xs ${r.changePercent>=0?'text-emerald-400':'text-red-400'}`}>{r.changePercent>=0?'+':''}{r.changePercent.toFixed(2)}%</span></div>
                   </div>
-                  <div className="text-right shrink-0"><div className="text-emerald-400 font-bold text-xl">+{r.gainFromBase.toFixed(1)}%</div><div className="text-gray-500 text-xs">already up</div></div>
+                  <div className="text-right shrink-0">
+                    <div className="text-emerald-400 font-bold text-xl">+{r.gainFromBase.toFixed(1)}%</div>
+                    <div className="text-gray-500 text-xs">from BO</div>
+                  </div>
                 </div>
+
+                {/* Ryan Filbert Phase Banner */}
+                <div className={`rounded-lg p-2.5 border ${r.rfScore>=6?'bg-emerald-500/10 border-emerald-500/30':'bg-yellow-500/10 border-yellow-500/20'}`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-xs font-bold ${r.rfScore>=6?'text-emerald-400':'text-yellow-400'}`}>Ryan Filbert</span>
+                      <span className="text-gray-500 text-xs">|</span>
+                      <span className={`text-xs font-semibold ${r.rfScore>=6?'text-emerald-300':'text-yellow-300'}`}>Fase {r.rfPhase} — {r.rfPhaseLabel}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-500">Base</span>
+                      <span className="text-xs font-bold text-cyan-400">{r.baseLabel}</span>
+                      <span className="text-xs text-gray-500 ml-1">RF</span>
+                      <span className={`text-xs font-bold ${r.rfScore>=6?'text-emerald-400':r.rfScore>=4?'text-yellow-400':'text-gray-400'}`}>{r.rfScore}/8</span>
+                    </div>
+                  </div>
+                  {/* 8-point checklist */}
+                  <div className="grid grid-cols-4 gap-1 text-xs">
+                    <div className="flex items-center gap-0.5">
+                      <span className={r.aboveMA150?'text-emerald-400':'text-red-400'}>{r.aboveMA150?'✓':'✗'}</span>
+                      <span className="text-gray-400">MA150</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <span className={r.aboveMA200?'text-emerald-400':'text-red-400'}>{r.aboveMA200?'✓':'✗'}</span>
+                      <span className="text-gray-400">MA200</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <span className={r.ma50Rising?'text-emerald-400':'text-red-400'}>{r.ma50Rising?'✓':'✗'}</span>
+                      <span className="text-gray-400">MA50↑</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <span className={r.ma150AboveMA200?'text-emerald-400':'text-red-400'}>{r.ma150AboveMA200?'✓':'✗'}</span>
+                      <span className="text-gray-400">MA150&gt;200</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <span className={r.ma200Rising?'text-emerald-400':'text-orange-400'}>{r.ma200Rising?'✓':'⊘'}</span>
+                      <span className="text-gray-400">MA200↑</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <span className={r.baseVolumeDryUp?'text-emerald-400':'text-orange-400'}>{r.baseVolumeDryUp?'✓':'⊘'}</span>
+                      <span className="text-gray-400">Vol Dry</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <span className={r.breakoutVolumeConfirmed?'text-emerald-400':'text-orange-400'}>{r.breakoutVolumeConfirmed?'✓':'⊘'}</span>
+                      <span className="text-gray-400">Vol BO</span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <span className={r.cooldownVSA!=='NEUTRAL'?'text-emerald-400':'text-orange-400'}>{r.cooldownVSA!=='NEUTRAL'?'✓':'⊘'}</span>
+                      <span className="text-gray-400">VSA</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metrics */}
                 <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
-                  <div className="bg-gray-900/60 rounded-lg p-2"><div className="text-gray-500">Calm</div><div className="text-white font-bold">{r.cooldownBars===0?'Today':r.cooldownBars+'d'}</div><div className={`text-xs ${r.sellVolRatio<0.3?'text-emerald-400':'text-yellow-400'}`}>sell {Math.round(r.sellVolRatio*100)}%</div></div>
-                  <div className="bg-gray-900/60 rounded-lg p-2"><div className="text-gray-500">CPP</div><div className={`font-bold ${r.cppBias==='BULLISH'?'text-emerald-400':r.cppBias==='BEARISH'?'text-red-400':'text-gray-300'}`}>{r.cppScore>0?'+':''}{r.cppScore}</div><div className="text-gray-500 text-xs">{r.cppBias.slice(0,4)}</div></div>
-                  <div className="bg-gray-900/60 rounded-lg p-2"><div className="text-gray-500">Power</div><div className={`font-bold ${r.powerScore>=70?'text-emerald-400':'text-yellow-400'}`}>{r.powerScore}</div><div className="text-gray-500 text-xs">RMV {Math.round(r.rmv)}</div></div>
+                  <div className="bg-gray-900/60 rounded-lg p-2">
+                    <div className="text-gray-500">Calm</div>
+                    <div className="text-white font-bold">{r.cooldownBars===0?'Today':r.cooldownBars+'d'}</div>
+                    <div className={`text-xs ${r.sellVolRatio<0.3?'text-emerald-400':'text-yellow-400'}`}>sell {Math.round(r.sellVolRatio*100)}%</div>
+                  </div>
+                  <div className="bg-gray-900/60 rounded-lg p-2">
+                    <div className="text-gray-500">CPP</div>
+                    <div className={`font-bold ${r.cppBias==='BULLISH'?'text-emerald-400':r.cppBias==='BEARISH'?'text-red-400':'text-gray-300'}`}>{r.cppScore>0?'+':''}{r.cppScore}</div>
+                    <div className="text-gray-500 text-xs">{r.cppBias.slice(0,4)}</div>
+                  </div>
+                  <div className="bg-gray-900/60 rounded-lg p-2">
+                    <div className="text-gray-500">Power</div>
+                    <div className={`font-bold ${r.powerScore>=70?'text-emerald-400':'text-yellow-400'}`}>{r.powerScore}</div>
+                    <div className="text-gray-500 text-xs">RS {r.relativeStrength}</div>
+                  </div>
                 </div>
+
+                {/* VSA + Acc */}
                 <div className="flex items-center justify-between text-xs px-0.5">
                   <div><span className="text-gray-500">VSA </span><span className={`font-semibold ${vc[r.cooldownVSA]||'text-gray-400'}`}>{r.cooldownVSA}</span></div>
                   <div><span className="text-gray-500">Acc </span><span className={`font-semibold ${r.accRatio>=1.5?'text-emerald-400':'text-yellow-400'}`}>{r.accRatio.toFixed(1)}x</span></div>
+                  <div><span className="text-gray-500">RMV </span><span className={`font-semibold ${r.rmv<=20?'text-blue-400':r.rmv<=40?'text-cyan-400':'text-gray-300'}`}>{Math.round(r.rmv)}</span></div>
                   <div><span className="text-gray-500">Mtm </span><span className={`font-semibold ${r.momentum10>0?'text-emerald-400':'text-orange-400'}`}>{r.momentum10>0?'+':''}{r.momentum10.toFixed(1)}%</span></div>
                 </div>
+
+                {/* SL / RR / TP */}
                 <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
                   <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-1.5"><div className="text-red-400 font-medium">SL</div><div className="text-white">{r.stopLoss.toLocaleString('id-ID')}</div></div>
                   <div className="bg-gray-800/60 rounded-lg p-1.5 flex flex-col items-center justify-center">{rr?<><div className="text-gray-500">R:R</div><div className={`font-bold ${rr>=2?'text-emerald-400':'text-yellow-400'}`}>1:{rr.toFixed(1)}</div></>:<span className="text-gray-600">—</span>}</div>
                   <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-1.5"><div className="text-emerald-400 font-medium">TP</div><div className="text-white">{r.target.toLocaleString('id-ID')}</div></div>
                 </div>
-                <div className="text-xs text-gray-400 bg-gray-900/50 rounded-lg px-2.5 py-2">{r.reason}</div>
+
+                {/* Reason */}
+                <div className="text-xs text-gray-400 bg-gray-900/50 rounded-lg px-2.5 py-2 leading-relaxed">{r.reason}</div>
+
+                {/* Actions */}
                 <div className="flex gap-2">
                   <button onClick={()=>router.push(buildSwingChartURL(r))} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded-lg font-medium transition-colors">📊 Chart</button>
                   <button onClick={()=>router.push(`/analysis?symbol=${r.symbol}`)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 rounded-lg font-medium transition-colors">🔬 Analysis</button>
@@ -837,7 +1109,7 @@ function ScreenerContent() {
           {(['LIQUID','ALL'] as const).map(m=>(<button key={m} onClick={()=>setScMode(m)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${scMode===m?'bg-blue-600 text-white':'text-gray-400 hover:text-white'}`}>{m==='LIQUID'?'⚡ Liquid':'📊 All'}</button>))}
         </div>
         <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
-          {(['ALL','A+','A','B'] as const).map(g=>(<button key={g} onClick={()=>setScGrade(g)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${scGrade===g?'bg-indigo-600 text-white':'text-gray-400 hover:text-white'}`}>{g}</button>))}
+          {(['ALL','PERFECT','GOOD'] as const).map(g=>(<button key={g} onClick={()=>setScGrade(g)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${scGrade===g?'bg-indigo-600 text-white':'text-gray-400 hover:text-white'}`}>{g}</button>))}
         </div>
         <button onClick={scLoad?()=>{scAbort.current=true;setScLoad(false);}:startScalp} className={`flex items-center gap-2 px-5 py-2 rounded-lg font-bold text-sm transition-colors ml-auto ${scLoad?'bg-red-600 hover:bg-red-500 text-white':'bg-yellow-500 hover:bg-yellow-400 text-gray-900'}`}>
           {scLoad?<><div className="w-4 h-4 border-2 border-gray-900/30 border-t-gray-900 rounded-full animate-spin"/>Stop</>:<>⚡ Scan {scTf}</>}
@@ -920,9 +1192,9 @@ function ScreenerContent() {
           ))}
         </div>
         <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
-          {(['ALL','A+','A','B'] as const).map(g=>(
+          {(['ALL','PERFECT','GOOD'] as const).map(g=>
             <button key={g} onClick={()=>setSpGrade(g)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${spGrade===g?'bg-indigo-600 text-white':'text-gray-400 hover:text-white'}`}>{g}</button>
-          ))}
+          )}
         </div>
         <button
           onClick={spLoad ? ()=>{spAbort.current=true;setSpLoad(false);} : startSpring}
@@ -987,7 +1259,7 @@ function ScreenerContent() {
         <div className="space-y-2">
           <div className="text-xs text-gray-500 px-1">
             <span className="text-green-400 font-medium">{spFilt.length}</span> Spring setups
-            {spFilt.filter(r=>r.grade==='A+').length > 0 && <span className="ml-2 text-emerald-400">⭐ {spFilt.filter(r=>r.grade==='A+').length} A+</span>}
+            {spFilt.filter(r=>r.grade==='PERFECT').length > 0 && <span className="ml-2 text-emerald-400">⭐ {spFilt.filter(r=>r.grade==='PERFECT').length} PERFECT</span>}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {spFilt.map(r => {

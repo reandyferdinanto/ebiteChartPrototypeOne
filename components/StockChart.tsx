@@ -1042,37 +1042,49 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                   TOPPING: 'bg-orange-900/20 border-orange-500/30',
                   DOWNTREND: 'bg-red-900/20 border-red-500/30',
                 };
-                const phaseDesc: Record<string, string> = {
-                  UPTREND: 'Fase 2 — Uptrend aktif. Saham ideal untuk swing trade.',
-                  BASING: 'Fase 1 — Konsolidasi. Monitor breakout volume.',
-                  TOPPING: 'Fase 3 — Potensi distribusi. Waspadai beli baru.',
-                  DOWNTREND: 'Fase 4 — Downtrend. Hindari masuk posisi.',
-                };
                 const sigC: Record<string, string> = {
-                  BUY: 'bg-emerald-500/15 text-emerald-300', WAIT: 'bg-yellow-500/10 text-yellow-300', AVOID: 'bg-red-500/15 text-red-300',
+                  BUY:   'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300',
+                  WAIT:  'bg-yellow-500/10 border border-yellow-500/20 text-yellow-300',
+                  AVOID: 'bg-red-500/15 border border-red-500/30 text-red-300',
                 };
                 const qualC: Record<string, string> = {
                   PERFECT: 'text-emerald-300', GOOD: 'text-green-400',
                   FAIR: 'text-yellow-400', POOR: 'text-red-400',
                 };
+                // Build a list of missing criteria for WAIT signals
+                const checks: [string, boolean, string][] = [
+                  ['Harga > MA150',     rf.aboveMA150,               'Harga tutup di bawah MA150'],
+                  ['Harga > MA200',     rf.aboveMA200,               'Harga tutup di bawah MA200'],
+                  ['MA50 naik',         rf.ma50Rising,               'MA50 masih turun/datar'],
+                  ['MA150 > MA200',     rf.ma150AboveMA200,          'MA150 belum melewati MA200'],
+                  ['Volume Dry-Up',     rf.baseVolumeDryUp,          'Volume belum kering (penjual masih aktif)'],
+                  ['Vol Breakout',      rf.breakoutVolumeConfirmed,  'Belum ada volume breakout tinggi'],
+                ];
+                const missing = checks.filter(([,v]) => !v).map(([,, msg]) => msg);
+
                 return (
                   <div className={`rounded-lg border p-2 mt-1 ${phaseBg[rf.phaseLabel] ?? 'bg-gray-800/20 border-gray-700/30'}`}>
-                    {/* Header */}
+                    {/* ── Header ───────────────────────────────────────── */}
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-1.5">
                         <div className="w-1.5 h-1.5 rounded-full bg-purple-400"/>
                         <span className="text-xs font-bold text-white">RYAN FILBERT</span>
                         <span className="text-xs text-gray-500">Stan Weinstein</span>
                       </div>
-                      <span className={`text-xs font-bold ${phaseColors[rf.phaseLabel] ?? 'text-gray-400'}`}>
-                        Fase {rf.phase} — {rf.phaseLabel}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${qualC[rf.setupQuality]}`}>{rf.setupQuality}</span>
+                        <span className={`text-xs font-bold ${phaseColors[rf.phaseLabel] ?? 'text-gray-400'}`}>
+                          Fase {rf.phase} — {rf.phaseLabel}
+                        </span>
+                      </div>
                     </div>
-                    <p className={`text-xs mb-1.5 ${phaseColors[rf.phaseLabel] ?? 'text-gray-400'}`}>
-                      {phaseDesc[rf.phaseLabel]}
-                    </p>
-                    {/* Metrics row */}
+
+                    {/* ── Score + Metrics row ───────────────────────────── */}
                     <div className="grid grid-cols-4 gap-1 text-xs mb-1.5">
+                      <div className="bg-gray-900/60 rounded p-1 text-center">
+                        <div className="text-gray-500 text-xs">Score</div>
+                        <div className={`font-bold ${qualC[rf.setupQuality]}`}>{rf.score}/100</div>
+                      </div>
                       <div className="bg-gray-900/60 rounded p-1 text-center">
                         <div className="text-gray-500 text-xs">Base</div>
                         <div className="text-white font-bold">{rf.baseLabel}</div>
@@ -1082,48 +1094,54 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                         <div className={`font-bold ${rf.rsLabel === 'STRONG' ? 'text-emerald-400' : rf.rsLabel === 'NEUTRAL' ? 'text-yellow-400' : 'text-red-400'}`}>{rf.relativeStrength}</div>
                       </div>
                       <div className="bg-gray-900/60 rounded p-1 text-center">
-                        <div className="text-gray-500 text-xs">Score</div>
-                        <div className={`font-bold ${qualC[rf.setupQuality] ?? 'text-gray-400'}`}>{rf.score}/100</div>
-                      </div>
-                      <div className="bg-gray-900/60 rounded p-1 text-center">
-                        <div className="text-gray-500 text-xs">Setup</div>
-                        <div className={`font-bold ${qualC[rf.setupQuality] ?? 'text-gray-400'}`}>{rf.setupQuality}</div>
+                        <div className="text-gray-500 text-xs">R:R</div>
+                        <div className={`font-bold ${rf.riskReward >= 2 ? 'text-emerald-400' : rf.riskReward >= 1.5 ? 'text-yellow-400' : 'text-red-400'}`}>{rf.riskReward}x</div>
                       </div>
                     </div>
-                    {/* MA Checklist */}
-                    <div className="grid grid-cols-3 gap-1 text-xs mb-1.5">
-                      {([
-                        ['MA150', rf.aboveMA150],
-                        ['MA200', rf.aboveMA200],
-                        ['MA50↑', rf.ma50Rising],
-                        ['MA150>200', rf.ma150AboveMA200],
-                        ['Vol Kering', rf.baseVolumeDryUp],
-                        ['Vol BO', rf.breakoutVolumeConfirmed],
-                      ] as [string, boolean][]).map(([lbl, v]) => (
-                        <span key={lbl} className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${v ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-800/40 text-gray-500'}`}>
-                          <span>{v ? '✓' : '✗'}</span><span>{lbl}</span>
+
+                    {/* ── Checklist: passed items ───────────────────────── */}
+                    <div className="flex flex-wrap gap-1 text-xs mb-1.5">
+                      {checks.map(([lbl, v]) => (
+                        <span key={lbl} className={`flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs ${v ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-800/60 text-gray-600'}`}>
+                          <span className="font-bold">{v ? '✓' : '✗'}</span>
+                          <span>{lbl}</span>
                         </span>
                       ))}
                     </div>
-                    {/* Signal */}
-                    <div className={`text-xs rounded px-2 py-1 ${sigC[rf.signal] ?? 'bg-gray-500/10 text-gray-300'}`}>
+
+                    {/* ── Missing criteria (only for WAIT) ─────────────── */}
+                    {rf.signal === 'WAIT' && missing.length > 0 && (
+                      <div className="bg-yellow-500/8 border border-yellow-500/15 rounded p-1.5 mb-1.5">
+                        <div className="text-xs font-semibold text-yellow-400 mb-0.5">⚠️ Kriteria belum terpenuhi:</div>
+                        {missing.map(m => (
+                          <div key={m} className="text-xs text-yellow-300/70 flex items-start gap-1">
+                            <span className="mt-0.5">•</span><span>{m}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* ── Signal ───────────────────────────────────────── */}
+                    <div className={`text-xs rounded px-2 py-1.5 ${sigC[rf.signal] ?? 'bg-gray-500/10 text-gray-300'}`}>
                       <span className="font-bold mr-1">
-                        {rf.signal === 'BUY' ? '✅ BUY' : rf.signal === 'AVOID' ? '🚫 AVOID' : '⏳ WAIT'}
+                        {rf.signal === 'BUY' ? '✅ BUY' : rf.signal === 'AVOID' ? '🚫 AVOID' : '⏳ TUNGGU'}
                       </span>
                       {rf.signalReason}
                     </div>
-                    {rf.signal === 'BUY' && (
+
+                    {/* ── Entry levels: show on BUY and on WAIT-Fase2 ──── */}
+                    {(rf.signal === 'BUY' || (rf.signal === 'WAIT' && rf.phase === 2 && rf.score >= 50)) && (
                       <div className="grid grid-cols-3 gap-1 mt-1.5 text-xs text-center">
                         <div className="bg-blue-500/10 border border-blue-500/20 rounded p-1">
-                          <div className="text-gray-500">Pivot</div>
+                          <div className="text-gray-500 text-xs">Pivot Entry</div>
                           <div className="text-blue-300 font-bold">Rp {rf.pivotEntry.toLocaleString('id-ID')}</div>
                         </div>
                         <div className="bg-red-500/10 border border-red-500/20 rounded p-1">
-                          <div className="text-gray-500">SL</div>
+                          <div className="text-gray-500 text-xs">Stop Loss</div>
                           <div className="text-red-300 font-bold">Rp {rf.stopLoss.toLocaleString('id-ID')}</div>
                         </div>
                         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-1">
-                          <div className="text-gray-500">Target</div>
+                          <div className="text-gray-500 text-xs">Target 2×</div>
                           <div className="text-emerald-300 font-bold">Rp {rf.targetPrice.toLocaleString('id-ID')}</div>
                         </div>
                       </div>

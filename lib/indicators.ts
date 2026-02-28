@@ -604,11 +604,10 @@ export function detectVSA(data: ChartData[]): {
       // Find the most recent HAKA candle within last 15 bars before i
       let hakaIdx = -1;
       let hakaVolRatio = 0;
-      const curAvgVol = avgVol;
       for (let k = Math.max(0, i - 15); k < i - 1; k++) {
         const sp_k = data[k].high - data[k].low;
         const body_k = Math.abs(data[k].close - data[k].open);
-        const vr_k = (data[k].volume || 0) / (curAvgVol || 1);
+        const vr_k = (data[k].volume || 0) / (avgVol || 1);
         const bp_k = sp_k > 0 ? (data[k].close - data[k].low) / sp_k : 0;
         // HAKA = aggressive green breakout candle: high vol, large body, closes near top
         if (data[k].close > data[k].open && vr_k > 1.8 && body_k > sp_k * 0.55 && bp_k > 0.65 && vr_k > hakaVolRatio) {
@@ -1072,8 +1071,6 @@ export function calculatePredictaV4(data: ChartData[]): PredictaV4Result | null 
   const atrAdx    = rmaFn(trArr, 14);
   const smDiP     = rmaFn(dmP, 14);
   const smDiM     = rmaFn(dmM, 14);
-  const diPlusV   = atrAdx[N - 1] > 0 ? (smDiP[N - 1] / atrAdx[N - 1]) * 100 : 0;
-  const diMinusV  = atrAdx[N - 1] > 0 ? (smDiM[N - 1] / atrAdx[N - 1]) * 100 : 0;
   const dxArr     = atrAdx.map((a, i) => {
     const dp = a > 0 ? (smDiP[i] / a) * 100 : 0;
     const dm = a > 0 ? (smDiM[i] / a) * 100 : 0;
@@ -1256,7 +1253,6 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
   }
 
   const i = N - 1;
-  const ma20v   = sma(closes, 20, i);
   const ma50v   = sma(closes, 50, i);
   const ma150v  = sma(closes, 150, i);
   const ma200v  = sma(closes, 200, i);
@@ -1287,7 +1283,6 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
   const hi52 = Math.max(...highs.slice(Math.max(0, i - 252), i + 1));
   const lo52 = Math.min(...lows.slice(Math.max(0, i - 252), i + 1));
   const pctFrom52Hi = (hi52 - closes[i]) / hi52 * 100;
-  const pctFrom52Lo = (closes[i] - lo52) / lo52 * 100;
 
   if (aboveAll && ma150AboveMA200 && ma50AboveMA150 && ma50Rising) {
     phase = 2; phaseLabel = 'UPTREND';
@@ -1334,7 +1329,6 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
 
   for (let k = i - lookbackForBases; k < i - 10; k++) {
     const closeK = closes[k];
-    const prevClose = k > 0 ? closes[k - 1] : closeK;
     const ma20k = sma(closes, 20, k);
 
     // Detect start of consolidation: price slowing down near MA20
@@ -1375,7 +1369,17 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
   const vol5avg = vol5sum / 5;
 
   const breakoutVolumeConfirmed = vols[i] >= vol50avg * 1.5;
-  const baseVolumeDryUp = vol5avg < vol50avg * 0.70;
+  // baseVolumeDryUp: volume kering — cek last 5 bars vs 50-bar avg (standard method)
+  const volDryByAvg = vol5avg < vol50avg * 0.70;
+  // Also detect cooldown vol pattern: last 3 bars each below 85% of 20-bar moving avg
+  let vol20sum = 0;
+  for (let k = Math.max(0, i - 19); k <= i; k++) vol20sum += vols[k];
+  const vol20avg = vol20sum / Math.min(20, i + 1);
+  const cooldownPattern = i >= 2
+    && vols[i]     < vol20avg * 0.85
+    && vols[i - 1] < vol20avg * 0.85
+    && vols[i - 2] < vol20avg * 0.90;
+  const baseVolumeDryUp = volDryByAvg || cooldownPattern;
 
   // ── Relative Strength Score ────────────────────────────────────────────────
   // Measures stock's own momentum: price change vs MA trend quality
@@ -1412,33 +1416,73 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
   score = Math.max(0, Math.min(100, Math.round(score)));
 
   // ── Signal Logic (Ryan Filbert BUY criteria) ──────────────────────────────
+  // Rules: signal and setupQuality MUST be consistent — no PERFECT+WAIT contradiction
   let signal: 'BUY' | 'WAIT' | 'AVOID';
   let signalReason: string;
+  const bN = `B${baseCount}`;
+
+  // Collect specific missing criteria for actionable feedback
+  const missing: string[] = [];
+  if (!baseVolumeDryUp)      missing.push(`volume belum kering (5-bar avg masih ${Math.round(vol5avg/vol50avg*100)}% dari rata-rata, tunggu turun ke <70%)`);
+  if (baseRange >= 20)       missing.push(`base terlalu lebar (${Math.round(baseRange)}% — idealnya <20%, tunggu VCP kontraksi lebih lanjut)`);
+  if (!ma150AboveMA200)      missing.push('MA150 belum di atas MA200 (alignment belum sempurna)');
+  if (!ma50AboveMA150)       missing.push('MA50 belum di atas MA150');
+  if (!ma50Rising)           missing.push('MA50 belum naik (slope masih datar/turun)');
+  if (rs < 65)               missing.push(`Relative Strength lemah (${rs}/100, butuh ≥65)`);
 
   if (phase === 4 || (!aboveMA150 && !aboveMA200)) {
+    // Absolute avoid: Phase 4 or price below both MA150 & MA200
     signal = 'AVOID';
-    signalReason = 'Fase 4 / Di bawah MA150 & MA200. Trend rusak, hindari.';
+    signalReason = phase === 4
+      ? 'Fase 4 — Downtrend aktif. Harga di bawah semua MA, jangan beli. Tunggu hingga saham membentuk base dan masuk Fase 1.'
+      : 'Harga di bawah MA150 dan MA200 — struktur trend rusak. Hindari sampai harga kembali ke atas kedua MA tersebut.';
+
   } else if (phase === 2 && score >= 65 && baseVolumeDryUp && baseRange < 20) {
+    // Full BUY: Phase 2 + volume dried + tight base
     signal = 'BUY';
-    const baseName = `B${baseCount}`;
-    signalReason = `Fase 2 ${baseName}: Setup bullish kuat. Base ${Math.round(baseRange)}% range, vol kering. Entry di Rp${pivotEntry.toLocaleString()}, SL Rp${stopLoss.toLocaleString()}, TP Rp${target2x.toLocaleString()} (R:R ${rr}x)`;
-  } else if (phase === 2 && score >= 50) {
+    signalReason = `Fase 2 ${bN}: Semua kriteria kunci terpenuhi. Base ketat (${Math.round(baseRange)}%), volume sudah kering — penjual habis. `
+      + `Entry pivot: Rp\u00A0${pivotEntry.toLocaleString('id-ID')}, SL: Rp\u00A0${stopLoss.toLocaleString('id-ID')}, Target: Rp\u00A0${target2x.toLocaleString('id-ID')} (R:R ${rr}x).`;
+
+  } else if (phase === 2 && score >= 65) {
+    // Phase 2 with good score but missing 1-2 key criteria
     signal = 'WAIT';
-    signalReason = `Fase 2 ${`B${baseCount}`}: Trend bagus tapi belum ideal. Tunggu volume dry-up dan base lebih ketat.`;
+    signalReason = `Fase 2 ${bN}: Trend dan MA alignment sudah bagus (score ${score}/100), tapi belum semua kriteria terpenuhi. `
+      + `Yang masih kurang: ${missing.slice(0, 2).join(' · ')}. `
+      + `Pantau pivot area Rp\u00A0${pivotEntry.toLocaleString('id-ID')}.`;
+
+  } else if (phase === 2 && score >= 45) {
+    // Phase 2 but weak setup
+    signal = 'WAIT';
+    signalReason = `Fase 2 ${bN}: Saham di fase yang benar tapi setup masih kurang kuat (score ${score}/100). `
+      + `Kurang: ${missing.slice(0, 3).join(' · ')}.`;
+
   } else if (phase === 1) {
     signal = 'WAIT';
-    signalReason = 'Fase 1 / Basing: Monitor. Tunggu breakout Phase 2 dengan volume tinggi.';
+    signalReason = 'Fase 1 — Basing: Saham sedang membangun base, belum breakout ke Fase 2. '
+      + 'Masukkan watchlist. Beli saat harga breakout di atas resistance dengan volume ≥1.5× rata-rata.';
+
+  } else if (phase === 3) {
+    signal = 'WAIT';
+    signalReason = 'Fase 3 — Topping: Harga mendekati area distribusi/puncak. Risiko tinggi untuk posisi baru. '
+      + 'Jika sudah pegang, pasang trailing stop untuk lock profit.';
+
   } else {
     signal = 'WAIT';
-    signalReason = `Fase ${phase}: Belum memenuhi semua kriteria Ryan Filbert. Score: ${score}/100.`;
+    signalReason = `Fase ${phase}: Score ${score}/100. ${missing.length > 0 ? 'Kurang: ' + missing.slice(0, 2).join(' · ') + '.' : ''}`;
   }
 
   // ── Setup Quality ─────────────────────────────────────────────────────────
+  // CRITICAL: setupQuality must ALIGN with signal — never PERFECT+WAIT
+  // PERFECT = Phase 2, BUY signal, score≥80, base B1/B2, all criteria
+  // GOOD    = Phase 2, score≥65 (almost there — 1-2 minor criteria missing)
+  // FAIR    = Phase 2, score≥45 (decent trend, several criteria missing)
+  // POOR    = Phase 1/3/4 or score<45
   let setupQuality: 'PERFECT' | 'GOOD' | 'FAIR' | 'POOR';
-  if      (score >= 80 && phase === 2 && baseCount <= 2) setupQuality = 'PERFECT';
-  else if (score >= 65 && phase === 2)                    setupQuality = 'GOOD';
-  else if (score >= 45)                                   setupQuality = 'FAIR';
-  else                                                    setupQuality = 'POOR';
+  if      (signal === 'BUY' && score >= 80 && baseCount <= 2)  setupQuality = 'PERFECT';
+  else if (signal === 'BUY' && score >= 65)                    setupQuality = 'GOOD';
+  else if (phase === 2 && score >= 65)                         setupQuality = 'GOOD';   // was FAIR — now GOOD to match screener
+  else if (phase === 2 && score >= 45)                         setupQuality = 'FAIR';
+  else                                                         setupQuality = 'POOR';
 
   return {
     phase, phaseLabel, phaseDesc,
