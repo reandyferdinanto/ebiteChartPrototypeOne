@@ -1045,6 +1045,37 @@ function ScreenerContent() {
                       <span className="text-gray-400">VSA</span>
                     </div>
                   </div>
+
+                  {/* Volume Dry-Up Meter */}
+                  <div className="mt-2 pt-2 border-t border-white/5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400">📊 Volume Dry-Up</span>
+                      <span className={`text-xs font-bold ${r.baseVolumeDryUp ? 'text-emerald-400' : r.vol5avgPct <= 90 ? 'text-yellow-400' : 'text-red-400'}`}>
+                        {r.baseVolumeDryUp ? '✅ Sudah Kering' : `${r.vol5avgPct}% → target <65%`}
+                      </span>
+                    </div>
+                    <div className="relative h-2 bg-gray-700 rounded-full overflow-hidden">
+                      {/* Fill */}
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${Math.min((r.vol5avgPct / 150) * 100, 100)}%`,
+                          backgroundColor: r.baseVolumeDryUp ? '#10b981' : r.vol5avgPct <= 90 ? '#f59e0b' : '#ef4444'
+                        }}
+                      />
+                      {/* Target marker at 65/150 = 43.3% */}
+                      <div className="absolute top-0 bottom-0 w-0.5 bg-white/50" style={{ left: '43.3%' }} />
+                    </div>
+                    {!r.baseVolumeDryUp && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Volume cooldown rata-rata <span className="text-yellow-300">{r.vol5avgPct}%</span> dari normalnya.
+                        {' '}Saham "kering" saat turun ke <span className="text-emerald-300">&lt;65%</span> — artinya penjual sudah sepi dan saham siap breakout lagi.
+                      </p>
+                    )}
+                    {r.baseVolumeDryUp && (
+                      <p className="text-xs text-emerald-400/70 mt-0.5">Penjual sudah habis — siap breakout!</p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Metrics */}

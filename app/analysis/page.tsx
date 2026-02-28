@@ -290,7 +290,7 @@ function calcRyanFilbert(C: number[], H: number[], L: number[], V: number[], i: 
     signalReason = `✅ SEMUA KRITERIA TERPENUHI. Base B${baseCount} ketat (${Math.round(baseRange)}%), volume sudah kering, MA alignment bullish. Pivot Rp${pivotEntry.toLocaleString('id-ID')}, SL Rp${sl.toLocaleString('id-ID')}, TP Rp${tp.toLocaleString('id-ID')} (R:R ${rr}x). Beli saat harga menembus pivot dengan volume ≥1.5× rata-rata.`;
   } else if (phase === 2 && score >= 65 && !baseVolumeDryUp && baseRange < 20) {
     signal = 'WAIT';
-    signalReason = `⏳ MA alignment bagus (score ${score}/100), base ketat ✓ — TAPI volume belum kering, penjual masih aktif. Tunggu 1–3 hari hingga volume harian < rata-rata × 0.7. Pivot target: Rp${pivotEntry.toLocaleString('id-ID')}.`;
+    signalReason = `⏳ MA alignment bagus (score ${score}/100), base ketat ✓ — TAPI volume belum kering. Volume 5 hari rata-rata masih ${vol5avgPct}% dari normalnya, harus turun ke bawah 70% (artinya: sepi pembeli & penjual = "diam" = siap breakout). Pivot target: Rp${pivotEntry.toLocaleString('id-ID')}. Pantau 1–3 hari.`;
   } else if (phase === 2 && score >= 65 && baseVolumeDryUp && baseRange >= 20) {
     signal = 'WAIT';
     signalReason = `⏳ Volume sudah kering ✓ — TAPI base masih lebar (${Math.round(baseRange)}%, idealnya <20%). Tunggu VCP kontraksi lebih lanjut hingga range menyempit. Supply belum bersih sepenuhnya.`;

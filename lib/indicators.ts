@@ -73,6 +73,11 @@ export interface RyanFilbertResult {
   signalReason: string;
   score: number;
   setupQuality: 'PERFECT' | 'GOOD' | 'FAIR' | 'POOR';
+  // Volume dry-up progress data
+  vol5avgPct: number;       // current 5-bar avg volume as % of 50-bar avg (e.g. 113 = 113%)
+  volDryUpTarget: number;   // target threshold = 70 (i.e. must reach <70%)
+  vol50avg: number;         // 50-bar average volume for reference
+  vol5avg: number;          // current 5-bar average volume
 }
 
 export interface IndicatorResult {
@@ -1421,9 +1426,12 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
   let signalReason: string;
   const bN = `B${baseCount}`;
 
+  // Volume dry-up percentage for UI progress meter
+  const vol5avgPct = vol50avg > 0 ? Math.round(vol5avg / vol50avg * 100) : 100;
+
   // Collect specific missing criteria for actionable feedback
   const missing: string[] = [];
-  if (!baseVolumeDryUp)      missing.push(`volume belum kering (5-bar avg masih ${Math.round(vol5avg/vol50avg*100)}% dari rata-rata, tunggu turun ke <70%)`);
+  if (!baseVolumeDryUp)      missing.push(`volume belum kering — rata-rata 5 hari terakhir masih ${vol5avgPct}% dari normal. Butuh turun ke bawah 70% (artinya: sepi pembeli & penjual, saham sedang "diam" dan siap breakout)`);
   if (baseRange >= 20)       missing.push(`base terlalu lebar (${Math.round(baseRange)}% — idealnya <20%, tunggu VCP kontraksi lebih lanjut)`);
   if (!ma150AboveMA200)      missing.push('MA150 belum di atas MA200 (alignment belum sempurna)');
   if (!ma50AboveMA150)       missing.push('MA50 belum di atas MA150');
@@ -1493,6 +1501,7 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
     breakoutVolumeConfirmed, baseVolumeDryUp,
     relativeStrength: rs, rsLabel,
     signal, signalReason, score, setupQuality,
+    vol5avgPct, volDryUpTarget: 70, vol50avg, vol5avg,
   };
 }
 

@@ -1057,10 +1057,20 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                   ['Harga > MA200',     rf.aboveMA200,               'Harga tutup di bawah MA200'],
                   ['MA50 naik',         rf.ma50Rising,               'MA50 masih turun/datar'],
                   ['MA150 > MA200',     rf.ma150AboveMA200,          'MA150 belum melewati MA200'],
-                  ['Volume Dry-Up',     rf.baseVolumeDryUp,          'Volume belum kering (penjual masih aktif)'],
+                  ['Volume Dry-Up',     rf.baseVolumeDryUp,          `Volume belum kering (${rf.vol5avgPct}% dari normal, target <70%)`],
                   ['Vol Breakout',      rf.breakoutVolumeConfirmed,  'Belum ada volume breakout tinggi'],
                 ];
                 const missing = checks.filter(([,v]) => !v).map(([,, msg]) => msg);
+
+                // Volume dry-up progress data
+                const volPct  = rf.vol5avgPct ?? 100;
+                const volTarget = rf.volDryUpTarget ?? 70;
+                const volDried  = rf.baseVolumeDryUp;
+                // Clamp bar width: 100% = current; fill left-to-right, marker at 70%
+                const volBarPct  = Math.min(volPct, 200); // cap display at 200%
+                const volFillW   = Math.min((volPct / 200) * 100, 100); // bar fill %
+                const volMarkerX = (volTarget / 200) * 100; // 70/200 = 35%
+                const volColor   = volDried ? '#10b981' : volPct <= 90 ? '#f59e0b' : '#ef4444';
 
                 return (
                   <div className={`rounded-lg border p-2 mt-1 ${phaseBg[rf.phaseLabel] ?? 'bg-gray-800/20 border-gray-700/30'}`}>
@@ -1108,6 +1118,51 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                         </span>
                       ))}
                     </div>
+
+                    {/* ── Volume Dry-Up Meter (always show for Phase 2) ── */}
+                    {rf.phase === 2 && (
+                      <div className="bg-gray-900/60 rounded p-2 mb-1.5 border border-gray-700/40">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-semibold text-gray-300">📊 Volume Dry-Up Meter</span>
+                          <span className={`text-xs font-bold ${volDried ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                            {volDried ? '✅ Sudah Kering!' : `${volPct}% dari normal`}
+                          </span>
+                        </div>
+                        {/* Progress bar container */}
+                        <div className="relative h-3 bg-gray-700 rounded-full overflow-visible mb-1">
+                          {/* Fill bar */}
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${volFillW}%`, backgroundColor: volColor }}
+                          />
+                          {/* Target marker line at 70% */}
+                          <div
+                            className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10"
+                            style={{ left: `${volMarkerX}%` }}
+                          />
+                          {/* Target label */}
+                          <div
+                            className="absolute -top-4 text-xs text-white/50 transform -translate-x-1/2 whitespace-nowrap"
+                            style={{ left: `${volMarkerX}%` }}
+                          >
+                            Target 70%
+                          </div>
+                        </div>
+                        {/* Explanation */}
+                        {!volDried && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Volume 5 hari rata-rata = <span className="text-yellow-300 font-semibold">{volPct}%</span> dari normalnya.
+                            {' '}Harus turun ke <span className="text-emerald-300 font-semibold">&lt;70%</span> agar dianggap "kering"
+                            {' '}— artinya penjual sudah habis dan saham siap breakout.
+                          </p>
+                        )}
+                        {volDried && (
+                          <p className="text-xs text-emerald-400/80 mt-0.5">
+                            Volume sudah kering — penjual habis. Ini kondisi ideal sebelum breakout besar!
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     {/* ── Missing criteria (only for WAIT) ─────────────── */}
                     {rf.signal === 'WAIT' && missing.length > 0 && (
