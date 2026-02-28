@@ -1029,6 +1029,109 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 );
               })()}
 
+              {/* ── Ryan Filbert Panel ───────────────────────────────────── */}
+              {indicators.ryanFilbert && (() => {
+                const rf = indicators.ryanFilbert!;
+                const phaseColors: Record<string, string> = {
+                  UPTREND: 'text-emerald-300', BASING: 'text-cyan-300',
+                  TOPPING: 'text-orange-300', DOWNTREND: 'text-red-300',
+                };
+                const phaseBg: Record<string, string> = {
+                  UPTREND: 'bg-emerald-900/20 border-emerald-500/30',
+                  BASING: 'bg-cyan-900/20 border-cyan-500/30',
+                  TOPPING: 'bg-orange-900/20 border-orange-500/30',
+                  DOWNTREND: 'bg-red-900/20 border-red-500/30',
+                };
+                const phaseDesc: Record<string, string> = {
+                  UPTREND: 'Fase 2 — Uptrend aktif. Saham ideal untuk swing trade.',
+                  BASING: 'Fase 1 — Konsolidasi. Monitor breakout volume.',
+                  TOPPING: 'Fase 3 — Potensi distribusi. Waspadai beli baru.',
+                  DOWNTREND: 'Fase 4 — Downtrend. Hindari masuk posisi.',
+                };
+                const sigC: Record<string, string> = {
+                  BUY: 'bg-emerald-500/15 text-emerald-300', WAIT: 'bg-yellow-500/10 text-yellow-300', AVOID: 'bg-red-500/15 text-red-300',
+                };
+                const qualC: Record<string, string> = {
+                  PERFECT: 'text-emerald-300', GOOD: 'text-green-400',
+                  FAIR: 'text-yellow-400', POOR: 'text-red-400',
+                };
+                return (
+                  <div className={`rounded-lg border p-2 mt-1 ${phaseBg[rf.phaseLabel] ?? 'bg-gray-800/20 border-gray-700/30'}`}>
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-purple-400"/>
+                        <span className="text-xs font-bold text-white">RYAN FILBERT</span>
+                        <span className="text-xs text-gray-500">Stan Weinstein</span>
+                      </div>
+                      <span className={`text-xs font-bold ${phaseColors[rf.phaseLabel] ?? 'text-gray-400'}`}>
+                        Fase {rf.phase} — {rf.phaseLabel}
+                      </span>
+                    </div>
+                    <p className={`text-xs mb-1.5 ${phaseColors[rf.phaseLabel] ?? 'text-gray-400'}`}>
+                      {phaseDesc[rf.phaseLabel]}
+                    </p>
+                    {/* Metrics row */}
+                    <div className="grid grid-cols-4 gap-1 text-xs mb-1.5">
+                      <div className="bg-gray-900/60 rounded p-1 text-center">
+                        <div className="text-gray-500 text-xs">Base</div>
+                        <div className="text-white font-bold">{rf.baseLabel}</div>
+                      </div>
+                      <div className="bg-gray-900/60 rounded p-1 text-center">
+                        <div className="text-gray-500 text-xs">RS</div>
+                        <div className={`font-bold ${rf.rsLabel === 'STRONG' ? 'text-emerald-400' : rf.rsLabel === 'NEUTRAL' ? 'text-yellow-400' : 'text-red-400'}`}>{rf.relativeStrength}</div>
+                      </div>
+                      <div className="bg-gray-900/60 rounded p-1 text-center">
+                        <div className="text-gray-500 text-xs">Score</div>
+                        <div className={`font-bold ${qualC[rf.setupQuality] ?? 'text-gray-400'}`}>{rf.score}/100</div>
+                      </div>
+                      <div className="bg-gray-900/60 rounded p-1 text-center">
+                        <div className="text-gray-500 text-xs">Setup</div>
+                        <div className={`font-bold ${qualC[rf.setupQuality] ?? 'text-gray-400'}`}>{rf.setupQuality}</div>
+                      </div>
+                    </div>
+                    {/* MA Checklist */}
+                    <div className="grid grid-cols-3 gap-1 text-xs mb-1.5">
+                      {([
+                        ['MA150', rf.aboveMA150],
+                        ['MA200', rf.aboveMA200],
+                        ['MA50↑', rf.ma50Rising],
+                        ['MA150>200', rf.ma150AboveMA200],
+                        ['Vol Kering', rf.baseVolumeDryUp],
+                        ['Vol BO', rf.breakoutVolumeConfirmed],
+                      ] as [string, boolean][]).map(([lbl, v]) => (
+                        <span key={lbl} className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${v ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-800/40 text-gray-500'}`}>
+                          <span>{v ? '✓' : '✗'}</span><span>{lbl}</span>
+                        </span>
+                      ))}
+                    </div>
+                    {/* Signal */}
+                    <div className={`text-xs rounded px-2 py-1 ${sigC[rf.signal] ?? 'bg-gray-500/10 text-gray-300'}`}>
+                      <span className="font-bold mr-1">
+                        {rf.signal === 'BUY' ? '✅ BUY' : rf.signal === 'AVOID' ? '🚫 AVOID' : '⏳ WAIT'}
+                      </span>
+                      {rf.signalReason}
+                    </div>
+                    {rf.signal === 'BUY' && (
+                      <div className="grid grid-cols-3 gap-1 mt-1.5 text-xs text-center">
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded p-1">
+                          <div className="text-gray-500">Pivot</div>
+                          <div className="text-blue-300 font-bold">Rp {rf.pivotEntry.toLocaleString('id-ID')}</div>
+                        </div>
+                        <div className="bg-red-500/10 border border-red-500/20 rounded p-1">
+                          <div className="text-gray-500">SL</div>
+                          <div className="text-red-300 font-bold">Rp {rf.stopLoss.toLocaleString('id-ID')}</div>
+                        </div>
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-1">
+                          <div className="text-gray-500">Target</div>
+                          <div className="text-emerald-300 font-bold">Rp {rf.targetPrice.toLocaleString('id-ID')}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* ── Row 4: KESIMPULAN ─────────────────────────────────────── */}
               {(() => {
                 const bias    = indicators.signals.cppBias;

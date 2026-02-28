@@ -13,7 +13,7 @@ interface AnalysisResult {
   vsaSignal: string; vsaDetail: string;
   vcpStatus: string; vcpDetail: string;
   cppScore: number; cppBias: string; cppRaw: number; evrScore: number;
-  p4: P4Result; bvd: BVDResult;
+  p4: P4Result; bvd: BVDResult; rf: RFResult | null;
   isHaka: boolean; hakaDetail: string;
   suggestion: 'BUY' | 'WAIT' | 'SELL' | 'WATCH';
   confidence: number; reasons: string[];
@@ -34,6 +34,16 @@ interface P4Result {
 interface BVDResult {
   detected: boolean; isBullBreak: boolean; bullPct: number; bearPct: number;
   isFake: boolean; isReal: boolean; level: number; barsSince: number;
+}
+interface RFResult {
+  phase: 1|2|3|4; phaseLabel: 'BASING'|'UPTREND'|'TOPPING'|'DOWNTREND';
+  baseLabel: string; baseCount: number;
+  pivotEntry: number; stopLoss: number; targetPrice: number; riskReward: number;
+  aboveMA150: boolean; aboveMA200: boolean; ma150AboveMA200: boolean; ma50Rising: boolean;
+  breakoutVolumeConfirmed: boolean; baseVolumeDryUp: boolean;
+  relativeStrength: number; rsLabel: 'STRONG'|'NEUTRAL'|'WEAK';
+  signal: 'BUY'|'WAIT'|'AVOID'; signalReason: string; score: number;
+  setupQuality: 'PERFECT'|'GOOD'|'FAIR'|'POOR';
 }
 
 // =============================================================================
@@ -188,6 +198,91 @@ function calcBVD(H: number[], L: number[], C: number[], O: number[], V: number[]
 }
 
 // =============================================================================
+// RYAN FILBERT — Stan Weinstein 4-Phase + VCP Base Count + Pivot System
+// Based on: "Investasi Saham Ala Swing Trader Dunia" — Ryan Filbert Wijaya
+// =============================================================================
+function calcRyanFilbert(C: number[], H: number[], L: number[], V: number[], i: number): RFResult | null {
+  if (i < 210) return null;
+  const sma = (arr: number[], p: number, idx: number) => { let s = 0; for (let j = idx - p + 1; j <= idx; j++) s += arr[j] || 0; return s / p; };
+  const ma50v = sma(C, 50, i), ma150v = sma(C, 150, i), ma200v = sma(C, 200, i);
+  const ma50Prev = sma(C, 50, Math.max(0, i - 5));
+  const ma50Rising = ma50v > ma50Prev;
+  const aboveAll = C[i] > ma50v && C[i] > ma150v && C[i] > ma200v;
+  const belowAll = C[i] < ma50v && C[i] < ma150v && C[i] < ma200v;
+  const aboveMA150 = C[i] > ma150v, aboveMA200 = C[i] > ma200v;
+  const ma150AboveMA200 = ma150v > ma200v, ma50AboveMA150 = ma50v > ma150v;
+  const hi52 = Math.max(...H.slice(Math.max(0, i - 252), i + 1));
+  const pctFrom52Hi = (hi52 - C[i]) / hi52 * 100;
+  let phase: 1|2|3|4, phaseLabel: RFResult['phaseLabel'];
+  if (aboveAll && ma150AboveMA200 && ma50AboveMA150 && ma50Rising) { phase = 2; phaseLabel = 'UPTREND'; }
+  else if (aboveAll && (!ma150AboveMA200 || pctFrom52Hi < 10)) { phase = 3; phaseLabel = 'TOPPING'; }
+  else if (belowAll && !ma50Rising) { phase = 4; phaseLabel = 'DOWNTREND'; }
+  else { phase = 1; phaseLabel = 'BASING'; }
+  // Base detection
+  const baseLookback = Math.min(60, i);
+  let baseHigh = -Infinity, baseLow = Infinity, baseStart = i;
+  for (let k = i; k >= i - baseLookback; k--) {
+    const rng = baseHigh > -Infinity ? (baseHigh - Math.min(L[k] || baseLow, baseLow)) / baseHigh * 100 : 0;
+    if (rng > 20 && baseHigh > -Infinity) { baseStart = k + 1; break; }
+    if ((H[k] || 0) > baseHigh) baseHigh = H[k] || 0;
+    if ((L[k] || 0) < baseLow) baseLow = L[k] || 0;
+    if (k === i - baseLookback) baseStart = k;
+  }
+  const baseLength = i - baseStart;
+  const baseRange = baseHigh > 0 ? (baseHigh - baseLow) / baseHigh * 100 : 0;
+  // Base count
+  let baseCount = 1;
+  const lbBases = Math.min(i, 252);
+  let inBase = false, bh2 = 0;
+  for (let k = i - lbBases; k < i - 10; k++) {
+    if (k < 0) continue;
+    const m20k = sma(C, 20, k);
+    if (!inBase && Math.abs((C[k]||0) - m20k) / m20k < 0.05 && (C[k]||0) > sma(C, 50, k)) { inBase = true; bh2 = H[k]||0; }
+    if (inBase) {
+      if ((H[k]||0) > bh2) bh2 = H[k]||0;
+      if ((C[k]||0) > bh2 * 1.02 && (V[k]||0) > sma(V, 20, k) * 1.3) { baseCount++; inBase = false; }
+      if ((C[k]||0) < sma(C, 50, k) * 0.95) inBase = false;
+    }
+  }
+  baseCount = Math.min(baseCount, 6);
+  const pivotEntry = parseFloat((baseHigh * 1.0005).toFixed(2));
+  const sl = parseFloat((baseLow * 0.99).toFixed(2));
+  const riskPct = (pivotEntry - sl) / pivotEntry;
+  const tp = parseFloat((pivotEntry + riskPct * pivotEntry * 2).toFixed(2));
+  const rr = riskPct > 0 ? parseFloat(((tp - pivotEntry) / (pivotEntry - sl)).toFixed(1)) : 2.0;
+  let vs50 = 0; for (let k = Math.max(0, i - 49); k <= i; k++) vs50 += V[k] || 0;
+  const v50a = vs50 / Math.min(50, i + 1);
+  let vs5 = 0; for (let k = i - 4; k <= i; k++) vs5 += V[k] || 0;
+  const breakoutVolumeConfirmed = (V[i] || 0) >= v50a * 1.5;
+  const baseVolumeDryUp = (vs5 / 5) < v50a * 0.70;
+  const chg20 = i >= 20 ? (C[i] - C[i - 20]) / C[i - 20] * 100 : 0;
+  const chg50 = i >= 50 ? (C[i] - C[i - 50]) / C[i - 50] * 100 : 0;
+  const chg200 = i >= 200 ? (C[i] - C[i - 200]) / C[i - 200] * 100 : 0;
+  let rs = 50;
+  if (chg20 > 10) rs += 15; else if (chg20 > 5) rs += 8; else if (chg20 < -5) rs -= 10;
+  if (chg50 > 20) rs += 15; else if (chg50 > 10) rs += 8; else if (chg50 < -10) rs -= 10;
+  if (chg200 > 30) rs += 15; else if (chg200 > 15) rs += 8; else if (chg200 < -15) rs -= 15;
+  if (aboveAll) rs += 5; if (ma50Rising) rs += 5;
+  rs = Math.max(0, Math.min(100, Math.round(rs)));
+  const rsLabel: RFResult['rsLabel'] = rs >= 65 ? 'STRONG' : rs >= 40 ? 'NEUTRAL' : 'WEAK';
+  let score = 0;
+  if (phase === 2) score += 30; else if (phase === 1) score += 10;
+  if (aboveMA150) score += 10; if (aboveMA200) score += 10; if (ma150AboveMA200) score += 8;
+  if (ma50AboveMA150) score += 8; if (ma50Rising) score += 8; if (baseVolumeDryUp) score += 8;
+  if (rs >= 65) score += 10; if (baseLength >= 5 && baseRange < 15) score += 8;
+  if (baseCount >= 3) score -= (baseCount - 2) * 5;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  let signal: RFResult['signal']; let signalReason: string;
+  if (phase === 4 || (!aboveMA150 && !aboveMA200)) { signal = 'AVOID'; signalReason = 'Fase 4 / Di bawah MA150 & MA200. Trend rusak, hindari.'; }
+  else if (phase === 2 && score >= 65 && baseVolumeDryUp && baseRange < 20) { signal = 'BUY'; signalReason = `Fase 2 B${baseCount}: Setup bullish kuat. Base ${Math.round(baseRange)}% range, vol kering. Pivot Rp${pivotEntry.toLocaleString('id-ID')}, SL Rp${sl.toLocaleString('id-ID')}, TP Rp${tp.toLocaleString('id-ID')} (R:R ${rr}x)`; }
+  else if (phase === 2 && score >= 50) { signal = 'WAIT'; signalReason = `Fase 2 B${baseCount}: Trend bagus tapi belum ideal. Tunggu vol dry-up & base lebih ketat.`; }
+  else if (phase === 1) { signal = 'WAIT'; signalReason = 'Fase 1 / Basing: Monitor. Tunggu breakout Phase 2 dengan volume tinggi.'; }
+  else { signal = 'WAIT'; signalReason = `Fase ${phase}: Belum memenuhi semua kriteria Ryan Filbert. Score: ${score}/100.`; }
+  const setupQuality: RFResult['setupQuality'] = score >= 80 && phase === 2 && baseCount <= 2 ? 'PERFECT' : score >= 65 && phase === 2 ? 'GOOD' : score >= 45 ? 'FAIR' : 'POOR';
+  return { phase, phaseLabel, baseLabel: `B${baseCount}`, baseCount, pivotEntry, stopLoss: sl, targetPrice: tp, riskReward: rr, aboveMA150, aboveMA200, ma150AboveMA200, ma50Rising, breakoutVolumeConfirmed, baseVolumeDryUp, relativeStrength: rs, rsLabel, signal, signalReason, score, setupQuality };
+}
+
+// =============================================================================
 // MAIN ANALYSIS ENGINE
 // =============================================================================
 function analyzeStock(data:any[],symbol:string,price:number,change:number,changePct:number):AnalysisResult{
@@ -196,7 +291,7 @@ function analyzeStock(data:any[],symbol:string,price:number,change:number,change
   const n=C.length;
   const emptyP4=calcPredictaV4(C,O,H,L,V,0);
   const emptyBVD:BVDResult={detected:false,isBullBreak:false,bullPct:50,bearPct:50,isFake:false,isReal:false,level:0,barsSince:0};
-  if(n<50)return{symbol,price,change,changePercent:changePct,wyckoffPhase:'UNKNOWN',wyckoffDetail:'Insufficient data',vsaSignal:'UNKNOWN',vsaDetail:'',vcpStatus:'UNKNOWN',vcpDetail:'',cppScore:0,cppBias:'NEUTRAL',cppRaw:0,evrScore:0,p4:emptyP4,bvd:emptyBVD,isHaka:false,hakaDetail:'',suggestion:'WATCH',confidence:0,reasons:['Need 50+ candles'],ma20:0,ma50:0,ma200:0,ema8:0,ema21:0,ema50:0,volRatio:1,accRatio:1,rmv:50,momentum:0,adxValue:15};
+  if(n<50)return{symbol,price,change,changePercent:changePct,wyckoffPhase:'UNKNOWN',wyckoffDetail:'Insufficient data',vsaSignal:'UNKNOWN',vsaDetail:'',vcpStatus:'UNKNOWN',vcpDetail:'',cppScore:0,cppBias:'NEUTRAL',cppRaw:0,evrScore:0,p4:emptyP4,bvd:emptyBVD,rf:null,isHaka:false,hakaDetail:'',suggestion:'WATCH',confidence:0,reasons:['Need 50+ candles'],ma20:0,ma50:0,ma200:0,ema8:0,ema21:0,ema50:0,volRatio:1,accRatio:1,rmv:50,momentum:0,adxValue:15};
   const i=n-1;
   const ma20=calcSMA(C,20,i),ma50=calcSMA(C,50,i),ma200=n>=200?calcSMA(C,200,i):0;
   const ema8=calcEMA(C,8,i),ema21=calcEMA(C,21,i),ema50=calcEMA(C,50,i);
@@ -212,7 +307,7 @@ function analyzeStock(data:any[],symbol:string,price:number,change:number,change
   const accRatio=bV/(sV||1),momentum=i>=10?((C[i]-C[i-10])/(C[i-10]||1))*100:0;
   const cppBias=cppRaw>0.5?'BULLISH':cppRaw<-0.5?'BEARISH':'NEUTRAL';
   const cppScore=parseFloat(cppRaw.toFixed(2)),evrScore=parseFloat((spR-volRatio).toFixed(2));
-  const p4=calcPredictaV4(C,O,H,L,V,i),bvd=calcBVD(H,L,C,O,V,i);
+  const p4=calcPredictaV4(C,O,H,L,V,i),bvd=calcBVD(H,L,C,O,V,i),rf=calcRyanFilbert(C,H,L,V,i);
   // Wyckoff
   const inUp=cC>ma20&&cC>ma50&&ma20>ma50,inDown=cC<ma20&&cC<ma50&&ma20<ma50;
   const isSC=sp>atr14*2&&volRatio>2.5&&!isGreen&&clP>0.4;
@@ -328,7 +423,7 @@ function analyzeStock(data:any[],symbol:string,price:number,change:number,change
   const slM=isOE?1.2:vcpStatus==='VCP PIVOT'?1.0:1.5,tpM=vcpStatus==='VCP PIVOT'?4:isHaka?4:3;
   const stopLoss=suggestion==='BUY'?parseFloat((cC-atr14*slM).toFixed(0)):suggestion==='SELL'?parseFloat((cC+atr14*slM).toFixed(0)):undefined;
   const target=suggestion==='BUY'?parseFloat((cC+atr14*tpM).toFixed(0)):suggestion==='SELL'?parseFloat((cC-atr14*tpM).toFixed(0)):undefined;
-  return{symbol,price,change,changePercent:changePct,wyckoffPhase:wy,wyckoffDetail:wd,vsaSignal:vs,vsaDetail:vd,vcpStatus,vcpDetail,cppScore,cppBias,cppRaw,evrScore,p4,bvd,isHaka,hakaDetail,suggestion,confidence,reasons,stopLoss,target,ma20,ma50,ma200,ema8,ema21,ema50,volRatio,accRatio,rmv,momentum,adxValue};
+  return{symbol,price,change,changePercent:changePct,wyckoffPhase:wy,wyckoffDetail:wd,vsaSignal:vs,vsaDetail:vd,vcpStatus,vcpDetail,cppScore,cppBias,cppRaw,evrScore,p4,bvd,rf,isHaka,hakaDetail,suggestion,confidence,reasons,stopLoss,target,ma20,ma50,ma200,ema8,ema21,ema50,volRatio,accRatio,rmv,momentum,adxValue};
 }
 
 // =============================================================================
@@ -414,6 +509,94 @@ function BVDSection({bvd}:{bvd:BVDResult}){
         {sp&&`Harga sempat turun di bawah support tapi volume BELI (${bvd.bullPct}%) dominan. Spring Wyckoff — smart money akumulasi di bawah support untuk markup.`}
         {!fkB&&!rlB&&!sp&&`Harga jebol support dengan volume JUAL (${bvd.bearPct}%) dominan. Breakdown valid — tekanan jual serius.`}
       </p>
+    </div>
+  );
+}
+
+// =============================================================================
+// RYAN FILBERT PANEL COMPONENT
+// =============================================================================
+function RyanFilbertPanel({rf}:{rf:RFResult}){
+  const phaseColors:Record<string,string>={UPTREND:'text-emerald-400',BASING:'text-cyan-400',TOPPING:'text-orange-400',DOWNTREND:'text-red-400'};
+  const phaseBg:Record<string,string>={UPTREND:'bg-emerald-900/20 border-emerald-500/30',BASING:'bg-cyan-900/20 border-cyan-500/30',TOPPING:'bg-orange-900/20 border-orange-500/30',DOWNTREND:'bg-red-900/20 border-red-500/30'};
+  const sigColors:Record<string,string>={BUY:'text-emerald-400 bg-emerald-500/15 border-emerald-500/40',WAIT:'text-yellow-400 bg-yellow-500/15 border-yellow-500/40',AVOID:'text-red-400 bg-red-500/15 border-red-500/40'};
+  const qCol={PERFECT:'text-emerald-300',GOOD:'text-green-400',FAIR:'text-yellow-400',POOR:'text-red-400'};
+  const phaseDesc={UPTREND:'Fase 2 — Uptrend aktif. Harga di atas semua MA, alignment bullish.',BASING:'Fase 1 — Basing/Konsolidasi. Membangun base, monitor breakout.',TOPPING:'Fase 3 — Topping. Harga dekat puncak, waspadai distribusi.',DOWNTREND:'Fase 4 — Downtrend. Hindari. Tunggu basing kembali.'};
+  return(
+    <div className={`rounded-xl border overflow-hidden ${phaseBg[rf.phaseLabel]||'bg-gray-900/20 border-gray-700/30'}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-gray-800/60 border-b border-gray-700/40">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-purple-400"/>
+          <span className="text-xs font-bold text-white tracking-wide">RYAN FILBERT</span>
+          <span className="text-xs text-gray-500">Stan Weinstein 4-Phase</span>
+        </div>
+        <span className={`text-xs font-bold ${phaseColors[rf.phaseLabel]}`}>Fase {rf.phase} — {rf.phaseLabel}</span>
+      </div>
+      {/* Phase description */}
+      <div className="px-3 pt-2 pb-1">
+        <p className={`text-xs ${phaseColors[rf.phaseLabel]} leading-relaxed`}>{phaseDesc[rf.phaseLabel]}</p>
+      </div>
+      {/* Metrics grid */}
+      <div className="grid grid-cols-3 gap-px bg-gray-700/20 text-center text-xs mx-3 mb-2 rounded-lg overflow-hidden">
+        <div className="bg-gray-900/60 py-2 px-1">
+          <div className="text-gray-500 text-xs">Base</div>
+          <div className="text-white font-bold">{rf.baseLabel}</div>
+          <div className="text-gray-500 text-xs">{rf.baseCount<=2?'Segar':'Late Stage'}</div>
+        </div>
+        <div className="bg-gray-900/60 py-2 px-1">
+          <div className="text-gray-500 text-xs">RS Score</div>
+          <div className={`font-bold ${rf.rsLabel==='STRONG'?'text-emerald-400':rf.rsLabel==='NEUTRAL'?'text-yellow-400':'text-red-400'}`}>{rf.relativeStrength}</div>
+          <div className={`text-xs ${rf.rsLabel==='STRONG'?'text-emerald-500':rf.rsLabel==='NEUTRAL'?'text-yellow-500':'text-red-500'}`}>{rf.rsLabel}</div>
+        </div>
+        <div className="bg-gray-900/60 py-2 px-1">
+          <div className="text-gray-500 text-xs">Setup</div>
+          <div className={`font-bold ${qCol[rf.setupQuality]}`}>{rf.setupQuality}</div>
+          <div className="text-gray-500 text-xs">{rf.score}/100</div>
+        </div>
+      </div>
+      {/* MA alignment */}
+      <div className="px-3 pb-2 space-y-1">
+        <div className="text-xs text-gray-500 font-medium">MA Alignment (Ryan Filbert Checklist)</div>
+        <div className="grid grid-cols-2 gap-1 text-xs">
+          {[
+            {label:'Di atas MA150',v:rf.aboveMA150},
+            {label:'Di atas MA200',v:rf.aboveMA200},
+            {label:'MA150 > MA200',v:rf.ma150AboveMA200},
+            {label:'MA50 Rising',v:rf.ma50Rising},
+            {label:'Vol Dry-Up',v:rf.baseVolumeDryUp},
+            {label:'Vol Breakout',v:rf.breakoutVolumeConfirmed},
+          ].map(item=>(
+            <div key={item.label} className={`flex items-center gap-1.5 rounded px-2 py-1 ${item.v?'bg-emerald-500/10':'bg-gray-800/40'}`}>
+              <span className={item.v?'text-emerald-400':'text-red-400'}>{item.v?'✓':'✗'}</span>
+              <span className={item.v?'text-gray-300':'text-gray-500'}>{item.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Signal */}
+      <div className="px-3 pb-3">
+        <div className={`flex items-start gap-2 rounded-lg px-3 py-2 border text-xs ${sigColors[rf.signal]}`}>
+          <span className="font-bold shrink-0 mt-0.5">{rf.signal==='BUY'?'✅ BUY':rf.signal==='WAIT'?'⏳ WAIT':'🚫 AVOID'}</span>
+          <span className="leading-relaxed">{rf.signalReason}</span>
+        </div>
+        {rf.signal==='BUY'&&(
+          <div className="grid grid-cols-3 gap-1 mt-2 text-center text-xs">
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded p-1.5">
+              <div className="text-gray-500">Pivot</div>
+              <div className="text-blue-300 font-bold">Rp {rf.pivotEntry.toLocaleString('id-ID')}</div>
+            </div>
+            <div className="bg-red-500/10 border border-red-500/20 rounded p-1.5">
+              <div className="text-gray-500">SL</div>
+              <div className="text-red-300 font-bold">Rp {rf.stopLoss.toLocaleString('id-ID')}</div>
+            </div>
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-1.5">
+              <div className="text-gray-500">Target</div>
+              <div className="text-emerald-300 font-bold">Rp {rf.targetPrice.toLocaleString('id-ID')}</div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -543,6 +726,13 @@ function ResultCard({r}:{r:AnalysisResult}){
     if(ma50>0) maCtx.push(`MA50: ${price>ma50?'di atas ✓':'di bawah ✗'}`);
     if(maCtx.length) techLines.push(`📏 Posisi MA: ${maCtx.join(' | ')}. ${price>ma20&&price>ma50?'Struktur uptrend terjaga.':price<ma20&&price<ma50?'Di bawah kedua MA — downtrend, hati-hati beli.':'Transisi — volatil.'}`);
 
+    // Ryan Filbert
+    const{rf}=r;
+    if(rf){
+      const pfMap={UPTREND:'Fase 2 UPTREND (Ryan Filbert): Saham dalam kondisi ideal swing trade — harga di atas MA50, MA150, MA200 dalam alignment bullish. Ini fase terbaik untuk beli dan hold.',BASING:'Fase 1 BASING (Ryan Filbert): Harga sedang konsolidasi membangun base. Potensi ada, tapi butuh breakout konfirmasi volume tinggi dulu.',TOPPING:'Fase 3 TOPPING (Ryan Filbert): Tanda-tanda distribusi. Harga dekat puncak, MA mulai mendatar. Hati-hati beli baru.',DOWNTREND:'Fase 4 DOWNTREND (Ryan Filbert): Hindari. Harga di bawah semua MA besar. Tunggu base terbentuk kembali.'};
+      const bcMsg=rf.baseCount<=2?`${rf.baseLabel} (base segar, potensi terbaik)`:`${rf.baseLabel} (base ke-${rf.baseCount}, risiko lebih tinggi)`;
+      techLines.push(`📚 Ryan Filbert (${rf.phaseLabel}): ${pfMap[rf.phaseLabel]} Base count: ${bcMsg}. RS: ${rf.relativeStrength} (${rf.rsLabel}). Setup quality: ${rf.setupQuality} (${rf.score}/100). ${rf.signalReason}`);
+    }
     // ── BAGIAN 3: Saran aksi dengan penjelasan "position size konservatif" ──
     let actionAdvice='';
     if(fkB){
@@ -627,6 +817,8 @@ function ResultCard({r}:{r:AnalysisResult}){
       <PredictaTable p4={r.p4}/>
       {/* BVD */}
       <BVDSection bvd={r.bvd}/>
+      {/* Ryan Filbert */}
+      {r.rf && <RyanFilbertPanel rf={r.rf}/>}
       {/* Metrics strip */}
       <div className="grid grid-cols-4 gap-1.5 text-center">
         {[
@@ -737,6 +929,15 @@ function ResultCard({r}:{r:AnalysisResult}){
             </div>
             {r.bvd.detected&&<div className="text-gray-500 mt-0.5">Bull {r.bvd.bullPct}% · Bear {r.bvd.bearPct}%</div>}
           </div>
+          {r.rf&&(
+            <div className={`col-span-2 rounded-lg px-2.5 py-2 ${r.rf.phaseLabel==='UPTREND'?'bg-emerald-500/10 border border-emerald-500/25':r.rf.phaseLabel==='DOWNTREND'?'bg-red-500/10 border border-red-500/25':r.rf.phaseLabel==='TOPPING'?'bg-orange-500/10 border border-orange-500/25':'bg-cyan-500/10 border border-cyan-500/25'}`}>
+              <div className="text-gray-500 mb-0.5">Ryan Filbert — Stan Weinstein</div>
+              <div className={`font-bold ${r.rf.phaseLabel==='UPTREND'?'text-emerald-400':r.rf.phaseLabel==='DOWNTREND'?'text-red-400':r.rf.phaseLabel==='TOPPING'?'text-orange-400':'text-cyan-400'}`}>
+                Fase {r.rf.phase} {r.rf.phaseLabel} · {r.rf.baseLabel} · {r.rf.setupQuality} ({r.rf.score}/100)
+              </div>
+              <div className={`text-xs mt-0.5 ${r.rf.signal==='BUY'?'text-emerald-400':r.rf.signal==='AVOID'?'text-red-400':'text-yellow-400'}`}>{r.rf.signal==='BUY'?'✅ BUY':r.rf.signal==='AVOID'?'🚫 AVOID':'⏳ WAIT'} · RS {r.rf.relativeStrength} ({r.rf.rsLabel})</div>
+            </div>
+          )}
         </div>
       </div>
       {/* View Chart CTA */}

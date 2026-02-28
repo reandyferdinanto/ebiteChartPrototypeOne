@@ -124,6 +124,23 @@ interface VCPCandidate {
   rmv: number;
   pattern: string;
   recommendation: string;
+  // Ryan Filbert additions
+  rfPhase: number;
+  rfPhaseLabel: string;
+  rfBaseLabel: string;
+  rfBaseCount: number;
+  rfSetupQuality: string;
+  rfSignal: string;
+  rfPivotEntry: number;
+  rfStopLoss: number;
+  rfTarget: number;
+  rfRiskReward: number;
+  rfScore: number;
+  rfAboveMA150: boolean;
+  rfAboveMA200: boolean;
+  rfMA50Rising: boolean;
+  rfRelativeStrength: number;
+  rfSignalReason: string;
 }
 
 // ── Shared helper functions (mirrors lib/indicators.ts logic exactly) ──────
@@ -201,6 +218,135 @@ function calcRMV(highs: number[], lows: number[], closes: number[], idx: number)
   const maxA = Math.max(...atr5vals);
   if (maxA === minA) return 50;
   return ((curAtr5 - minA) / (maxA - minA)) * 100;
+}
+
+// ── Ryan Filbert Swing Framework (mirrors lib/indicators.ts) ───────────────
+function calcRyanFilbert(closes: number[], highs: number[], lows: number[], volumes: number[]) {
+  const N = closes.length;
+  if (N < 200) return null;
+  const idx = N - 1;
+
+  // MAs
+  const ma20  = calcSMA(closes, 20,  idx);
+  const ma50  = calcSMA(closes, 50,  idx);
+  const ma150 = calcSMA(closes, 150, idx);
+  const ma200 = calcSMA(closes, 200, idx);
+  const ma50p = calcSMA(closes, 50,  Math.max(0, idx - 5));
+  const ma50Rising = ma50 > ma50p;
+  const aboveMA150 = closes[idx] > ma150;
+  const aboveMA200 = closes[idx] > ma200;
+  const ma150AboveMA200 = ma150 > ma200;
+  const ma50AboveMA150  = ma50  > ma150;
+
+  // Phase
+  const aboveAll   = closes[idx] > ma50 && closes[idx] > ma150 && closes[idx] > ma200;
+  const belowAll   = closes[idx] < ma50 && closes[idx] < ma150 && closes[idx] < ma200;
+  const hi52 = Math.max(...highs.slice(Math.max(0, idx - 252), idx + 1));
+  const pctFrom52Hi = (hi52 - closes[idx]) / hi52 * 100;
+
+  let phase = 1; let phaseLabel = 'BASING';
+  if      (aboveAll && ma150AboveMA200 && ma50AboveMA150 && ma50Rising) { phase = 2; phaseLabel = 'UPTREND'; }
+  else if (aboveAll && pctFrom52Hi < 10)                                { phase = 3; phaseLabel = 'TOPPING'; }
+  else if (belowAll && !ma50Rising)                                     { phase = 4; phaseLabel = 'DOWNTREND'; }
+
+  // Base detection
+  const bLookback = Math.min(60, idx);
+  let baseHigh = -Infinity, baseLow = Infinity;
+  for (let k = idx; k >= idx - bLookback; k--) {
+    const rangeFromBase = baseHigh > -Infinity ? (baseHigh - Math.min(lows[k], baseLow)) / baseHigh * 100 : 0;
+    if (rangeFromBase > 20 && baseHigh > -Infinity) break;
+    if (highs[k] > baseHigh) baseHigh = highs[k];
+    if (lows[k]  < baseLow)  baseLow  = lows[k];
+  }
+  const baseRange = baseHigh > 0 ? (baseHigh - baseLow) / baseHigh * 100 : 20;
+
+  // Base count
+  let baseCount = 1;
+  let inBase2 = false, baseHigh2 = 0;
+  const bStart = Math.max(0, idx - Math.min(252, N - 1));
+  for (let k = bStart; k < idx - 10; k++) {
+    if (!inBase2 && Math.abs(closes[k] - ma20) / ma20 < 0.05 && closes[k] > calcSMA(closes, 50, k)) {
+      inBase2 = true; baseHigh2 = highs[k];
+    }
+    if (inBase2) {
+      if (highs[k] > baseHigh2) baseHigh2 = highs[k];
+      if (closes[k] > baseHigh2 * 1.02 && volumes[k] > calcSMA(volumes, 20, k) * 1.3) { baseCount++; inBase2 = false; }
+      if (closes[k] < calcSMA(closes, 50, k) * 0.95) inBase2 = false;
+    }
+  }
+  baseCount = Math.min(baseCount, 6);
+
+  // Vol 50 avg
+  let v50 = 0;
+  for (let k = Math.max(0, idx - 49); k <= idx; k++) v50 += volumes[k];
+  const vol50avg = v50 / Math.min(50, idx + 1);
+  let v5 = 0;
+  for (let k = idx - 4; k <= idx; k++) v5 += volumes[k];
+  const vol5avg = v5 / 5;
+  const breakoutVolumeConfirmed = volumes[idx] >= vol50avg * 1.5;
+  const baseVolumeDryUp         = vol5avg < vol50avg * 0.70;
+
+  // Momentum / RS
+  const chg20  = idx >= 20  ? (closes[idx] - closes[idx - 20])  / closes[idx - 20]  * 100 : 0;
+  const chg50  = idx >= 50  ? (closes[idx] - closes[idx - 50])  / closes[idx - 50]  * 100 : 0;
+  const chg200 = idx >= 200 ? (closes[idx] - closes[idx - 200]) / closes[idx - 200] * 100 : 0;
+  let rs = 50;
+  if (chg20  > 10) rs += 15; else if (chg20  > 5) rs += 8;  else if (chg20  < -5)  rs -= 10;
+  if (chg50  > 20) rs += 15; else if (chg50  > 10) rs += 8; else if (chg50  < -10) rs -= 10;
+  if (chg200 > 30) rs += 15; else if (chg200 > 15) rs += 8; else if (chg200 < -15) rs -= 15;
+  if (aboveAll) rs += 5; if (ma50Rising) rs += 5;
+  rs = Math.max(0, Math.min(100, Math.round(rs)));
+
+  // Score
+  let score = 0;
+  if (phase === 2)                   score += 30;
+  else if (phase === 1)              score += 10;
+  if (aboveMA150)                    score += 10;
+  if (aboveMA200)                    score += 10;
+  if (ma150AboveMA200)               score += 8;
+  if (ma50AboveMA150)                score += 8;
+  if (ma50Rising)                    score += 8;
+  if (baseVolumeDryUp)               score += 8;
+  if (rs >= 65)                      score += 10;
+  if (baseRange < 15)                score += 8;
+  if (baseCount >= 3)                score -= (baseCount - 2) * 5;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  // Entry / SL / TP
+  const pivotEntry = parseFloat((baseHigh * 1.0005).toFixed(2));
+  const stopLoss   = parseFloat((baseLow  * 0.99).toFixed(2));
+  const riskPct    = (pivotEntry - stopLoss) / pivotEntry;
+  const target     = parseFloat((pivotEntry + riskPct * pivotEntry * 2).toFixed(2));
+  const rr         = riskPct > 0 ? parseFloat(((target - pivotEntry) / (pivotEntry - stopLoss)).toFixed(1)) : 2.0;
+
+  // Signal
+  let signal = 'WAIT'; let signalReason = '';
+  if (phase === 4 || (!aboveMA150 && !aboveMA200)) {
+    signal = 'AVOID'; signalReason = 'Fase 4 / Di bawah MA150 & MA200.';
+  } else if (phase === 2 && score >= 65 && baseVolumeDryUp && baseRange < 20) {
+    signal = 'BUY';
+    signalReason = `Fase 2 B${baseCount}: Setup Ryan Filbert valid. Entry Rp${pivotEntry.toLocaleString()}, SL Rp${stopLoss.toLocaleString()}, TP Rp${target.toLocaleString()} (R:R ${rr}x)`;
+  } else if (phase === 2 && score >= 50) {
+    signal = 'WAIT'; signalReason = `Fase 2 B${baseCount}: Trend bagus, tunggu volume dry-up.`;
+  } else {
+    signal = 'WAIT'; signalReason = `Fase ${phase}: Belum ideal. Score: ${score}/100`;
+  }
+
+  let setupQuality = 'POOR';
+  if      (score >= 80 && phase === 2 && baseCount <= 2) setupQuality = 'PERFECT';
+  else if (score >= 65 && phase === 2)                    setupQuality = 'GOOD';
+  else if (score >= 45)                                   setupQuality = 'FAIR';
+
+  return {
+    rfPhase: phase, rfPhaseLabel: phaseLabel,
+    rfBaseLabel: `B${baseCount}`, rfBaseCount: baseCount,
+    rfSetupQuality: setupQuality, rfSignal: signal,
+    rfPivotEntry: pivotEntry, rfStopLoss: stopLoss,
+    rfTarget: target, rfRiskReward: rr,
+    rfScore: score, rfAboveMA150: aboveMA150, rfAboveMA200: aboveMA200,
+    rfMA50Rising: ma50Rising, rfRelativeStrength: rs,
+    rfSignalReason: signalReason,
+  };
 }
 
 // Analyze single stock for VCP/Sniper pattern
@@ -430,7 +576,15 @@ async function analyzeStockVCP(symbol: string): Promise<VCPCandidate | null> {
       isSellingClimax,
       rmv: Math.round(rmv),
       pattern,
-      recommendation
+      recommendation,
+      // Ryan Filbert data
+      ...(calcRyanFilbert(closes, highs, lows, volumes) || {
+        rfPhase: 1, rfPhaseLabel: 'BASING', rfBaseLabel: 'B1', rfBaseCount: 1,
+        rfSetupQuality: 'POOR', rfSignal: 'WAIT',
+        rfPivotEntry: 0, rfStopLoss: 0, rfTarget: 0, rfRiskReward: 0,
+        rfScore: 0, rfAboveMA150: false, rfAboveMA200: false,
+        rfMA50Rising: false, rfRelativeStrength: 50, rfSignalReason: 'Insufficient data',
+      }),
     };
   } catch (error) {
     return null;

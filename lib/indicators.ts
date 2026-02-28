@@ -48,6 +48,33 @@ export interface PredictaV4Result {
   ema8: number; ema21: number; ema50val: number;
 }
 
+// ── Ryan Filbert Swing Framework Result ────────────────────────────────────
+export interface RyanFilbertResult {
+  phase: 1 | 2 | 3 | 4;
+  phaseLabel: 'BASING' | 'UPTREND' | 'TOPPING' | 'DOWNTREND';
+  phaseDesc: string;
+  baseCount: number;
+  baseLabel: string;
+  pivotHigh: number;
+  pivotEntry: number;
+  stopLoss: number;
+  targetPrice: number;
+  riskReward: number;
+  aboveMA150: boolean;
+  aboveMA200: boolean;
+  ma150AboveMA200: boolean;
+  ma50AboveMA150: boolean;
+  ma50Rising: boolean;
+  breakoutVolumeConfirmed: boolean;
+  baseVolumeDryUp: boolean;
+  relativeStrength: number;
+  rsLabel: string;
+  signal: 'BUY' | 'WAIT' | 'AVOID';
+  signalReason: string;
+  score: number;
+  setupQuality: 'PERFECT' | 'GOOD' | 'FAIR' | 'POOR';
+}
+
 export interface IndicatorResult {
   ma5: MovingAverageData[]; ma20: MovingAverageData[]; ma50: MovingAverageData[]; ma200: MovingAverageData[];
   momentum: HistogramData[]; awesomeOscillator: HistogramData[]; fibonacci: FibonacciData;
@@ -57,6 +84,7 @@ export interface IndicatorResult {
   breakoutDeltaMarkers: MarkerData[];
   latestBreakoutDelta: BreakoutDeltaResult | null;
   predictaV4: PredictaV4Result | null;
+  ryanFilbert: RyanFilbertResult | null;
   signals: { bandar: string; wyckoffPhase: string; vcpStatus: string; evrScore: number; cppScore: number; cppBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; };
 }
 
@@ -1195,6 +1223,236 @@ export function calculateSupportResistance(
 }
 
 // ============================================================================
+// RYAN FILBERT SWING TRADING FRAMEWORK
+// Based on: "Investasi Saham Ala Swing Trader Dunia" — Ryan Filbert Wijaya
+// Core model: Stan Weinstein 4-Phase + Base Count + Volume Confirmation
+//
+// RULES (Ryan Filbert checklist):
+//   1. Phase 2 only (price above MA150 & MA200, MA150 > MA200)
+//   2. MA50 rising (slope > 0)
+//   3. Base formed: price consolidation after uptrend (VCP or flat base)
+//   4. Pivot = base high + 0.05% buffer
+//   5. Breakout volume ≥ 150% of 50-bar average
+//   6. Stop Loss = below base low (max 8%)
+//   7. Target = R:R ≥ 2:1
+//   8. Relative Strength vs market (momentum comparison)
+//   9. Base count: B1 is freshest (best), B3+ = riskier
+// ============================================================================
+export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | null {
+  const N = data.length;
+  if (N < 220) return null;  // need MA200 + buffer
+
+  const closes = data.map(d => d.close);
+  const highs  = data.map(d => d.high);
+  const lows   = data.map(d => d.low);
+  const vols   = data.map(d => d.volume || 0);
+
+  // ── Compute MAs ────────────────────────────────────────────────────────────
+  function sma(arr: number[], period: number, idx: number): number {
+    if (idx < period - 1) return arr[idx];
+    let s = 0;
+    for (let i = idx - period + 1; i <= idx; i++) s += arr[i];
+    return s / period;
+  }
+
+  const i = N - 1;
+  const ma20v   = sma(closes, 20, i);
+  const ma50v   = sma(closes, 50, i);
+  const ma150v  = sma(closes, 150, i);
+  const ma200v  = sma(closes, 200, i);
+  const ma50Prev = sma(closes, 50, i - 5);  // 5 bars ago for slope
+
+  // ── MA50 slope (rising?) ─────────────────────────────────────────────────
+  const ma50Rising = ma50v > ma50Prev;
+
+  // ── Trend conditions (Ryan Filbert Phase 2 filter) ─────────────────────────
+  const aboveMA150    = closes[i] > ma150v;
+  const aboveMA200    = closes[i] > ma200v;
+  const ma150AboveMA200 = ma150v > ma200v;
+  const ma50AboveMA150  = ma50v > ma150v;
+
+  // ── Stan Weinstein 4-Phase detection ────────────────────────────────────
+  // Phase 2: above all MAs, MAs aligned bullish
+  // Phase 1: basing around MA200, flat/sideways
+  // Phase 3: topping, distribution near highs
+  // Phase 4: below all MAs, downtrend
+  let phase: 1 | 2 | 3 | 4;
+  let phaseLabel: 'BASING' | 'UPTREND' | 'TOPPING' | 'DOWNTREND';
+  let phaseDesc: string;
+
+  const aboveAll = closes[i] > ma50v && closes[i] > ma150v && closes[i] > ma200v;
+  const belowAll = closes[i] < ma50v && closes[i] < ma150v && closes[i] < ma200v;
+
+  // Calculate 52-week high for Phase 3 detection
+  const hi52 = Math.max(...highs.slice(Math.max(0, i - 252), i + 1));
+  const lo52 = Math.min(...lows.slice(Math.max(0, i - 252), i + 1));
+  const pctFrom52Hi = (hi52 - closes[i]) / hi52 * 100;
+  const pctFrom52Lo = (closes[i] - lo52) / lo52 * 100;
+
+  if (aboveAll && ma150AboveMA200 && ma50AboveMA150 && ma50Rising) {
+    phase = 2; phaseLabel = 'UPTREND';
+    phaseDesc = 'Fase 2 — Uptrend aktif. Harga di atas semua MA, alignment bullish.';
+  } else if (aboveAll && (!ma150AboveMA200 || pctFrom52Hi < 10)) {
+    // Near 52-week high, MAs starting to flatten
+    phase = 3; phaseLabel = 'TOPPING';
+    phaseDesc = 'Fase 3 — Topping/Distribusi. Harga dekat puncak, waspadai pembalikan.';
+  } else if (belowAll && !ma50Rising) {
+    phase = 4; phaseLabel = 'DOWNTREND';
+    phaseDesc = 'Fase 4 — Downtrend. Hindari, tunggu basing Phase 1.';
+  } else {
+    phase = 1; phaseLabel = 'BASING';
+    phaseDesc = 'Fase 1 — Basing/Konsolidasi. Harga membangun base, monitor breakout.';
+  }
+
+  // ── Base Detection (Ryan Filbert VCP / flat base method) ──────────────────
+  // A base = price consolidates within 15% range for ≥ 5 bars after an uptrend
+  const baseLookback = Math.min(60, i);
+  let baseHigh = -Infinity, baseLow = Infinity, baseStart = i;
+
+  for (let k = i; k >= i - baseLookback; k--) {
+    const rangeFromBase = baseHigh > -Infinity ? (baseHigh - Math.min(lows[k], baseLow)) / baseHigh * 100 : 0;
+    if (rangeFromBase > 20 && baseHigh > -Infinity) {
+      // Range exceeded 20% — base ended here
+      baseStart = k + 1;
+      break;
+    }
+    if (highs[k] > baseHigh) baseHigh = highs[k];
+    if (lows[k] < baseLow)  baseLow  = lows[k];
+    if (k === i - baseLookback) baseStart = k;
+  }
+
+  const baseLength = i - baseStart;
+  const baseRange  = baseHigh > 0 ? (baseHigh - baseLow) / baseHigh * 100 : 0;
+
+  // ── Base Count (B1, B2, B3...) ─────────────────────────────────────────────
+  // Count how many bases price has formed since the last 52-week low
+  // Each base = a period where price consolidates > 5 bars after a rally
+  let baseCount = 1;
+  const lookbackForBases = Math.min(N - 1, 252); // 1 year
+  let inBase = false;
+  let baseHigh2 = 0;
+
+  for (let k = i - lookbackForBases; k < i - 10; k++) {
+    const closeK = closes[k];
+    const prevClose = k > 0 ? closes[k - 1] : closeK;
+    const ma20k = sma(closes, 20, k);
+
+    // Detect start of consolidation: price slowing down near MA20
+    if (!inBase && Math.abs(closeK - ma20k) / ma20k < 0.05 && closeK > sma(closes, 50, k)) {
+      inBase = true;
+      baseHigh2 = highs[k];
+    }
+
+    if (inBase) {
+      if (highs[k] > baseHigh2) baseHigh2 = highs[k];
+      // Breakout from base: price closes > base high
+      if (closes[k] > baseHigh2 * 1.02 && vols[k] > sma(vols, 20, k) * 1.3) {
+        baseCount++;
+        inBase = false;
+      }
+      // Base failed (broke down)
+      if (closes[k] < sma(closes, 50, k) * 0.95) {
+        inBase = false;
+      }
+    }
+  }
+  baseCount = Math.min(baseCount, 6); // cap at 6
+
+  // ── Pivot Points (entry, stop, target) ────────────────────────────────────
+  const pivotEntry = parseFloat((baseHigh * 1.0005).toFixed(2));  // 0.05% above base high
+  const stopLoss   = parseFloat((baseLow  * 0.99).toFixed(2));    // 1% below base low (Ryan: 2-8%)
+  const riskPct    = (pivotEntry - stopLoss) / pivotEntry;
+  const target2x   = parseFloat((pivotEntry + riskPct * pivotEntry * 2).toFixed(2));
+  const rr         = riskPct > 0 ? parseFloat(((target2x - pivotEntry) / (pivotEntry - stopLoss)).toFixed(1)) : 2.0;
+
+  // ── Volume Analysis ────────────────────────────────────────────────────────
+  let vol50sum = 0;
+  for (let k = Math.max(0, i - 49); k <= i; k++) vol50sum += vols[k];
+  const vol50avg = vol50sum / Math.min(50, i + 1);
+
+  let vol5sum = 0;
+  for (let k = i - 4; k <= i; k++) vol5sum += vols[k];
+  const vol5avg = vol5sum / 5;
+
+  const breakoutVolumeConfirmed = vols[i] >= vol50avg * 1.5;
+  const baseVolumeDryUp = vol5avg < vol50avg * 0.70;
+
+  // ── Relative Strength Score ────────────────────────────────────────────────
+  // Measures stock's own momentum: price change vs MA trend quality
+  // (Without market data, use internal momentum vs sector proxy)
+  const chg20   = N >= 20  ? (closes[i] - closes[i - 20]) / closes[i - 20] * 100 : 0;
+  const chg50   = N >= 50  ? (closes[i] - closes[i - 50]) / closes[i - 50] * 100 : 0;
+  const chg200  = N >= 200 ? (closes[i] - closes[i - 200]) / closes[i - 200] * 100 : 0;
+
+  // Ryan Filbert RS = stock must outperform: score based on momentum
+  let rs = 50;
+  if (chg20  > 10) rs += 15; else if (chg20  > 5) rs += 8; else if (chg20  < -5) rs -= 10;
+  if (chg50  > 20) rs += 15; else if (chg50  > 10) rs += 8; else if (chg50  < -10) rs -= 10;
+  if (chg200 > 30) rs += 15; else if (chg200 > 15) rs += 8; else if (chg200 < -15) rs -= 15;
+  if (aboveAll) rs += 5;
+  if (ma50Rising) rs += 5;
+  rs = Math.max(0, Math.min(100, Math.round(rs)));
+  const rsLabel = rs >= 65 ? 'STRONG' : rs >= 40 ? 'NEUTRAL' : 'WEAK';
+
+  // ── Overall Ryan Filbert Score ─────────────────────────────────────────────
+  let score = 0;
+  if (phase === 2)          score += 30;  // Must be Phase 2
+  else if (phase === 1)     score += 10;
+  if (aboveMA150)           score += 10;
+  if (aboveMA200)           score += 10;
+  if (ma150AboveMA200)      score += 8;
+  if (ma50AboveMA150)       score += 8;
+  if (ma50Rising)           score += 8;
+  if (baseVolumeDryUp)      score += 8;
+  if (rs >= 65)             score += 10;
+  if (baseLength >= 5 && baseRange < 15) score += 8;  // Good tight base
+
+  // Penalty for late-stage bases
+  if (baseCount >= 3) score -= (baseCount - 2) * 5;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  // ── Signal Logic (Ryan Filbert BUY criteria) ──────────────────────────────
+  let signal: 'BUY' | 'WAIT' | 'AVOID';
+  let signalReason: string;
+
+  if (phase === 4 || (!aboveMA150 && !aboveMA200)) {
+    signal = 'AVOID';
+    signalReason = 'Fase 4 / Di bawah MA150 & MA200. Trend rusak, hindari.';
+  } else if (phase === 2 && score >= 65 && baseVolumeDryUp && baseRange < 20) {
+    signal = 'BUY';
+    const baseName = `B${baseCount}`;
+    signalReason = `Fase 2 ${baseName}: Setup bullish kuat. Base ${Math.round(baseRange)}% range, vol kering. Entry di Rp${pivotEntry.toLocaleString()}, SL Rp${stopLoss.toLocaleString()}, TP Rp${target2x.toLocaleString()} (R:R ${rr}x)`;
+  } else if (phase === 2 && score >= 50) {
+    signal = 'WAIT';
+    signalReason = `Fase 2 ${`B${baseCount}`}: Trend bagus tapi belum ideal. Tunggu volume dry-up dan base lebih ketat.`;
+  } else if (phase === 1) {
+    signal = 'WAIT';
+    signalReason = 'Fase 1 / Basing: Monitor. Tunggu breakout Phase 2 dengan volume tinggi.';
+  } else {
+    signal = 'WAIT';
+    signalReason = `Fase ${phase}: Belum memenuhi semua kriteria Ryan Filbert. Score: ${score}/100.`;
+  }
+
+  // ── Setup Quality ─────────────────────────────────────────────────────────
+  let setupQuality: 'PERFECT' | 'GOOD' | 'FAIR' | 'POOR';
+  if      (score >= 80 && phase === 2 && baseCount <= 2) setupQuality = 'PERFECT';
+  else if (score >= 65 && phase === 2)                    setupQuality = 'GOOD';
+  else if (score >= 45)                                   setupQuality = 'FAIR';
+  else                                                    setupQuality = 'POOR';
+
+  return {
+    phase, phaseLabel, phaseDesc,
+    baseCount, baseLabel: `B${baseCount}`,
+    pivotHigh: parseFloat(baseHigh.toFixed(2)), pivotEntry, stopLoss,
+    targetPrice: target2x, riskReward: rr,
+    aboveMA150, aboveMA200, ma150AboveMA200, ma50AboveMA150, ma50Rising,
+    breakoutVolumeConfirmed, baseVolumeDryUp,
+    relativeStrength: rs, rsLabel,
+    signal, signalReason, score, setupQuality,
+  };
+}
+
+// ============================================================================
 // MAIN AGGREGATOR
 // ============================================================================
 export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
@@ -1205,6 +1463,7 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
   const cpResult = calculateCandlePower(data);
   const bvdResult = detectBreakoutVolumeDelta(data);
   const predictaV4 = calculatePredictaV4(data);
+  const ryanFilbert = calculateRyanFilbert(data);
   return {
     ma5, ma20, ma50, ma200, momentum, awesomeOscillator, fibonacci, supportResistance,
     candlePowerMarkers: cpResult.markers, candlePowerAnalysis: cpResult.analysis,
@@ -1212,6 +1471,7 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
     breakoutDeltaMarkers: bvdResult.markers,
     latestBreakoutDelta: bvdResult.latestBreakout,
     predictaV4,
+    ryanFilbert,
     signals: {
       bandar: vsaResult.signal, wyckoffPhase: vsaResult.wyckoffPhase,
       vcpStatus: vsaResult.vcpStatus, evrScore: vsaResult.evrScore,
