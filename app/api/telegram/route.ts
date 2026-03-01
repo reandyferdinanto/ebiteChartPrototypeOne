@@ -80,11 +80,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           commands: [
-            { command: 'rf',   description: 'Ryan Filbert analysis — contoh: /rf BBCA' },
-            { command: 'cp',   description: 'Candle Power prediction — contoh: /cp TLKM' },
-            { command: 'vcp',  description: 'VCP + Wyckoff + VSA — contoh: /vcp ASII' },
-            { command: 'help', description: 'Tampilkan bantuan & daftar perintah' },
-            { command: 'start','description': 'Mulai bot & lihat panduan' },
+            { command: 'analisa', description: 'Analisis lengkap (RF + Candle Power + VSA) — contoh: /analisa BBCA' },
+            { command: 'besok',   description: 'Prediksi candle besok — contoh: /besok TLKM' },
+            { command: 'rf',      description: 'Ryan Filbert + Stan Weinstein — contoh: /rf BMRI' },
+            { command: 'cek',     description: 'Analisis mendalam Wyckoff + VCP + VSA — contoh: /cek ASII' },
+            { command: 'bantuan', description: 'Tampilkan daftar perintah & panduan' },
+            { command: 'start',   description: 'Mulai bot & lihat panduan lengkap' },
           ],
         }),
       });

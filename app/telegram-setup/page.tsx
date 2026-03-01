@@ -143,22 +143,34 @@ export default function TelegramSetupPage() {
           <div className="space-y-3 text-sm">
             {[
               {
-                cmd: '/rf BBCA',
-                title: 'Ryan Filbert Analysis',
-                desc: 'Analisis saham menggunakan framework Ryan Filbert + Stan Weinstein. Menampilkan fase pasar, checklist kriteria, dan sinyal beli/tunggu.',
+                cmd: '/analisa BBCA',
+                title: 'Analisis Lengkap 3-in-1',
+                desc: 'Gabungan Ryan Filbert + Candle Power + VSA dalam satu ringkasan. Cocok untuk pemula maupun trader berpengalaman.',
                 color: 'text-emerald-400',
               },
               {
-                cmd: '/cp TLKM',
-                title: 'Candle Power Prediction',
-                desc: 'Prediksi arah candle besok menggunakan CPP (Cumulative Power Prediction), VSA, dan Predicta V4. Skor power 0-100.',
+                cmd: '/besok TLKM',
+                title: 'Prediksi Candle Besok',
+                desc: 'Prediksi arah candle besok — naik, turun, atau sideways? Menggunakan Candle Power (CPP + 8 indikator konfluens).',
                 color: 'text-yellow-400',
               },
               {
-                cmd: '/vcp ASII',
-                title: 'VCP + Wyckoff + VSA',
-                desc: 'Analisis lengkap VCP (Volatility Contraction Pattern), Wyckoff phase, VSA signals, Fibonacci, Support & Resistance.',
+                cmd: '/rf BMRI',
+                title: 'Ryan Filbert Analysis',
+                desc: 'Analisis swing trade 1–4 minggu menggunakan framework Ryan Filbert + Stan Weinstein. Cek fase pasar, volume kering, pivot entry, dan setup breakout.',
+                color: 'text-purple-400',
+              },
+              {
+                cmd: '/cek ASII',
+                title: 'Analisis Mendalam Wyckoff + VCP + VSA',
+                desc: 'Analisis teknikal mendalam: Wyckoff phase, VCP (Volatility Contraction Pattern), VSA signals, Fibonacci, Support & Resistance.',
                 color: 'text-cyan-400',
+              },
+              {
+                cmd: '/bantuan',
+                title: 'Panduan & Daftar Perintah',
+                desc: 'Tampilkan daftar semua perintah bot beserta cara penggunaannya.',
+                color: 'text-gray-400',
               },
             ].map(item => (
               <div key={item.cmd} className="bg-gray-800 rounded-lg p-3">
@@ -169,6 +181,11 @@ export default function TelegramSetupPage() {
                 <p className="text-gray-400 text-xs">{item.desc}</p>
               </div>
             ))}
+          </div>
+          <div className="mt-3 p-3 bg-blue-900/20 border border-blue-700/40 rounded-lg">
+            <p className="text-blue-300 text-xs">
+              💡 <strong>Tips:</strong> Setelah klik <strong>Register Commands</strong>, menu <code>/</code> di Telegram akan otomatis menampilkan daftar perintah ini.
+            </p>
           </div>
         </div>
 

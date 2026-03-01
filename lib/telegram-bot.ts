@@ -176,33 +176,33 @@ Halo! Saya membantu menganalisis saham IDX secara otomatis menggunakan metode Wy
 
 <b>📋 Daftar Perintah:</b>
 
-/analisa BBCA
-→ <i>✨ Analisis <b>LENGKAP</b> — cocok untuk pemula maupun trader berpengalaman</i>
-→ <i>Gabungan Ryan Filbert + Prediksi Candle + VSA dalam satu ringkasan</i>
+<code>/analisa BBCA</code>
+→ <i>✨ Analisis <b>LENGKAP</b> — gabungan Ryan Filbert + Candle Power + VSA</i>
+→ <i>Cocok untuk pemula maupun trader berpengalaman</i>
 
-/besok TLKM
-→ <i>🕯️ Prediksi candle <b>BESOK</b> — naik, turun, atau sideways?</i>
-→ <i>Menggunakan Candle Power + Predicta V4</i>
+<code>/besok TLKM</code>
+→ <i>🕯️ Prediksi candle <b>BESOK</b> — apakah akan naik, turun, atau sideways?</i>
+→ <i>Menggunakan Candle Power (CPP + 8 indikator konfluens)</i>
 
-/cek ASII
+<code>/cek ASII</code>
 → <i>🔬 Analisis <b>MENDALAM</b> — Wyckoff, VCP, VSA, support &amp; resistance</i>
-→ <i>Cocok untuk swing trader yang ingin tahu detail pergerakan</i>
+→ <i>Cocok untuk swing trader yang ingin detail pergerakan harga</i>
 
-/rf BMRI
-→ <i>📊 Analisis <b>Ryan Filbert</b> — cocok untuk swing trade 1–4 minggu</i>
-→ <i>Cek Fase Weinstein, volume kering, dan setup breakout</i>
+<code>/rf BMRI</code>
+→ <i>📊 Analisis <b>Ryan Filbert</b> — untuk swing trade 1–4 minggu</i>
+→ <i>Cek Fase Weinstein, volume kering, pivot entry, dan setup breakout</i>
 
-/bantuan — Tampilkan panduan ini lagi
+<code>/bantuan</code> — Tampilkan panduan ini lagi
 
 <b>💡 Cara pakai:</b>
 • Ketik kode saham <b>tanpa</b> ".JK" — contoh: <code>BBCA</code>, <code>BMRI</code>, <code>TLKM</code>
 • Untuk IHSG: ketik <code>/analisa IHSG</code>
 
 <b>🔑 Pilih perintah yang tepat:</b>
-• Mau tahu <i>besok naik atau turun?</i> → <code>/besok</code>
-• Mau tahu <i>saham layak dibeli atau tidak?</i> → <code>/rf</code>
-• Mau tahu <i>semua sekaligus?</i> → <code>/analisa</code>
-• Mau analisis <i>detail teknikal?</i> → <code>/cek</code>
+• Mau tahu <i>besok naik atau turun?</i> → gunakan <code>/besok</code>
+• Mau tahu <i>saham layak beli atau tidak?</i> → gunakan <code>/rf</code>
+• Mau <i>semua analisis sekaligus?</i> → gunakan <code>/analisa</code>
+• Mau <i>detail teknikal lengkap?</i> → gunakan <code>/cek</code>
 
 <i>⚠️ Semua analisis bersifat teknikal, bukan rekomendasi investasi. Selalu gunakan stop loss.</i>`;
 }
