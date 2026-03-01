@@ -788,6 +788,23 @@ CPP &gt;+0.5 = momentum beli | CPP &lt;-0.5 = momentum jual
 <i>⚠️ Prediksi probabilistik, bukan kepastian. Selalu gunakan stop loss.</i>`;
 
   await sendTelegramMessage(chatId, msg);
+
+  // Send chart image for /cp command
+  try {
+    const srZones = indicators.supportResistance?.zones?.slice(0, 4) ?? [];
+    await sendChartPhoto(
+      chatId,
+      {
+        title: `${display} — Candle Power`,
+        data,
+        sr: srZones.map(z => ({ level: z.level, type: z.type as 'support' | 'resistance' })),
+      },
+      `🕯️ <b>${display}</b> | ${biasEmoji} CPP ${cppScore > 0 ? '+' : ''}${cppScore} | Power ${power}/100 | Prediksi besok: ${nextCandleLabel}`,
+      BOT_TOKEN,
+    );
+  } catch (e: any) {
+    console.error('[CP] chart image error:', e.message);
+  }
 }
 
 // ── /vcp [ticker] — VCP + Wyckoff + VSA Analysis ──────────────────────────
