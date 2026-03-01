@@ -164,29 +164,32 @@ export async function sendTelegramMessage(chatId: number | string, text: string,
 
 // ── /start handler ─────────────────────────────────────────────────────────
 export function buildStartMessage(): string {
-  return `<b>🤖 Ebite Chart — Stock Analysis Bot</b>
+  return `<b>🤖 Ebite Chart — Asisten Analisa Saham Indonesia</b>
 
-Selamat datang! Bot ini menganalisis saham Indonesia menggunakan:
-• Teori Wyckoff &amp; VSA
-• VCP (Volatility Contraction Pattern)
-• Ryan Filbert Swing Framework
-• Predicta V4 (Next Candle Predictor)
+Halo! Saya membantu kamu menganalisis saham IDX secara otomatis.
+Cukup ketik perintah + kode saham, dan saya akan memberikan analisis lengkap beserta saran yang mudah dimengerti.
 
-<b>📋 Perintah tersedia:</b>
+<b>📋 Daftar Perintah:</b>
 
-/rf [TICKER] — Analisis Ryan Filbert
-<i>Contoh: /rf BBCA</i>
+/rf BBCA
+→ <i>Analisis gaya Ryan Filbert — cocok untuk swing trade 1–4 minggu</i>
+→ <i>Cek apakah saham di Fase 2 (uptrend), volume kering, dan siap breakout</i>
 
-/cp [TICKER] — Candle Power &amp; Prediksi Candle Besok
-<i>Contoh: /cp TLKM</i>
+/cp TLKM
+→ <i>Candle Power — prediksi arah candle BESOK</i>
+→ <i>Cocok untuk tahu apakah besok saham cenderung naik atau turun</i>
 
-/vcp [TICKER] — Analisis VCP + Wyckoff + VSA
-<i>Contoh: /vcp ASII</i>
+/vcp ASII
+→ <i>Analisis VCP + Wyckoff + VSA — analisis mendalam</i>
+→ <i>Cek pola kontraksi volatilitas, tekanan jual/beli, dan momentum</i>
 
-/help — Tampilkan bantuan ini
+/help — Tampilkan panduan ini lagi
 
-<i>💡 Ticker tanpa .JK, contoh: BBCA, BBRI, TLKM, ASII</i>
-<i>Untuk IHSG ketik: /rf IHSG</i>`;
+<b>💡 Cara pakai:</b>
+• Ketik kode saham tanpa ".JK" — contoh: <code>BBCA</code>, <code>BMRI</code>, <code>TLKM</code>
+• Untuk IHSG: ketik <code>/rf IHSG</code>
+
+<i>⚠️ Semua analisis bersifat teknikal, bukan rekomendasi investasi. Selalu gunakan stop loss.</i>`;
 }
 
 // ── /rf [ticker] — Ryan Filbert Analysis ──────────────────────────────────
@@ -194,11 +197,11 @@ export async function handleRFCommand(ticker: string, chatId: number | string): 
   const symbol = normalizeSymbol(ticker);
   const display = displaySymbol(symbol);
 
-  await sendTelegramMessage(chatId, `⏳ Menganalisis <b>${display}</b> dengan metode Ryan Filbert...`);
+  await sendTelegramMessage(chatId, `⏳ Sedang menganalisis <b>${display}</b>... Mohon tunggu sebentar.`);
 
   const data = await fetchOHLCV(symbol, '1d', 500);
   if (data.length < 50) {
-    await sendTelegramMessage(chatId, `❌ Data tidak cukup untuk <b>${display}</b>. Pastikan kode saham benar.\nContoh: /rf BBCA`);
+    await sendTelegramMessage(chatId, `❌ Kode saham <b>${display}</b> tidak ditemukan atau data tidak cukup.\nPastikan kode benar, contoh: <code>/rf BBCA</code>`);
     return;
   }
 
@@ -206,69 +209,97 @@ export async function handleRFCommand(ticker: string, chatId: number | string): 
   const rf = indicators.ryanFilbert;
 
   if (!rf) {
-    await sendTelegramMessage(chatId, `❌ Gagal menghitung indikator untuk <b>${display}</b>.`);
+    await sendTelegramMessage(chatId, `❌ Gagal menghitung indikator untuk <b>${display}</b>. Coba beberapa saat lagi.`);
     return;
   }
 
-  const price = data[data.length - 1].close;
-  const phaseEmoji = rf.phase === 2 ? '🚀' : rf.phase === 1 ? '🏗️' : rf.phase === 3 ? '⚠️' : '📉';
-  const signalEmoji = rf.signal === 'BUY' ? '🟢' : rf.signal === 'WAIT' ? '🟡' : '🔴';
-  const qualityEmoji = rf.setupQuality === 'PERFECT' ? '✨' : rf.setupQuality === 'GOOD' ? '👍' : rf.setupQuality === 'FAIR' ? '⚡' : '⛔';
+  const price  = data[data.length - 1].close;
+  const prev   = data[data.length - 2]?.close ?? price;
+  const chgPct = ((price - prev) / prev * 100);
+  const chgStr = (chgPct >= 0 ? '+' : '') + chgPct.toFixed(2) + '%';
 
-  // Criteria checklist
+  const phaseEmoji   = rf.phase === 2 ? '🚀' : rf.phase === 1 ? '🏗️' : rf.phase === 3 ? '⚠️' : '📉';
+  const qualityEmoji = rf.setupQuality === 'PERFECT' ? '✨' : rf.setupQuality === 'GOOD' ? '👍' : rf.setupQuality === 'FAIR' ? '⚡' : '⛔';
   const chk = (v: boolean) => v ? '✅' : '❌';
 
-  // Missing criteria list
-  const missing: string[] = [];
-  if (!rf.aboveMA150) missing.push('Harga di bawah MA150');
-  if (!rf.aboveMA200) missing.push('Harga di bawah MA200');
-  if (!rf.ma50Rising) missing.push('MA50 belum naik');
-  if (!rf.ma150AboveMA200) missing.push('MA150 belum di atas MA200');
-  if (!rf.baseVolumeDryUp) missing.push(`Volume base belum kering (${Math.round(rf.displayVolPct)}% dari normal, target <${rf.volDryUpTarget}%)`);
-  if (!rf.breakoutVolumeConfirmed) missing.push('Belum ada volume breakout tinggi');
-
-  const volBar = asciiBar(Math.max(0, 100 - rf.displayVolPct), 100, 10);
+  // Volume dry-up meter
+  const volBar    = asciiBar(Math.max(0, 100 - rf.displayVolPct), 100, 10);
   const volStatus = rf.displayVolPct <= rf.volDryUpTarget
-    ? `✅ KERING (${Math.round(rf.displayVolPct)}%)`
-    : `❌ ${Math.round(rf.displayVolPct)}% (target <${rf.volDryUpTarget}%)`;
+    ? `✅ KERING (${Math.round(rf.displayVolPct)}% — penjual sudah habis!)`
+    : `❌ ${Math.round(rf.displayVolPct)}% → harus turun ke bawah ${rf.volDryUpTarget}%`;
 
-  let msg = `<b>📊 RYAN FILBERT — ${display}</b>
-Harga: <b>${fmtRp(price)}</b>
+  // Missing criteria with plain explanations
+  const missing: string[] = [];
+  if (!rf.aboveMA150)              missing.push(`Harga masih di bawah MA150 — saham belum dalam tren naik jangka menengah`);
+  if (!rf.aboveMA200)              missing.push(`Harga masih di bawah MA200 — belum uptrend jangka panjang`);
+  if (!rf.ma50Rising)              missing.push(`MA50 belum naik — momentum harga belum terbentuk`);
+  if (!rf.ma150AboveMA200)         missing.push(`MA150 masih di bawah MA200 — struktur tren belum kuat`);
+  if (!rf.baseVolumeDryUp)         missing.push(`Volume belum kering: saat ini ${Math.round(rf.displayVolPct)}%, tunggu turun ke bawah ${rf.volDryUpTarget}%`);
+  if (!rf.breakoutVolumeConfirmed) missing.push(`Belum ada lonjakan volume breakout — harga belum benar-benar breakout`);
 
-${phaseEmoji} <b>Stan Weinstein: Fase ${rf.phase} — ${rf.phaseLabel}</b>
-<i>${rf.phaseDesc}</i>
-
-${qualityEmoji} Setup: <b>${rf.setupQuality}</b>
-Score: <b>${rf.score}/100</b>
-Base: <b>${rf.baseLabel}</b>  |  RS: <b>${rf.relativeStrength}</b>
-
-<b>📋 Kriteria Checklist:</b>
-${chk(rf.aboveMA150)} Harga &gt; MA150
-${chk(rf.aboveMA200)} Harga &gt; MA200
-${chk(rf.ma50Rising)} MA50 sedang naik
-${chk(rf.ma150AboveMA200)} MA150 &gt; MA200
-
-<b>📊 Volume Dry-Up (Ryan Filbert):</b>
-${volBar} ${volStatus}
-<i>Base avg vol vs 50-hari avg. Target: &lt;${rf.volDryUpTarget}% = volume kering</i>
-
-${chk(rf.breakoutVolumeConfirmed)} Volume Breakout Konfirmasi
-
-<b>🎯 Level Trading:</b>
-Entry Pivot : <b>${fmtRp(rf.pivotEntry)}</b>
-Stop Loss   : <b>${fmtRp(rf.stopLoss)}</b>
-Target (2R) : <b>${fmtRp(rf.targetPrice)}</b>
-R:R         : <b>${rf.riskReward}x</b>
-
-${signalEmoji} <b>Sinyal: ${rf.signal}</b>
-<i>${rf.signalReason}</i>`;
-
-  if (missing.length > 0) {
-    msg += `\n\n<b>⚠️ Kriteria belum terpenuhi:</b>\n`;
-    missing.forEach(m => { msg += `• ${m}\n`; });
+  // Plain-language conclusion
+  let conclusion = '';
+  let conclusionEmoji = '';
+  if (rf.signal === 'BUY' && rf.setupQuality === 'PERFECT') {
+    conclusionEmoji = '🟢';
+    conclusion = `<b>${display} SIAP DIBELI!</b> Semua kriteria Ryan Filbert terpenuhi. Saham ini sedang uptrend kuat, volume penjual sudah habis, dan harga mendekati titik breakout. Masuk di pivot ${fmtRp(rf.pivotEntry)}, stop loss di ${fmtRp(rf.stopLoss)}, target ${fmtRp(rf.targetPrice)} (R:R ${rf.riskReward}x).`;
+  } else if (rf.signal === 'BUY' && rf.setupQuality === 'GOOD') {
+    conclusionEmoji = '🟢';
+    conclusion = `<b>${display} LAYAK DIPERHATIKAN.</b> Setup sudah bagus, saham dalam uptrend dan hampir memenuhi semua syarat. Siapkan modal, tunggu konfirmasi breakout di atas ${fmtRp(rf.pivotEntry)} dengan volume tinggi. Stop loss di ${fmtRp(rf.stopLoss)}.`;
+  } else if (rf.signal === 'WAIT') {
+    conclusionEmoji = '🟡';
+    const firstMissing = missing[0] ?? 'Beberapa kriteria belum terpenuhi';
+    conclusion = `<b>${display} MASIH PERLU DITUNGGU.</b> Trennya ${rf.phase === 2 ? 'sudah bagus' : 'belum cukup kuat'} tapi belum semua syarat terpenuhi. Poin terpenting yang kurang: ${firstMissing}. Simpan di watchlist dan pantau setiap hari.`;
+  } else {
+    conclusionEmoji = '🔴';
+    conclusion = `<b>${display} HINDARI DULU.</b> ${rf.phaseDesc} Lebih baik tunggu sampai saham masuk Fase 2 (uptrend) dengan setup yang lebih bersih.`;
   }
 
-  msg += `\n\n<i>💡 Ryan Filbert: Beli di Fase 2 B1/B2, volume kering, breakout di atas pivot dengan volume besar.</i>`;
+  let msg = `<b>📊 RYAN FILBERT — ${display}</b>
+Harga: <b>${fmtRp(price)}</b> <i>(${chgStr} hari ini)</i>
+
+━━━━━━━━━━━━━━━━━━━━
+<b>📈 ANALISIS TEKNIKAL</b>
+━━━━━━━━━━━━━━━━━━━━
+
+${phaseEmoji} <b>Fase Stan Weinstein: Fase ${rf.phase} — ${rf.phaseLabel}</b>
+<i>${rf.phaseDesc}</i>
+
+${qualityEmoji} <b>Kualitas Setup: ${rf.setupQuality}</b>
+Score: <b>${rf.score}/100</b> | Base: <b>${rf.baseLabel}</b> | RS: <b>${rf.relativeStrength}</b>
+
+<b>✔️ Checklist Kriteria Ryan Filbert:</b>
+${chk(rf.aboveMA150)} Harga &gt; MA150 <i>(tren menengah)</i>
+${chk(rf.aboveMA200)} Harga &gt; MA200 <i>(tren panjang)</i>
+${chk(rf.ma50Rising)} MA50 sedang naik <i>(momentum aktif)</i>
+${chk(rf.ma150AboveMA200)} MA150 &gt; MA200 <i>(struktur uptrend kuat)</i>
+
+<b>📉 Volume Dry-Up:</b>
+${volBar}
+${volStatus}
+<i>Volume 5-hari harus &lt;${rf.volDryUpTarget}% dari rata-rata historis — artinya penjual sudah habis dan saham siap meledak naik.</i>
+
+${chk(rf.breakoutVolumeConfirmed)} Volume Breakout <i>(lonjakan volume saat harga naik)</i>
+
+<b>🎯 Level Harga:</b>
+Entry Pivot : <b>${fmtRp(rf.pivotEntry)}</b>
+Stop Loss   : <b>${fmtRp(rf.stopLoss)}</b>
+Target      : <b>${fmtRp(rf.targetPrice)}</b>
+R:R         : <b>${rf.riskReward}x</b>`;
+
+  if (missing.length > 0) {
+    msg += `\n\n<b>⏳ Yang masih kurang:</b>`;
+    missing.forEach(m => { msg += `\n• ${m}`; });
+  }
+
+  msg += `
+
+━━━━━━━━━━━━━━━━━━━━
+<b>💬 KESIMPULAN</b>
+━━━━━━━━━━━━━━━━━━━━
+${conclusionEmoji} ${conclusion}
+
+<i>⚠️ Analisis teknikal, bukan rekomendasi investasi. Selalu pasang stop loss.</i>`;
 
   await sendTelegramMessage(chatId, msg);
 }
@@ -278,11 +309,11 @@ export async function handleCPCommand(ticker: string, chatId: number | string): 
   const symbol = normalizeSymbol(ticker);
   const display = displaySymbol(symbol);
 
-  await sendTelegramMessage(chatId, `⏳ Menghitung Candle Power untuk <b>${display}</b>...`);
+  await sendTelegramMessage(chatId, `⏳ Sedang menghitung prediksi candle untuk <b>${display}</b>...`);
 
   const data = await fetchOHLCV(symbol, '1d', 365);
   if (data.length < 50) {
-    await sendTelegramMessage(chatId, `❌ Data tidak cukup untuk <b>${display}</b>.`);
+    await sendTelegramMessage(chatId, `❌ Data tidak cukup untuk <b>${display}</b>.\nContoh: <code>/cp BBCA</code>`);
     return;
   }
 
@@ -290,72 +321,122 @@ export async function handleCPCommand(ticker: string, chatId: number | string): 
   const { cppScore, cppBias } = indicators.signals;
   const cpAnalysis = indicators.candlePowerAnalysis;
   const pv4 = indicators.predictaV4;
-  const price = data[data.length - 1].close;
+  const price     = data[data.length - 1].close;
   const prevPrice = data[data.length - 2]?.close ?? price;
-  const change = ((price - prevPrice) / prevPrice * 100);
+  const change    = ((price - prevPrice) / prevPrice * 100);
   const changeStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
 
   // Parse power from analysis string
   const powerMatch = cpAnalysis.match(/Power:\s*(\d+)/);
-  const power = powerMatch ? parseInt(powerMatch[1]) : 50;
-
-  // Determine colors / labels
+  const power      = powerMatch ? parseInt(powerMatch[1]) : 50;
   const powerEmoji = power >= 80 ? '🟢' : power >= 60 ? '🟡' : power >= 40 ? '🟠' : '🔴';
-  const biasEmoji = cppBias === 'BULLISH' ? '📈' : cppBias === 'BEARISH' ? '📉' : '➡️';
+  const biasEmoji  = cppBias === 'BULLISH' ? '📈' : cppBias === 'BEARISH' ? '📉' : '➡️';
 
-  // CPP narrative
+  // Power interpretation
+  let powerLabel = '';
+  if      (power >= 90) powerLabel = 'SANGAT KUAT — Pembeli sangat dominan';
+  else if (power >= 75) powerLabel = 'KUAT — Tekanan beli tinggi';
+  else if (power >= 60) powerLabel = 'CUKUP KUAT — Pembeli sedikit unggul';
+  else if (power >= 45) powerLabel = 'NETRAL — Kekuatan seimbang';
+  else if (power >= 30) powerLabel = 'LEMAH — Penjual mulai dominan';
+  else                  powerLabel = 'SANGAT LEMAH — Penjual sangat dominan';
+
+  // CPP narrative (plain language)
   let cppNarrative = '';
-  if (cppScore > 1.5) cppNarrative = 'Momentum beli sangat kuat, besar kemungkinan candle besok HIJAU.';
-  else if (cppScore > 0.5) cppNarrative = 'Tekanan beli dominan, candle besok cenderung naik.';
-  else if (cppScore > -0.5) cppNarrative = 'Kekuatan seimbang, arah candle besok belum pasti (konsolidasi).';
-  else if (cppScore > -1.5) cppNarrative = 'Tekanan jual dominan, candle besok cenderung turun.';
-  else cppNarrative = 'Momentum jual sangat kuat, waspadai penurunan lebih lanjut.';
+  if      (cppScore > 1.5)  cppNarrative = 'Momentum beli 5 hari terakhir sangat kuat. Besar kemungkinan candle besok <b>HIJAU</b>.';
+  else if (cppScore > 0.5)  cppNarrative = 'Tekanan beli lebih dominan dari jual. Candle besok cenderung <b>NAIK</b>.';
+  else if (cppScore > -0.5) cppNarrative = 'Kekuatan beli dan jual seimbang. Arah candle besok <b>BELUM PASTI</b> (konsolidasi/sideways).';
+  else if (cppScore > -1.5) cppNarrative = 'Tekanan jual lebih dominan. Candle besok cenderung <b>TURUN</b>.';
+  else                      cppNarrative = 'Momentum jual 5 hari terakhir sangat kuat. Waspadai candle besok <b>MERAH</b>.';
 
   // Power bar
   const powerBar = asciiBar(power, 100, 10);
 
-  // Predicta V4 short summary
+  // Predicta V4 details
   let predictaStr = '';
   if (pv4) {
-    const pEmoji = pv4.longPerfect ? '⚡ PERFECT TIME LONG' : pv4.shortPerfect ? '⚡ PERFECT TIME SHORT' :
-                   pv4.verdict === 'STRONG_BULL' ? '🟢 STRONG BULL' :
-                   pv4.verdict === 'BULL' ? '🟢 BULL' :
-                   pv4.verdict === 'BEAR' ? '🔴 BEAR' :
-                   pv4.verdict === 'STRONG_BEAR' ? '🔴 STRONG BEAR' : '⬜ NEUTRAL';
+    const pStatus = pv4.longPerfect  ? '⚡ PERFECT TIME BELI' :
+                    pv4.shortPerfect ? '⚡ PERFECT TIME JUAL' :
+                    pv4.verdict === 'STRONG_BULL' ? '🟢 Sangat Bullish' :
+                    pv4.verdict === 'BULL'        ? '🟢 Bullish' :
+                    pv4.verdict === 'BEAR'        ? '🔴 Bearish' :
+                    pv4.verdict === 'STRONG_BEAR' ? '🔴 Sangat Bearish' : '⬜ Netral';
+
+    // ADX: trend strength
+    const adxLabel = pv4.adxValue > 35 ? 'Sangat Kuat' : pv4.adxValue > 25 ? 'Kuat' : pv4.adxValue > 20 ? 'Sedang' : 'Lemah';
+    // Delta
+    const deltaLabel = pv4.volumeDeltaValue > 0 ? 'Pembeli lebih aktif (net beli)' : 'Penjual lebih aktif (net jual)';
+    // Trend
+    const trendLabel = pv4.isUptrend ? 'Uptrend — harga di atas jalur naik' : 'Downtrend — harga di bawah jalur turun';
 
     predictaStr = `
-<b>🔮 Predicta V4 (Multi-Indicator Confluence):</b>
-Status: <b>${pEmoji}</b>
-Long: ${pv4.longPct}% | Short: ${pv4.shortPct}%
-Confluence: ${pv4.confluenceLong}/8 Long | ${pv4.confluenceShort}/8 Short
-RSI: ${pv4.rsiValue.toFixed(1)} | ADX: ${pv4.adxValue.toFixed(1)} | Vol: ${pv4.volRatio.toFixed(1)}x
-Delta: ${pv4.volumeDeltaValue > 0 ? '📈 BUY' : '📉 SELL'} | Trend: ${pv4.isUptrend ? '↗️ UP' : '↘️ DOWN'}`;
+<b>🔮 Predicta V4 — Konfirmasi Multi-Indikator:</b>
+Status   : <b>${pStatus}</b>
+Peluang  : Long ${pv4.longPct}% | Short ${pv4.shortPct}%
+Confluence: ${pv4.confluenceLong}/8 indikator bullish | ${pv4.confluenceShort}/8 bearish
+RSI      : ${pv4.rsiValue.toFixed(1)} ${pv4.rsiValue > 50 ? '↑ (zona beli)' : '↓ (zona jual)'}
+ADX      : ${pv4.adxValue.toFixed(1)} — Tren ${adxLabel}
+Volume   : ${pv4.volRatio.toFixed(1)}x rata-rata
+Delta Vol: ${deltaLabel}
+Tren     : ${trendLabel}`;
+  }
+
+  // Plain-language conclusion for /cp
+  let conclusion = '';
+  let conclusionEmoji = '';
+  const nextCandle = cppBias === 'BULLISH' ? 'NAIK / HIJAU' : cppBias === 'BEARISH' ? 'TURUN / MERAH' : 'SIDEWAYS';
+
+  if (cppBias === 'BULLISH' && power >= 70) {
+    conclusionEmoji = '🟢';
+    conclusion = `<b>Kemungkinan besar besok ${display} NAIK.</b> Candle Power kuat (${power}/100) dan momentum beli 5 hari terakhir positif (CPP +${cppScore}). Jika kamu sudah punya posisi, pertimbangkan untuk hold. Jika belum masuk, tunggu konfirmasi volume di awal sesi.`;
+  } else if (cppBias === 'BULLISH' && power >= 50) {
+    conclusionEmoji = '🟡';
+    conclusion = `<b>Ada kecenderungan besok ${display} NAIK, tapi belum terlalu kuat.</b> Power moderat (${power}/100), momentum masih positif. Jaga posisi tapi waspada jika volume besok masih rendah.`;
+  } else if (cppBias === 'BEARISH' && power < 35) {
+    conclusionEmoji = '🔴';
+    conclusion = `<b>Hati-hati, besok ${display} cenderung TURUN.</b> Candle Power lemah (${power}/100) dan momentum jual dominan (CPP ${cppScore}). Jika kamu pegang saham ini, pertimbangkan untuk pasang stop loss yang ketat atau kurangi posisi.`;
+  } else if (cppBias === 'BEARISH') {
+    conclusionEmoji = '🟠';
+    conclusion = `<b>Besok ${display} cenderung melemah.</b> Tekanan jual lebih besar dari beli. Tidak ideal untuk masuk baru. Jika sudah punya posisi, pastikan stop loss terpasang.`;
+  } else {
+    conclusionEmoji = '⬜';
+    conclusion = `<b>Arah besok ${display} belum jelas (sideways).</b> Kekuatan beli dan jual seimbang. Lebih baik tunggu sampai ada sinyal lebih kuat — jangan ambil risiko besar dalam kondisi ini.`;
   }
 
   const msg = `<b>🕯️ CANDLE POWER — ${display}</b>
-Harga: <b>${fmtRp(price)}</b> (${changeStr})
+Harga: <b>${fmtRp(price)}</b> <i>(${changeStr} hari ini)</i>
 
-${powerEmoji} <b>Power Score: ${power}/100</b>
+━━━━━━━━━━━━━━━━━━━━
+<b>📈 ANALISIS TEKNIKAL</b>
+━━━━━━━━━━━━━━━━━━━━
+
+${powerEmoji} <b>Candle Power Score: ${power}/100</b>
 ${powerBar}
+<i>${powerLabel}</i>
 
-<b>📊 CPP (Cumulative Power Prediction):</b>
-Score: <b>${cppScore > 0 ? '+' : ''}${cppScore}</b>
-Bias: <b>${biasEmoji} ${cppBias}</b>
+<b>📊 CPP — Momentum 5 Hari Terakhir:</b>
+Score: <b>${cppScore > 0 ? '+' : ''}${cppScore}</b> | Bias: <b>${biasEmoji} ${cppBias}</b>
+<i>CPP positif = lebih banyak candle hijau bervolume tinggi dalam 5 hari terakhir</i>
 
-<b>🔍 Analisis VSA/Wyckoff:</b>
-${cpAnalysis.replace('Power: ' + power, '').trim()}
+<b>🔍 Analisis VSA/Wyckoff (candle terakhir):</b>
+${cpAnalysis.replace(/Power:\s*\d+\s*/, '').trim()}${predictaStr}
 
-<b>📅 Prediksi Candle Besok:</b>
-${biasEmoji} <b>${cppBias === 'BULLISH' ? 'NAIK' : cppBias === 'BEARISH' ? 'TURUN' : 'SIDEWAYS'}</b>
-<i>${cppNarrative}</i>${predictaStr}
+<b>🔮 Prediksi Candle Besok:</b>
+${biasEmoji} <b>${nextCandle}</b>
+<i>${cppNarrative}</i>
 
-<b>📖 Cara Baca:</b>
-• Power &gt;70 → Kemungkinan besok HIJAU/naik
-• Power &lt;30 → Kemungkinan besok MERAH/turun
+━━━━━━━━━━━━━━━━━━━━
+<b>💬 KESIMPULAN</b>
+━━━━━━━━━━━━━━━━━━━━
+${conclusionEmoji} ${conclusion}
+
+<b>📖 Panduan Baca:</b>
+• Power &gt;70 → Potensi naik besok
+• Power &lt;35 → Potensi turun besok
 • CPP &gt;+0.5 → Momentum beli aktif
 • CPP &lt;-0.5 → Momentum jual aktif
 
-<i>⚠️ Bukan rekomendasi investasi. Selalu gunakan manajemen risiko.</i>`;
+<i>⚠️ Prediksi probabilistik, bukan kepastian. Selalu gunakan stop loss.</i>`;
 
   await sendTelegramMessage(chatId, msg);
 }
@@ -365,114 +446,139 @@ export async function handleVCPCommand(ticker: string, chatId: number | string):
   const symbol = normalizeSymbol(ticker);
   const display = displaySymbol(symbol);
 
-  await sendTelegramMessage(chatId, `⏳ Menganalisis VCP &amp; Wyckoff untuk <b>${display}</b>...`);
+  await sendTelegramMessage(chatId, `⏳ Sedang menganalisis VCP &amp; Wyckoff untuk <b>${display}</b>...`);
 
   const data = await fetchOHLCV(symbol, '1d', 365);
   if (data.length < 50) {
-    await sendTelegramMessage(chatId, `❌ Data tidak cukup untuk <b>${display}</b>.`);
+    await sendTelegramMessage(chatId, `❌ Data tidak cukup untuk <b>${display}</b>.\nContoh: <code>/vcp ASII</code>`);
     return;
   }
 
   const indicators = calculateAllIndicators(data);
   const { bandar: vsaSignal, wyckoffPhase, vcpStatus, evrScore, cppScore, cppBias } = indicators.signals;
-  const price = data[data.length - 1].close;
+  const price     = data[data.length - 1].close;
   const prevPrice = data[data.length - 2]?.close ?? price;
-  const change = ((price - prevPrice) / prevPrice * 100);
+  const change    = ((price - prevPrice) / prevPrice * 100);
   const changeStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+
+  // Wyckoff phase emoji + plain label
+  const wyEmoji = wyckoffPhase.includes('MARKUP') || wyckoffPhase.includes('ACCUMULATION') ? '🟢' :
+                  wyckoffPhase.includes('DISTRIBUTION') || wyckoffPhase.includes('MARKDOWN') ? '🔴' : '🟡';
+
+  // Wyckoff plain explanation
+  let wyPlain = '';
+  if (wyckoffPhase.includes('MARKUP'))        wyPlain = 'Harga sedang dalam fase naik yang sehat. Ini fase terbaik untuk hold atau beli pullback.';
+  else if (wyckoffPhase.includes('ACCUMULATION')) wyPlain = 'Uang besar (institusi) sedang diam-diam mengumpulkan saham ini. Harga masih sideways tapi ada tanda pembelian tersembunyi.';
+  else if (wyckoffPhase.includes('DISTRIBUTION')) wyPlain = 'Institusi mulai menjual saham ini ke publik. Harga mungkin masih naik tapi bahaya mengintai — berhati-hati.';
+  else if (wyckoffPhase.includes('MARKDOWN'))  wyPlain = 'Harga sedang dalam tren turun. Hindari beli, tunggu sampai ada tanda berhenti turun.';
+  else wyPlain = 'Fase belum jelas. Pasar sedang konsolidasi atau transisi.';
+
+  // EVR interpretation
+  const evrEmoji = evrScore > 0.3 ? '🟢' : evrScore < -0.3 ? '🔴' : '🟡';
+  let evrPlain = '';
+  if      (evrScore > 0.5)  evrPlain = 'Volume besar tapi harga tidak turun jauh → Pembeli menyerap semua tekanan jual (sangat bullish)';
+  else if (evrScore > 0.2)  evrPlain = 'Ada tanda penyerapan oleh pembeli kuat';
+  else if (evrScore < -0.5) evrPlain = 'Volume besar tapi harga tidak naik jauh → Penjual menekan kenaikan (bearish)';
+  else if (evrScore < -0.2) evrPlain = 'Ada tanda distribusi tersembunyi';
+  else                      evrPlain = 'Upaya dan hasil seimbang — belum ada anomali signifikan';
 
   // Latest breakout delta
   const bvd = indicators.latestBreakoutDelta;
   let bvdStr = '';
   if (bvd) {
-    const bvdEmoji = bvd.isRealBreakout ? '✅ REAL BREAKOUT' : bvd.isFakeBreakout ? '⚠️ FAKE BREAKOUT' : '📊 Breakout Detected';
+    const bvdLabel = bvd.isRealBreakout ? '✅ BREAKOUT VALID — Volume beli dominan' :
+                     bvd.isFakeBreakout ? '⚠️ BREAKOUT PALSU — Volume jual mendominasi saat harga naik' :
+                     '📊 Breakout Terdeteksi';
     bvdStr = `
 <b>🔷 Breakout Volume Delta:</b>
-${bvdEmoji}
-Bull Vol: ${(bvd.bullPct * 100).toFixed(1)}% | Bear Vol: ${(bvd.bearPct * 100).toFixed(1)}%
-Level: ${fmtRp(bvd.level)}`;
+${bvdLabel}
+Beli: ${(bvd.bullPct * 100).toFixed(1)}% | Jual: ${(bvd.bearPct * 100).toFixed(1)}% | Level: ${fmtRp(bvd.level)}
+<i>${bvd.isRealBreakout ? 'Breakout ini didukung volume beli yang kuat — lebih meyakinkan.' : bvd.isFakeBreakout ? 'Hati-hati! Harga naik tapi volume jual dominan — bisa jadi jebakan.' : ''}</i>`;
   }
-
-  // Wyckoff phase emoji
-  const wyEmoji = wyckoffPhase.includes('MARKUP') || wyckoffPhase.includes('ACCUMULATION') ? '🟢' :
-                  wyckoffPhase.includes('DISTRIBUTION') || wyckoffPhase.includes('MARKDOWN') ? '🔴' : '🟡';
-
-  // EVR Score interpretation
-  const evrStr = evrScore > 0.3 ? '🟢 Upaya besar → Hasil kecil (Absorpsi/Akumulasi)' :
-                 evrScore < -0.3 ? '🔴 Upaya besar → Resistance kuat (Distribusi)' : '🟡 Seimbang';
-
-  // VCP Fibonacci levels
-  const fibs = indicators.fibonacci;
-  const fib382 = fibs.f382[fibs.f382.length - 1]?.value ?? 0;
-  const fib500 = fibs.f500[fibs.f500.length - 1]?.value ?? 0;
-  const fib618 = fibs.f618[fibs.f618.length - 1]?.value ?? 0;
 
   // VSA markers summary (last 3)
   const recentVSA = indicators.vsaMarkers.slice(-3);
   let vsaMarkersStr = '';
   if (recentVSA.length > 0) {
-    vsaMarkersStr = '\n<b>🏷️ Sinyal VSA Terbaru:</b>\n';
-    recentVSA.forEach(m => {
-      vsaMarkersStr += `• ${m.text}\n`;
-    });
+    vsaMarkersStr = '\n<b>🏷️ Sinyal VSA 3 Candle Terakhir:</b>\n';
+    recentVSA.forEach(m => { vsaMarkersStr += `• ${m.text}\n`; });
   }
 
   // Support & Resistance
   const srZones = indicators.supportResistance.zones.slice(0, 4);
   let srStr = '';
   if (srZones.length > 0) {
-    srStr = '\n<b>📐 Support &amp; Resistance:</b>\n';
+    srStr = '\n<b>📐 Support &amp; Resistance Terdekat:</b>\n';
     srZones.forEach(z => {
       const emoji = z.type === 'support' ? '🟢 SUP' : '🔴 RES';
       srStr += `${emoji}: ${fmtRp(z.level)}\n`;
     });
   }
 
+  // Fibonacci levels
+  const fibs = indicators.fibonacci;
+  const fib382 = fibs.f382[fibs.f382.length - 1]?.value ?? 0;
+  const fib500 = fibs.f500[fibs.f500.length - 1]?.value ?? 0;
+  const fib618 = fibs.f618[fibs.f618.length - 1]?.value ?? 0;
+
   // Action recommendation
   let action = '';
   let actionEmoji = '';
+  let actionPlain = '';
   if (vsaSignal.includes('VCP PIVOT') || vsaSignal.includes('SNIPER') || vsaSignal.includes('DRY-UP')) {
-    action = 'PERTIMBANGKAN BELI — Setup VCP terbentuk, risiko rendah.';
+    action = 'PERTIMBANGKAN BELI';
     actionEmoji = '🎯';
+    actionPlain = 'Setup VCP terbentuk dan volume penjual mengering. Risiko kecil, potensi besar. Ideal untuk entry dengan stop loss ketat.';
   } else if (vsaSignal.includes('Selling Climax') || vsaSignal.includes('No Supply') || wyckoffPhase.includes('ACCUMULATION')) {
-    action = 'AKUMULASI — Tanda Smart Money masuk. Monitor konfirmasi.';
+    action = 'AKUMULASI / WATCH';
     actionEmoji = '🟢';
+    actionPlain = 'Ada tanda uang besar masuk diam-diam (smart money accumulation). Pantau terus — jika ada konfirmasi volume, ini bisa jadi entry yang bagus.';
   } else if (vsaSignal.includes('Distribusi') || vsaSignal.includes('Upthrust') || vsaSignal.includes('Buying Climax')) {
-    action = 'WASPADA — Tanda distribusi/jebakan. Kurangi posisi.';
+    action = 'WASPADA / KURANGI';
     actionEmoji = '🔴';
+    actionPlain = 'Ada tanda distribusi — institusi mulai menjual. Jangan beli baru, dan jika sudah punya, pertimbangkan pasang stop loss lebih ketat atau ambil sebagian profit.';
   } else if (wyckoffPhase.includes('MARKUP')) {
-    action = 'HOLD — Trend naik aktif. Pasang trailing stop.';
+    action = 'HOLD';
     actionEmoji = '📈';
+    actionPlain = 'Tren naik masih aktif. Jika sudah punya, hold dan biarkan profit berkembang. Pasang trailing stop untuk proteksi.';
   } else {
-    action = 'TUNGGU — Belum ada sinyal kuat. Pantau konfirmasi.';
+    action = 'TUNGGU';
     actionEmoji = '⏳';
+    actionPlain = 'Belum ada sinyal kuat. Sabar tunggu sampai ada setup yang lebih jelas — lebih baik ketinggalan daripada masuk di waktu yang salah.';
   }
 
   const msg = `<b>🔬 VCP + WYCKOFF + VSA — ${display}</b>
-Harga: <b>${fmtRp(price)}</b> (${changeStr})
+Harga: <b>${fmtRp(price)}</b> <i>(${changeStr} hari ini)</i>
 
-${wyEmoji} <b>Wyckoff Phase:</b>
-${wyckoffPhase}
+━━━━━━━━━━━━━━━━━━━━
+<b>📈 ANALISIS TEKNIKAL</b>
+━━━━━━━━━━━━━━━━━━━━
 
-<b>📊 VCP Status:</b>
+${wyEmoji} <b>Fase Wyckoff:</b> ${wyckoffPhase}
+<i>${wyPlain}</i>
+
+<b>📊 Status VCP:</b>
 ${vcpStatus}
 
-<b>⚡ Effort vs Result (EVR):</b>
-Score: ${evrScore > 0 ? '+' : ''}${evrScore.toFixed(2)} → ${evrStr}
+<b>⚡ Effort vs Result (EVR): ${evrScore > 0 ? '+' : ''}${evrScore.toFixed(2)}</b>
+${evrEmoji} ${evrPlain}
 
-<b>💡 VSA Signal:</b>
+<b>💡 Sinyal VSA Terbaru:</b>
 ${vsaSignal}
 
-<b>📅 Candle Power Prediction:</b>
-CPP: ${cppScore > 0 ? '+' : ''}${cppScore} → ${cppBias === 'BULLISH' ? '📈 Cenderung NAIK' : cppBias === 'BEARISH' ? '📉 Cenderung TURUN' : '➡️ NETRAL'}${vsaMarkersStr}${bvdStr}${srStr}
-<b>📐 Fibonacci Retracement (100-bar):</b>
-38.2%: ${fmtRp(fib382)}
-50.0%: ${fmtRp(fib500)}
-61.8%: ${fmtRp(fib618)}
+<b>📅 Candle Power (prediksi besok):</b>
+${cppBias === 'BULLISH' ? '📈' : cppBias === 'BEARISH' ? '📉' : '➡️'} CPP: ${cppScore > 0 ? '+' : ''}${cppScore} → <b>${cppBias === 'BULLISH' ? 'Cenderung NAIK' : cppBias === 'BEARISH' ? 'Cenderung TURUN' : 'NETRAL/SIDEWAYS'}</b>${vsaMarkersStr}${bvdStr}${srStr}
+<b>📐 Fibonacci Retracement:</b>
+38.2%: ${fmtRp(fib382)} | 50.0%: ${fmtRp(fib500)} | 61.8%: ${fmtRp(fib618)}
+<i>Support potensial jika harga pullback dari puncak</i>
 
-${actionEmoji} <b>Rekomendasi:</b>
-${action}
+━━━━━━━━━━━━━━━━━━━━
+<b>💬 KESIMPULAN</b>
+━━━━━━━━━━━━━━━━━━━━
+${actionEmoji} <b>${action} — ${display}</b>
+${actionPlain}
 
-<i>⚠️ Analisis teknikal. Bukan rekomendasi investasi. Selalu gunakan stop loss.</i>`;
+<i>⚠️ Analisis teknikal, bukan rekomendasi investasi. Selalu gunakan stop loss dan manajemen risiko yang baik.</i>`;
 
   await sendTelegramMessage(chatId, msg);
 }
