@@ -627,6 +627,26 @@ ${plain}
 <i>⚠️ Analisis teknikal, bukan rekomendasi investasi. Selalu pasang stop loss.</i>`;
 
   await sendTelegramMessage(chatId, msg);
+
+  // ── Send chart image for /rf command ──────────────────────────────────────
+  try {
+    const srZones = indicators.supportResistance?.zones?.slice(0, 4) ?? [];
+    await sendChartPhoto(
+      chatId,
+      {
+        title:       `${display} — Ryan Filbert`,
+        data,
+        slLevel:     rf.stopLoss,
+        tpLevel:     rf.targetPrice,
+        entryLevel:  rf.pivotEntry,
+        sr:          srZones.map(z => ({ level: z.level, type: z.type as 'support' | 'resistance' })),
+      },
+      `📊 <b>${display}</b> | ${qualityEmoji} ${rf.setupQuality} ${rf.score}/100 | Entry: Rp ${Math.round(rf.pivotEntry).toLocaleString('id-ID')} | SL: Rp ${Math.round(rf.stopLoss).toLocaleString('id-ID')} | TP: Rp ${Math.round(rf.targetPrice).toLocaleString('id-ID')} | R:R ${rf.riskReward}x`,
+      BOT_TOKEN,
+    );
+  } catch (e: any) {
+    console.error('[RF] chart image error:', e.message);
+  }
 }
 
 // ── /cp [ticker] — Candle Power (Next Candle Prediction) ──────────────────
