@@ -1,10 +1,10 @@
 // ============================================================================
 // EBITE CHART — Chart Image Generator for Telegram
-// Strategy: HYBRID
-//   - Price line, MA20, MA50 → Chart.js line datasets (guaranteed to work)
-//   - SL / TP / Entry / SR levels → EXTRA LINE DATASETS with fill:false
-//     (does NOT rely on chartjs-plugin-annotation at all — 100% reliable)
-//   - Volume → bar dataset on y1
+// Strategy: SEGMENTED LINE CHART
+//   - Price line dengan warna hijau (naik) / merah (turun) per segment
+//   - MA20 & MA50 garis abu-abu
+//   - SL / TP / Entry sebagai garis horizontal
+//   - Tanpa volume bar (lebih bersih)
 // ============================================================================
 
 import { ChartData } from './indicators';
@@ -40,7 +40,7 @@ function flatLine(
   N: number,
   color: string,
   dash: number[] = [],
-  width = 1.5,
+  width = 2,
 ): object {
   return {
     type:            'line',
@@ -58,6 +58,13 @@ function flatLine(
   };
 }
 
+/**
+ * Buat array warna segment berdasarkan perubahan harga
+ * Hijau jika harga naik dari kemarin, merah jika turun
+ * (Catatan: Tidak digunakan langsung karena QuickChart tidak support segment callback)
+ */
+// function getSegmentColors(closes: number[]): string[] { ... }
+
 // ── Build QuickChart config ───────────────────────────────────────────────────
 export function buildChartConfig(opts: ChartImageOptions, maxCandles = 90): object {
   const { title, data, slLevel, tpLevel, entryLevel, sr = [] } = opts;
@@ -68,7 +75,6 @@ export function buildChartConfig(opts: ChartImageOptions, maxCandles = 90): obje
 
   const labels = candles.map(c => formatDate(c.time));
   const closes = candles.map(c => c.close);
-  const vols   = candles.map(c => c.volume ?? 0);
 
   // ── Price range ───────────────────────────────────────────────────────────
   const allPx = candles.flatMap(c => [c.high, c.low]);
@@ -76,143 +82,165 @@ export function buildChartConfig(opts: ChartImageOptions, maxCandles = 90): obje
   if (tpLevel)    allPx.push(tpLevel);
   if (entryLevel) allPx.push(entryLevel);
   sr.forEach(z => allPx.push(z.level));
-  const pxMin = Math.min(...allPx) * 0.988;
-  const pxMax = Math.max(...allPx) * 1.012;
+  const pxMin = Math.min(...allPx) * 0.985;
+  const pxMax = Math.max(...allPx) * 1.015;
 
   // ── MA ────────────────────────────────────────────────────────────────────
   const ma20 = calcMA(closes, Math.min(20, N));
   const ma50 = calcMA(closes, Math.min(50, N));
 
-  // ── Volume scale ──────────────────────────────────────────────────────────
-  const maxVol    = Math.max(...vols, 1);
-  const volAxisMax = maxVol * 4;
+  // ── Build green/red price segments ────────────────────────────────────────
+  // QuickChart doesn't support segment colors callback, so we create separate datasets
+  // for green (bullish) and red (bearish) segments
+  const greenData: (number | null)[] = new Array(N).fill(null);
+  const redData: (number | null)[] = new Array(N).fill(null);
 
-  // ── Per-point colors for price ────────────────────────────────────────────
-  const pointBg: string[] = closes.map((c, i) =>
-    i === 0 ? '#64b5f6' : (c >= closes[i - 1] ? '#00d069' : '#eb3c3c')
-  );
-  const pointRadius: number[] = closes.map((_, i) => i === N - 1 ? 6 : 0);
+  for (let i = 0; i < N; i++) {
+    if (i === 0) {
+      greenData[i] = closes[i];
+    } else {
+      const isBullish = closes[i] >= closes[i - 1];
+      if (isBullish) {
+        greenData[i - 1] = closes[i - 1]; // Connect from previous point
+        greenData[i] = closes[i];
+      } else {
+        redData[i - 1] = closes[i - 1]; // Connect from previous point
+        redData[i] = closes[i];
+      }
+    }
+  }
 
   // ── Datasets ─────────────────────────────────────────────────────────────
   const datasets: object[] = [];
 
-  // 1. Volume bars (y1 — behind everything)
-  datasets.push({
-    type:               'bar',
-    label:              'Volume',
-    data:               vols,
-    backgroundColor:    candles.map(c =>
-      c.close >= c.open ? 'rgba(0,184,148,0.18)' : 'rgba(214,48,49,0.18)'
-    ),
-    borderWidth:        0,
-    barPercentage:      0.95,
-    categoryPercentage: 1.0,
-    yAxisID:            'y1',
-    order:              20,
-  });
-
-  // 2. S/R zones — rendered as narrow flat bands (2 lines per zone)
-  const srToRender = sr.slice(0, 3);
-  srToRender.forEach((zone, i) => {
-    const isSup  = zone.type === 'support';
-    const color  = isSup ? 'rgba(0,208,105,0.70)' : 'rgba(235,60,60,0.70)';
-    const half   = Math.max((pxMax - pxMin) * 0.006, closes[N-1] * 0.003);
-    // Upper and lower bound of zone
-    datasets.push(flatLine(`${isSup ? 'SUP' : 'RES'} ${Math.round(zone.level)}`, zone.level + half, N, color, [3, 3], 1));
-    datasets.push(flatLine(`_${i}`, zone.level - half, N, color, [3, 3], 1));
-  });
-
-  // 3. MA50
+  // 1. MA50 - garis abu-abu solid
   datasets.push({
     type:            'line',
     label:           'MA50',
     data:            ma50,
-    borderColor:     'rgba(130,130,130,0.80)',
+    borderColor:     '#666666',
     backgroundColor: 'transparent',
     borderWidth:     1.5,
     pointRadius:     0,
-    tension:         0.3,
+    tension:         0.2,
     spanGaps:        true,
     yAxisID:         'y',
     order:           5,
   });
 
-  // 4. MA20
+  // 2. MA20 - garis abu-abu putus-putus
   datasets.push({
     type:            'line',
     label:           'MA20',
     data:            ma20,
-    borderColor:     'rgba(200,200,200,0.55)',
+    borderColor:     '#999999',
     backgroundColor: 'transparent',
     borderWidth:     1.2,
-    borderDash:      [5, 3],
+    borderDash:      [4, 2],
     pointRadius:     0,
-    tension:         0.3,
+    tension:         0.2,
     spanGaps:        true,
     yAxisID:         'y',
     order:           5,
   });
 
-  // 5. Entry line (green solid)
-  if (entryLevel && entryLevel > 0) {
+  // 3. S/R zones
+  const srToRender = sr.slice(0, 2);
+  srToRender.forEach((zone) => {
+    const isSup  = zone.type === 'support';
+    const color  = isSup ? '#00cc66' : '#ff6666';
     datasets.push(flatLine(
-      `⮞ Entry ${Math.round(entryLevel).toLocaleString('id-ID')}`,
-      entryLevel, N,
-      '#00e676', [8, 4], 2.0,
+      `${isSup ? 'S' : 'R'} ${Math.round(zone.level).toLocaleString('id-ID')}`,
+      zone.level, N, color, [4, 4], 1.5
     ));
-  }
+  });
 
-  // 6. Stop Loss line (red dashed)
+  // 4. Stop Loss line (red dashed) - prominent
   if (slLevel && slLevel > 0) {
     datasets.push(flatLine(
       `⛔ SL ${Math.round(slLevel).toLocaleString('id-ID')}`,
       slLevel, N,
-      '#ff5252', [6, 4], 1.8,
+      '#ff3333', [6, 3], 2.5,
     ));
   }
 
-  // 7. Take Profit line (blue dashed)
+  // 5. Take Profit line (cyan dashed) - prominent
   if (tpLevel && tpLevel > 0) {
     datasets.push(flatLine(
       `🎯 TP ${Math.round(tpLevel).toLocaleString('id-ID')}`,
       tpLevel, N,
-      '#40c4ff', [6, 4], 1.8,
+      '#00ddff', [6, 3], 2.5,
     ));
   }
 
-  // 8. Price line (on top)
+  // 6. Entry line (yellow solid) - prominent
+  if (entryLevel && entryLevel > 0) {
+    datasets.push(flatLine(
+      `➤ Entry ${Math.round(entryLevel).toLocaleString('id-ID')}`,
+      entryLevel, N,
+      '#ffcc00', [], 2.5,
+    ));
+  }
+
+  // 7. Price line - GREEN segments (naik)
   datasets.push({
-    type:                   'line',
-    label:                  'Harga',
-    data:                   closes,
-    borderColor:            '#64b5f6',
-    backgroundColor:        'transparent',
-    borderWidth:            2,
-    pointRadius:            pointRadius,
-    pointBackgroundColor:   pointBg,
-    pointBorderColor:       '#ffffff',
-    pointBorderWidth:       1,
-    tension:                0,
-    spanGaps:               false,
-    yAxisID:                'y',
-    order:                  2,
+    type:            'line',
+    label:           '📈 Naik',
+    data:            greenData,
+    borderColor:     '#00dd77',
+    backgroundColor: 'transparent',
+    borderWidth:     2.5,
+    pointRadius:     0,
+    tension:         0,
+    spanGaps:        false,
+    yAxisID:         'y',
+    order:           2,
   });
 
-  // ── Legend filter: hide _idx mirror lines ─────────────────────────────────
-  // Note: we CAN'T use callback functions in QuickChart JSON.
-  // Instead, prefix hidden labels with '_' and we rely on legend showing them
-  // (minor clutter) OR we skip it entirely by marking them display:false:
-  // Actually — just set 'hidden: true' at the dataset level to hide from legend.
-  // Let's patch: add 'hidden: true' to the mirror SR lines
+  // 8. Price line - RED segments (turun)
+  datasets.push({
+    type:            'line',
+    label:           '📉 Turun',
+    data:            redData,
+    borderColor:     '#ff4444',
+    backgroundColor: 'transparent',
+    borderWidth:     2.5,
+    pointRadius:     0,
+    tension:         0,
+    spanGaps:        false,
+    yAxisID:         'y',
+    order:           2,
+  });
+
+  // 9. Current price marker (last point)
+  const lastClose = closes[N - 1];
+  const prevClose = closes[N - 2] ?? lastClose;
+  const isLastBullish = lastClose >= prevClose;
+  datasets.push({
+    type:            'line',
+    label:           `Harga ${Math.round(lastClose).toLocaleString('id-ID')}`,
+    data:            closes.map((_, i) => i === N - 1 ? lastClose : null),
+    borderColor:     'transparent',
+    backgroundColor: 'transparent',
+    borderWidth:     0,
+    pointRadius:     8,
+    pointBackgroundColor: isLastBullish ? '#00ff88' : '#ff5555',
+    pointBorderColor:     '#ffffff',
+    pointBorderWidth:     2,
+    yAxisID:         'y',
+    order:           1,
+  });
+
+  // ── Filter hidden labels ──────────────────────────────────────────────────
   const patchedDatasets = (datasets as any[]).map(ds => {
     if (typeof ds.label === 'string' && ds.label.startsWith('_')) {
-      return { ...ds, label: undefined, legendText: '' };
+      return { ...ds, label: undefined };
     }
     return ds;
   });
 
   return {
-    type: 'bar',
+    type: 'line',
     data: {
       labels,
       datasets: patchedDatasets,
@@ -224,18 +252,18 @@ export function buildChartConfig(opts: ChartImageOptions, maxCandles = 90): obje
         title: {
           display:  true,
           text:     title,
-          color:    '#e0e0e0',
-          font:     { size: 13, weight: 'bold' },
-          padding:  { top: 4, bottom: 4 },
+          color:    '#ffffff',
+          font:     { size: 14, weight: 'bold' },
+          padding:  { top: 8, bottom: 8 },
         },
         legend: {
           display:  true,
           position: 'top',
           labels: {
-            color:         '#aaaaaa',
-            font:          { size: 8 },
-            boxWidth:      12,
-            padding:       6,
+            color:         '#cccccc',
+            font:          { size: 9 },
+            boxWidth:      14,
+            padding:       8,
             usePointStyle: false,
           },
         },
@@ -243,51 +271,39 @@ export function buildChartConfig(opts: ChartImageOptions, maxCandles = 90): obje
       scales: {
         x: {
           ticks: {
-            color:         '#555555',
-            maxTicksLimit: 10,
+            color:         '#888888',
+            maxTicksLimit: 8,
             maxRotation:   0,
             autoSkip:      true,
-            font:          { size: 8 },
+            font:          { size: 9 },
           },
-          grid: { color: 'rgba(255,255,255,0.04)' },
+          grid: { color: 'rgba(255,255,255,0.08)' },
         },
         y: {
           min:      pxMin,
           max:      pxMax,
           position: 'right',
           ticks: {
-            color:         '#888888',
-            font:          { size: 9 },
+            color:         '#aaaaaa',
+            font:          { size: 10 },
             maxTicksLimit: 8,
           },
-          grid: { color: 'rgba(255,255,255,0.06)' },
-        },
-        y1: {
-          min:      0,
-          max:      volAxisMax,
-          position: 'left',
-          display:  true,
-          ticks: {
-            color:         '#333333',
-            font:          { size: 7 },
-            maxTicksLimit: 3,
-          },
-          grid: { drawOnChartArea: false },
+          grid: { color: 'rgba(255,255,255,0.1)' },
         },
       },
       layout: {
-        padding: { left: 4, right: 8, top: 4, bottom: 4 },
+        padding: { left: 8, right: 12, top: 8, bottom: 8 },
       },
     },
-    backgroundColor: '#131722',
+    backgroundColor: '#1a1a2e',
   };
 }
 
 // ── Build URL fallback ────────────────────────────────────────────────────────
-export function buildChartImageUrl(opts: ChartImageOptions, maxCandles = 60): string {
+export function buildChartImageUrl(opts: ChartImageOptions, maxCandles = 50): string {
   const config  = buildChartConfig(opts, maxCandles);
   const encoded = encodeURIComponent(JSON.stringify(config));
-  const url     = `https://quickchart.io/chart?c=${encoded}&w=900&h=520&bkg=%23131722&f=png`;
+  const url     = `https://quickchart.io/chart?c=${encoded}&w=900&h=480&bkg=%231a1a2e&f=png`;
   if (url.length > 7500 && maxCandles > 15) {
     return buildChartImageUrl(opts, Math.floor(maxCandles * 0.75));
   }
@@ -299,12 +315,12 @@ export async function fetchChartImageBuffer(
   opts: ChartImageOptions,
   timeoutMs = 22000,
 ): Promise<Buffer | null> {
-  const config = buildChartConfig(opts, 90);
+  const config = buildChartConfig(opts, 60); // 60 candles for cleaner chart
   try {
     const body = JSON.stringify({
       width:           900,
-      height:          520,
-      backgroundColor: '#131722',
+      height:          480,
+      backgroundColor: '#1a1a2e',
       format:          'png',
       chart:           config,
     });
@@ -317,22 +333,22 @@ export async function fetchChartImageBuffer(
       signal:  AbortSignal.timeout(timeoutMs),
     });
 
-    const ct = res.headers.get('content-type') ?? '';
-    console.log('[Chart] QC response:', res.status, ct);
+    console.log('[Chart] QC response:', res.status);
 
-    if (!res.ok) {
-      const errTxt = await res.text();
-      console.error('[Chart] QC error:', errTxt.slice(0, 400));
-      return null;
-    }
-    if (!ct.includes('image')) {
-      const errTxt = await res.text();
-      console.error('[Chart] Non-image response:', errTxt.slice(0, 400));
-      return null;
-    }
     const buf = Buffer.from(await res.arrayBuffer());
-    console.log('[Chart] Buffer:', buf.length, 'bytes');
-    return buf;
+
+    // Check PNG magic bytes (89 50 4E 47)
+    const isPng = buf.length > 100 &&
+                  buf[0] === 0x89 && buf[1] === 0x50 &&
+                  buf[2] === 0x4E && buf[3] === 0x47;
+
+    if (isPng && buf.length > 2000) {
+      console.log('[Chart] Valid PNG:', buf.length, 'bytes');
+      return buf;
+    }
+
+    console.error('[Chart] Invalid PNG or too small:', buf.length);
+    return null;
   } catch (e: any) {
     console.error('[Chart] exception:', e.message);
     return null;

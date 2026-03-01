@@ -6,3 +6,7 @@ Sending 410 bytes to QuickChart...
 Response: status=200 ct=image/png
 SUCCESS: 31094 bytes saved to qc-test-ok.png
 Done.
+Sending 410 bytes to QuickChart...
+Response: status=200 ct=image/png
+SUCCESS: 31094 bytes saved to qc-test-ok.png
+Done.
