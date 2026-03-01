@@ -85,11 +85,36 @@ export interface RyanFilbertResult {
   volDryPrimary: boolean;   // base avg < 50% of 50-day avg (Ryan's strict criterion)
 }
 
+// ── Candle Power Next-Candle Assessment ────────────────────────────────────
+export type NextCandleQuality =
+  | 'STRONG_SUSTAINED'    // Strong body likely, move will hold for 1–3 candles
+  | 'MODERATE_SUSTAINED'  // Moderate green body, momentum continues at slower pace
+  | 'WEAK_FLASH'          // Small body likely, brief spike then may retrace
+  | 'REVERSAL_UP'         // Pattern signals reversal candle (hammer/spring) → bullish body likely
+  | 'BEARISH_SUSTAINED'   // Strong red body likely, selling pressure continues
+  | 'BEARISH_FLASH'       // Small red body, brief dip then stabilise
+  | 'DISTRIBUTION_TRAP'   // Looks green but likely reversal downward (upthrust/climax)
+  | 'NEUTRAL';            // No clear bias
+
+export interface CandlePowerResult {
+  markers: MarkerData[];
+  analysis: string;
+  cppScore: number;
+  cppBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  // NEW: next-candle quality assessment
+  nextCandleQuality: NextCandleQuality;
+  nextCandleLabel: string;   // short label e.g. "Naik Kuat & Bertahan"
+  nextCandleDetail: string;  // 1-sentence plain explanation
+  trendStrength: 'STRONG' | 'MODERATE' | 'WEAK';
+  powerScore: number;        // 0-100 numeric power
+}
+
 export interface IndicatorResult {
   ma5: MovingAverageData[]; ma20: MovingAverageData[]; ma50: MovingAverageData[]; ma200: MovingAverageData[];
   momentum: HistogramData[]; awesomeOscillator: HistogramData[]; fibonacci: FibonacciData;
   supportResistance: SupportResistanceData;
   candlePowerMarkers: MarkerData[]; candlePowerAnalysis: string;
+  candlePower: CandlePowerResult | null;   // NEW: full candle power result
   vsaMarkers: MarkerData[]; rmvData: RMVData[];
   breakoutDeltaMarkers: MarkerData[];
   latestBreakoutDelta: BreakoutDeltaResult | null;
@@ -384,53 +409,57 @@ function detectVCPStructure(data: ChartData[], i: number, atr5: number[], _volSM
 //   - Trend alignment bonus
 //   - VSA pattern boost (Spring, SOS, No Supply, Stopping Volume)
 // ============================================================================
-export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]; analysis: string; cppScore: number; cppBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' } {
+export function calculateCandlePower(data: ChartData[]): CandlePowerResult {
   const markers: MarkerData[] = [];
   const N = data.length;
-  let latestPower = 50, latestAnalysis = 'Insufficient data', latestCPP = 0;
-  if (N < 20) return { markers, analysis: latestAnalysis, cppScore: 0, cppBias: 'NEUTRAL' };
 
-  const LOOKBACK = 5;    // N days for CPP weighted sum
-  const VOL_SMA_PERIOD = 10; // VAM base
+  const empty: CandlePowerResult = {
+    markers, analysis: 'Insufficient data', cppScore: 0, cppBias: 'NEUTRAL',
+    nextCandleQuality: 'NEUTRAL', nextCandleLabel: '—', nextCandleDetail: 'Data tidak cukup.',
+    trendStrength: 'WEAK', powerScore: 50,
+  };
+  if (N < 20) return empty;
 
-  // Pre-compute MA20, MA50 arrays for context
+  const LOOKBACK = 5;
+  const VOL_SMA_PERIOD = 10;
+
   const ma20v = calculateMA(data, 20);
   const ma50v = calculateMA(data, 50);
   const atr14 = calculateATR(data, 14);
 
+  let latestPower = 50, latestCPP = 0, latestAnalysis = 'Insufficient data';
+  let latestQuality: NextCandleQuality = 'NEUTRAL';
+  let latestLabel = '—', latestDetail = '—', latestStrength: 'STRONG' | 'MODERATE' | 'WEAK' = 'WEAK';
+
   for (let i = Math.max(LOOKBACK + VOL_SMA_PERIOD, 20); i < N; i++) {
 
-    // ── STEP 1: Compute SMA(Volume, 10) at current bar ───────────────────────
+    // ── STEP 1: SMA(Volume, 10) ───────────────────────────────────────────────
     let volSum10 = 0;
     for (let k = 0; k < VOL_SMA_PERIOD; k++) volSum10 += (data[i - k].volume || 0);
     const volSMA10 = (volSum10 / VOL_SMA_PERIOD) || 1;
 
-    // ── STEP 2: Compute CPP over LOOKBACK days ───────────────────────────────
+    // ── STEP 2: CPP — Cumulative Power Prediction (Weighted CBD × VAM) ───────
+    // Formula: CPP = Σ [ CBD_j × VAM_j × weight_j ] for j=0..LOOKBACK-1
+    //   CBD = (close-open)/(high-low)  ∈ [-1,+1]  — body direction strength
+    //   VAM = volume / SMA10_vol        — relative volume anomaly
+    //   weight = (N-j)/N               — recency bias (today = highest)
     let cpp = 0;
     for (let j = 0; j < LOOKBACK; j++) {
       const bar = data[i - j];
       const range = bar.high - bar.low;
       const safeRange = range < 0.0001 ? 0.0001 : range;
-
-      // Candle Body Dominance: [-1, +1]
       const cbd = (bar.close - bar.open) / safeRange;
-
-      // Volume Anomaly Multiplier
       const vam = (bar.volume || 0) / volSMA10;
-
-      // Daily Power × time weight (j=0 = today = highest weight)
       const weight = (LOOKBACK - j) / LOOKBACK;
       cpp += cbd * vam * weight;
     }
 
     // ── STEP 3: Map CPP → 0-100 scale ────────────────────────────────────────
-    // CPP range is roughly -3 to +3 in practice (VAM ≤ 3, CBD ≤ 1, weight avg ~0.6)
-    // Linear scaling: 0 CPP → 50, CPP ≥ +1.5 → 95, CPP ≤ -1.5 → 5
     const CPP_MAX = 1.5;
     let power = 50 + (cpp / CPP_MAX) * 45;
     power = Math.max(5, Math.min(95, power));
 
-    // ── STEP 4: Wyckoff / VSA context modifiers ───────────────────────────────
+    // ── STEP 4: Wyckoff / VSA context ────────────────────────────────────────
     const cur = data[i];
     const sp = cur.high - cur.low;
     const body = Math.abs(cur.close - cur.open);
@@ -441,21 +470,20 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
     const lWick = Math.min(cur.open, cur.close) - cur.low;
     const uWick = cur.high - Math.max(cur.open, cur.close);
     const isHammer = lWick > body * 1.2 && uWick < body * 0.6 && (lWick / (sp || 1)) > 0.45;
-    const isStar = uWick > body * 2.0 && lWick < body * 0.3 && cPos < 0.4;
+    const isStar   = uWick > body * 2.0 && lWick < body * 0.3 && cPos < 0.4;
+    const isDoji   = body < sp * 0.15;
+    const bodyRatio = sp > 0 ? body / sp : 0; // how much of the bar is body (0–1)
 
-    // MA position context
-    const ma20idx = i - 19;
-    const ma50idx = i - 49;
+    const ma20idx = i - 19, ma50idx = i - 49;
     const ma20 = (ma20idx >= 0 && ma20idx < ma20v.length) ? ma20v[ma20idx].value : cur.close;
     const ma50 = (ma50idx >= 0 && ma50idx < ma50v.length) ? ma50v[ma50idx].value : cur.close;
     const abMA20 = cur.close > ma20;
     const abMA50 = cur.close > ma50;
     const maTrend = ma20 > ma50;
-    const inUp = abMA20 && abMA50 && maTrend;
+    const inUp   = abMA20 && abMA50 && maTrend;
     const inDown = !abMA20 && !abMA50 && !maTrend;
     const nearMA20 = cur.low <= ma20 * 1.025 && cur.low >= ma20 * 0.965;
 
-    // Buying/selling pressure (10-bar accumulation ratio)
     let bVol = 0, sVol = 0;
     for (let k = Math.max(0, i - 9); k <= i; k++) {
       if (data[k].close > data[k].open) bVol += (data[k].volume || 0);
@@ -463,73 +491,183 @@ export function calculateCandlePower(data: ChartData[]): { markers: MarkerData[]
     }
     const accR = bVol / (sVol || 1);
 
-    // ── Context adjustments (each capped so they don't override CPP signal) ──
-
-    // Spring / Hammer at MA20 support: strong reversal signal → boost
+    // ── VSA context modifiers (same as before) ────────────────────────────────
     if (isHammer && nearMA20) {
       if (vRatio > 1.3 && accR > 1.2) power = Math.max(power, 88);
-      else if (vRatio < 0.7)          power = Math.max(power, 82); // No Supply spring
+      else if (vRatio < 0.7)          power = Math.max(power, 82);
       else                             power = Math.max(power, 74);
     }
-
-    // Upthrust / Shooting Star: trap signal → suppress
-    if (isStar && vRatio > 1.3) power = Math.min(power, 22);
-
-    // No Supply (VSA): red candle + very low vol above MA = bullish
-    if (!isGreen && vRatio < 0.65 && cPos > 0.45 && abMA20) power = Math.max(power, 72);
-
-    // No Demand (VSA): green candle + very low vol below MA = bearish
-    if (isGreen && vRatio < 0.65 && cPos < 0.55 && !abMA20) power = Math.min(power, 38);
-
-    // Stopping Volume (Wyckoff): high vol + narrow spread + closes upper half
+    if (isStar && vRatio > 1.3)                                         power = Math.min(power, 22);
+    if (!isGreen && vRatio < 0.65 && cPos > 0.45 && abMA20)            power = Math.max(power, 72);
+    if (isGreen  && vRatio < 0.65 && cPos < 0.55 && !abMA20)           power = Math.min(power, 38);
     if (vRatio > 1.5 && (sp / atr) < 0.85 && cPos > 0.55 && !isGreen) power = Math.max(power, 80);
-
-    // Buying Climax: ultra-high vol + wide up + closes lower = distribution
-    if (vRatio > 2.5 && (sp / atr) > 2.0 && cPos < 0.5 && isGreen) power = Math.min(power, 25);
-
-    // Trend alignment fine-tune
-    if (inUp  && power > 55) power = Math.min(100, power + 3);
+    if (vRatio > 2.5 && (sp / atr) > 2.0  && cPos < 0.5 && isGreen)   power = Math.min(power, 25);
+    if (inUp   && power > 55) power = Math.min(100, power + 3);
     if (inDown && power < 45) power = Math.max(0,   power - 3);
-
     power = Math.max(0, Math.min(100, Math.round(power)));
     latestPower = power;
 
-    // ── Build human-readable reason string ───────────────────────────────────
-    const cppRounded = Math.round(cpp * 100) / 100;
-    const bias = cpp >  0.5 ? '📈 Bullish Bias' :
-                 cpp < -0.5 ? '📉 Bearish Bias' : '➡️ Neutral / Consolidation';
-    let context = '';
-    if (isHammer && nearMA20)                              context = ' | 🔨 Hammer@MA20';
-    else if (isStar && vRatio > 1.3)                       context = ' | ⭐ Shooting Star';
-    else if (!isGreen && vRatio < 0.65 && abMA20)         context = ' | 🥷 No Supply';
-    else if (isGreen && vRatio < 0.65 && !abMA20)         context = ' | 😴 No Demand';
-    else if (vRatio > 1.5 && (sp / atr) < 0.85 && cPos > 0.55) context = ' | 🛑 Stop Volume';
-    else if (vRatio > 2.5 && (sp / atr) > 2.0)           context = ' | ⚠️ Climax Vol';
-    else if (inUp)                                         context = ' | ↗️ Uptrend';
-    else if (inDown)                                       context = ' | ↘️ Downtrend';
+    // ── STEP 5: Next-candle quality classification ────────────────────────────
+    // This answers: "Will the next candle move STRONG or just flash briefly?"
+    // Inputs: CPP magnitude, volume character, body dominance, VSA pattern, trend context
 
-    latestAnalysis = `CPP:${cppRounded} ${bias}${context}`;
+    // ① Body conviction of current candle (high bodyRatio = strong body = directional confidence)
+    const strongBody    = bodyRatio >= 0.6;
+    const weakBody      = bodyRatio <= 0.25 || isDoji;
+    const highVol       = vRatio >= 1.5;
+    const lowVol        = vRatio <= 0.65;
+    const normalVol     = !highVol && !lowVol;
+    const buyDominant   = accR >= 1.4;
+    const sellDominant  = accR <= 0.65;
+
+    let quality: NextCandleQuality = 'NEUTRAL';
+    let label = '—', detail = '—';
+    let tStrength: 'STRONG' | 'MODERATE' | 'WEAK' = 'WEAK';
+
+    if (isStar && vRatio > 1.3) {
+      // Upthrust / Shooting Star — distribution trap → next candle likely red
+      quality = 'DISTRIBUTION_TRAP';
+      label   = 'Jebakan! Candle Palsu';
+      detail  = 'Kenaikan hari ini kemungkinan adalah jebakan — volume tinggi tapi ditutup rendah (Upthrust Wyckoff). Candle berikutnya cenderung merah dan bisa tajam.';
+      tStrength = 'STRONG';
+    } else if (vRatio > 2.5 && (sp / atr) > 2.0 && cPos < 0.5 && isGreen) {
+      // Buying Climax — distribution
+      quality = 'DISTRIBUTION_TRAP';
+      label   = 'Euforia / Puncak';
+      detail  = 'Volume ekstrem dengan candle naik tapi ditutup di tengah-bawah = tanda distribusi institusi (Buying Climax). Potensi balik arah turun, bukan lanjut naik.';
+      tStrength = 'STRONG';
+    } else if (isHammer && nearMA20) {
+      // Hammer at MA20 = reversal pattern → next candle likely bullish, strong if confirmed
+      if (vRatio > 1.3 && accR > 1.2) {
+        quality = 'REVERSAL_UP';
+        label   = 'Reversal Kuat (Hammer+Vol)';
+        detail  = 'Hammer di support MA20 dengan volume konfirmasi tinggi dan tekanan beli dominan. Candle berikutnya kemungkinan hijau dengan body sedang-kuat dan bertahan.';
+        tStrength = 'STRONG';
+      } else if (vRatio < 0.7) {
+        quality = 'REVERSAL_UP';
+        label   = 'Reversal (Hammer No-Supply)';
+        detail  = 'Hammer di MA20 dengan volume sangat sepi (No Supply) — penjual sudah habis. Candle berikutnya kemungkinan hijau kecil-sedang namun bertahan (bukan spike lalu balik).';
+        tStrength = 'MODERATE';
+      } else {
+        quality = 'REVERSAL_UP';
+        label   = 'Potensi Reversal';
+        detail  = 'Hammer di area MA20, tapi volume belum konfirmasi kuat. Candle berikutnya mungkin naik tapi tipis — tunggu konfirmasi volume.';
+        tStrength = 'WEAK';
+      }
+    } else if (!isGreen && vRatio < 0.65 && cPos > 0.45 && abMA20) {
+      // No Supply VSA: red + low vol + closes mid-high + above MA = bullish hidden
+      quality = 'MODERATE_SUSTAINED';
+      label   = 'No Supply (Naik Bertahan)';
+      detail  = 'Candle merah tapi volume sangat sepi dan harga tutup di tengah-atas (No Supply). Penjual sudah tidak aktif. Candle berikutnya kemungkinan hijau dengan body sedang dan bertahan 1–2 hari.';
+      tStrength = 'MODERATE';
+    } else if (vRatio > 1.5 && (sp / atr) < 0.85 && cPos > 0.55 && !isGreen) {
+      // Stopping Volume: high vol, narrow spread, closes upper half, red = smart money absorbing
+      quality = cpp > 0 ? 'MODERATE_SUSTAINED' : 'REVERSAL_UP';
+      label   = 'Stopping Volume (Siap Balik)';
+      detail  = 'Volume tinggi tapi range sempit dan ditutup di atas tengah meski candle merah — smart money menyerap tekanan jual (Stopping Volume). Candle berikutnya kemungkinan hijau, body sedang, dan lanjut naik.';
+      tStrength = 'MODERATE';
+    } else if (cpp > 1.0 && strongBody && highVol && buyDominant && isGreen && inUp) {
+      // Strong Sustained Bull: all factors aligned
+      quality = 'STRONG_SUSTAINED';
+      label   = 'Naik Kuat & Bertahan';
+      detail  = 'Momentum kuat (CPP tinggi), body besar, volume di atas rata-rata, dan tekanan beli dominan. Candle berikutnya kemungkinan hijau dengan body sedang-besar dan bertahan 2–4 candle ke depan.';
+      tStrength = 'STRONG';
+    } else if (cpp > 0.5 && isGreen && (strongBody || highVol) && abMA20) {
+      // Moderate Sustained Bull
+      quality = 'MODERATE_SUSTAINED';
+      label   = 'Naik Sedang & Bertahan';
+      detail  = 'CPP positif dengan candle hijau dan volume cukup. Candle berikutnya kemungkinan hijau dengan body sedang dan naik bertahan 1–2 hari. Bukan spike yang langsung balik.';
+      tStrength = 'MODERATE';
+    } else if (cpp > 0.3 && isGreen && weakBody && normalVol) {
+      // Weak Flash Bull: CPP positive but body weak — likely brief move
+      quality = 'WEAK_FLASH';
+      label   = 'Naik Sesaat (Flash)';
+      detail  = 'CPP positif tapi body candle kecil atau doji, volume biasa saja. Candle berikutnya mungkin naik sebentar (spike) tapi kemungkinan tidak bertahan lama — body kecil dan rentan balik.';
+      tStrength = 'WEAK';
+    } else if (cpp < -1.0 && !isGreen && strongBody && highVol && sellDominant && inDown) {
+      // Strong Sustained Bear
+      quality = 'BEARISH_SUSTAINED';
+      label   = 'Turun Kuat & Bertahan';
+      detail  = 'Momentum negatif kuat, body merah besar, volume tinggi, dan tekanan jual dominan. Candle berikutnya kemungkinan merah dengan body sedang-besar dan tekanan jual berlanjut.';
+      tStrength = 'STRONG';
+    } else if (cpp < -0.5 && !isGreen && (strongBody || highVol)) {
+      // Moderate Sustained Bear
+      quality = 'BEARISH_SUSTAINED';
+      label   = 'Turun Sedang & Berlanjut';
+      detail  = 'CPP negatif dengan candle merah dan volume cukup. Candle berikutnya kemungkinan merah lagi, body sedang, turun berlanjut 1–2 hari.';
+      tStrength = 'MODERATE';
+    } else if (cpp < -0.3 && !isGreen && weakBody) {
+      // Bearish Flash
+      quality = 'BEARISH_FLASH';
+      label   = 'Turun Sesaat';
+      detail  = 'CPP negatif tapi body kecil — tekanan jual ada tapi tidak kuat. Candle berikutnya mungkin sedikit turun atau flat, tidak turun tajam.';
+      tStrength = 'WEAK';
+    } else if (power >= 70 && isGreen && cpp > 0) {
+      // General bullish
+      quality = weakBody ? 'WEAK_FLASH' : 'MODERATE_SUSTAINED';
+      label   = weakBody ? 'Naik Tipis (Konsolidasi)' : 'Cenderung Naik';
+      detail  = weakBody
+        ? 'Power cukup tapi body candle tipis. Naik tapi kemungkinan hanya kecil, pasar masih konsolidasi.'
+        : 'Power positif dan candle hijau — cenderung lanjut naik, tapi konfirmasi volume masih dibutuhkan.';
+      tStrength = weakBody ? 'WEAK' : 'MODERATE';
+    } else if (power <= 40 && !isGreen && cpp < 0) {
+      quality = weakBody ? 'BEARISH_FLASH' : 'BEARISH_SUSTAINED';
+      label   = weakBody ? 'Melemah Tipis' : 'Cenderung Turun';
+      detail  = weakBody ? 'Power negatif tapi body kecil — pelemahan ringan, bukan penurunan tajam.' : 'Power negatif dan candle merah — cenderung lanjut turun.';
+      tStrength = 'WEAK';
+    } else {
+      quality = 'NEUTRAL';
+      label   = 'Netral / Konsolidasi';
+      detail  = 'Sinyal tidak cukup jelas ke satu arah. Candle berikutnya kemungkinan flat atau kecil-kecil saja — pasar sedang konsolidasi, tunggu candle konfirmasi.';
+      tStrength = 'WEAK';
+    }
+
+    latestQuality  = quality;
+    latestLabel    = label;
+    latestDetail   = detail;
+    latestStrength = tStrength;
+
+    // ── Build analysis string ─────────────────────────────────────────────────
+    const cppRounded = Math.round(cpp * 100) / 100;
+    const biasTxt = cpp >  0.5 ? '📈 Bullish Bias' :
+                    cpp < -0.5 ? '📉 Bearish Bias' : '➡️ Neutral / Consolidation';
+    let context = '';
+    if (isHammer && nearMA20)                                        context = ' | 🔨 Hammer@MA20';
+    else if (isStar && vRatio > 1.3)                                  context = ' | ⭐ Shooting Star';
+    else if (!isGreen && vRatio < 0.65 && abMA20)                    context = ' | 🥷 No Supply';
+    else if (isGreen && vRatio < 0.65 && !abMA20)                    context = ' | 😴 No Demand';
+    else if (vRatio > 1.5 && (sp / atr) < 0.85 && cPos > 0.55)      context = ' | 🛑 Stop Volume';
+    else if (vRatio > 2.5 && (sp / atr) > 2.0)                       context = ' | ⚠️ Climax Vol';
+    else if (inUp)                                                     context = ' | ↗️ Uptrend';
+    else if (inDown)                                                   context = ' | ↘️ Downtrend';
+
+    latestAnalysis = `Power: ${power} (CPP:${cppRounded} ${biasTxt}${context})`;
     latestCPP = cpp;
 
-    // Color scale
-    const col = power >= 90 ? '#00b894'
-              : power >= 80 ? '#55efc4'
-              : power >= 65 ? '#a4de6c'
-              : power >= 55 ? '#ffd700'
-              : power >= 45 ? '#ffb347'
-              : power >= 30 ? '#ff8c00'
-              : power >= 15 ? '#d63031'
-              :                '#8b0000';
+    // Color
+    const col = power >= 90 ? '#00b894' : power >= 80 ? '#55efc4' : power >= 65 ? '#a4de6c'
+              : power >= 55 ? '#ffd700' : power >= 45 ? '#ffb347' : power >= 30 ? '#ff8c00'
+              : power >= 15 ? '#d63031' : '#8b0000';
 
-    // Show dots on last 5 candles
     if (i >= N - 5 && !markers.find(m => m.time === cur.time)) {
       markers.push({ time: cur.time, position: 'aboveBar', color: col, shape: 'circle', text: power.toString() });
     }
   }
 
   const finalBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = latestCPP > 0.5 ? 'BULLISH' : latestCPP < -0.5 ? 'BEARISH' : 'NEUTRAL';
-  return { markers, analysis: `Power: ${latestPower} (${latestAnalysis})`, cppScore: Math.round(latestCPP * 100) / 100, cppBias: finalBias };
+  return {
+    markers,
+    analysis: latestAnalysis,
+    cppScore: Math.round(latestCPP * 100) / 100,
+    cppBias: finalBias,
+    nextCandleQuality: latestQuality,
+    nextCandleLabel:   latestLabel,
+    nextCandleDetail:  latestDetail,
+    trendStrength:     latestStrength,
+    powerScore:        latestPower,
+  };
 }
+
 
 // ============================================================================
 // UNIFIED VSA + VCP + WYCKOFF DETECTOR
@@ -1574,6 +1712,7 @@ export function calculateAllIndicators(data: ChartData[]): IndicatorResult {
   return {
     ma5, ma20, ma50, ma200, momentum, awesomeOscillator, fibonacci, supportResistance,
     candlePowerMarkers: cpResult.markers, candlePowerAnalysis: cpResult.analysis,
+    candlePower: cpResult,
     vsaMarkers: vsaResult.markers, rmvData: vsaResult.rmvData,
     breakoutDeltaMarkers: bvdResult.markers,
     latestBreakoutDelta: bvdResult.latestBreakout,
