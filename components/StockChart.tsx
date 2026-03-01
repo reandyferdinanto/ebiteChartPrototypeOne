@@ -1044,16 +1044,16 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 ))}
               </div>
 
-              {/* ── Predicta V4 Table ─────────────────────────────────────── */}
+              {/* ── Candle Power Table ─────────────────────────────────────── */}
               {indicators.predictaV4 && (() => {
                 const p4 = indicators.predictaV4!;
                 const isBull = p4.verdict === 'STRONG_BULL' || p4.verdict === 'BULL';
                 const isBear = p4.verdict === 'STRONG_BEAR' || p4.verdict === 'BEAR';
                 const headerColor = p4.longPerfect ? 'text-emerald-300' : p4.shortPerfect ? 'text-red-300' : 'text-gray-300';
-                const verdictText = p4.longPerfect ? '⚡ PERFECT TIME — LONG'
-                  : p4.shortPerfect ? '⚡ PERFECT TIME — SHORT'
-                  : p4.verdict === 'BULL' ? '🟢 BULL BIAS'
-                  : p4.verdict === 'BEAR' ? '🔴 BEAR BIAS'
+                const verdictText = p4.longPerfect ? '⚡ PERFECT TIME — BUY'
+                  : p4.shortPerfect ? '⚡ PERFECT TIME — SELL'
+                  : p4.verdict === 'BULL' ? '🟢 BUY BIAS'
+                  : p4.verdict === 'BEAR' ? '🔴 SELL BIAS'
                   : '⬜ NEUTRAL';
                 const verdictBg = p4.longPerfect ? 'bg-emerald-500/20 border-emerald-500/30'
                   : p4.shortPerfect ? 'bg-red-500/20 border-red-500/30'
@@ -1082,7 +1082,7 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                     {/* Header */}
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-bold text-gray-400 tracking-wide">
-                        PREDICTA V4
+                        CANDLE POWER
                         <span className="ml-1.5 text-gray-600 text-xs font-normal">(ATR: {p4.volRegime})</span>
                       </span>
                       <span className={`text-xs font-bold ${headerColor}`}>{verdictText}</span>
@@ -1090,14 +1090,14 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                     {/* Probability bars */}
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="flex-1 flex items-center gap-1.5">
-                        <span className="text-xs text-gray-400 w-8 flex-shrink-0">Long</span>
+                        <span className="text-xs text-gray-400 w-8 flex-shrink-0">Buy</span>
                         <div className="flex-1 h-2 rounded-full bg-gray-700 overflow-hidden">
                           <div className="h-full bg-emerald-500 transition-all" style={{ width: `${p4.longPct}%` }} />
                         </div>
                         <span className="text-xs font-bold text-emerald-300 w-8 text-right flex-shrink-0">{p4.longPct}%</span>
                       </div>
                       <div className="flex-1 flex items-center gap-1.5">
-                        <span className="text-xs text-gray-400 w-8 flex-shrink-0">Short</span>
+                        <span className="text-xs text-gray-400 w-8 flex-shrink-0">Sell</span>
                         <div className="flex-1 h-2 rounded-full bg-gray-700 overflow-hidden">
                           <div className="h-full bg-red-500 transition-all" style={{ width: `${p4.shortPct}%` }} />
                         </div>
@@ -1117,8 +1117,8 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                     {/* Confluence footer */}
                     <div className="flex items-center justify-between mt-1 pt-1 border-t border-white/5">
                       <span className="text-xs text-gray-500">
-                        Confluence: <span className={`font-bold ${p4.confluenceLong >= 5 ? 'text-emerald-400' : 'text-gray-400'}`}>{p4.confluenceLong}/8 Long</span>
-                        {' '}&nbsp;<span className={`font-bold ${p4.confluenceShort >= 5 ? 'text-red-400' : 'text-gray-400'}`}>{p4.confluenceShort}/8 Short</span>
+                        Confluence: <span className={`font-bold ${p4.confluenceLong >= 5 ? 'text-emerald-400' : 'text-gray-400'}`}>{p4.confluenceLong}/8 Buy</span>
+                        {' '}&nbsp;<span className={`font-bold ${p4.confluenceShort >= 5 ? 'text-red-400' : 'text-gray-400'}`}>{p4.confluenceShort}/8 Sell</span>
                       </span>
                       <span className="text-xs text-gray-500">
                         EMA8&gt;21: <span className={p4.ema8 > p4.ema21 ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>{p4.ema8 > p4.ema21 ? 'Yes ✓' : 'No ✗'}</span>
@@ -1328,7 +1328,7 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 const isBVDFakeBear = bvd?.direction === 'bear' && bvd.isFakeBreakout;
                 const isBVDRealBear = bvd?.direction === 'bear' && bvd.isRealBreakout;
 
-                // Predicta V4 contribution to conviction
+                // Candle Power contribution to conviction
                 const p4Bull = p4?.longPerfect ? 3 : (p4?.verdict === 'BULL' ? 1 : 0);
                 const p4Bear = p4?.shortPerfect ? 3 : (p4?.verdict === 'BEAR' ? 1 : 0);
                 // ── Helper: human-readable plain-language explanation ──────
@@ -1350,29 +1350,29 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                   // Plain language
                   let plain = '';
                   if (p4.longPerfect) {
-                    plain = `Sistem Predicta V4 mendeteksi kondisi IDEAL untuk naik: seluruh 8 indikator (tren, MACD, volume delta, RSI, Stochastic, ADX, volume, dan EMA) selaras bullish dengan ${p4.confluenceLong}/8 poin konfirmasi. Volume delta (beli vs jual) positif — leading indicator paling kuat — memastikan ini bukan sinyal palsu. Probabilitas candle berikutnya naik: ${p4.longPct}%. Kondisi sangat optimal untuk entry, tapi tetap pasang stop loss.`;
+                    plain = `Sistem Candle Power mendeteksi kondisi IDEAL untuk beli: seluruh 8 indikator (tren, MACD, volume delta, RSI, Stochastic, ADX, volume, dan EMA) selaras bullish dengan ${p4.confluenceLong}/8 poin konfirmasi. Volume delta (beli vs jual) positif — leading indicator paling kuat — memastikan ini bukan sinyal palsu. Probabilitas candle berikutnya naik: ${p4.longPct}%. Kondisi sangat optimal untuk entry, tapi tetap pasang stop loss.`;
                   } else if (p4.shortPerfect) {
-                    plain = `Sistem Predicta V4 mendeteksi kondisi IDEAL untuk turun: seluruh indikator selaras bearish dengan ${p4.confluenceShort}/8 konfirmasi. Volume delta negatif (jual dominan) — tanda distribusi nyata. Probabilitas candle berikutnya turun: ${p4.shortPct}%. Hindari posisi beli baru.`;
+                    plain = `Sistem Candle Power mendeteksi kondisi IDEAL untuk jual: seluruh indikator selaras bearish dengan ${p4.confluenceShort}/8 konfirmasi. Volume delta negatif (jual dominan) — tanda distribusi nyata. Probabilitas candle berikutnya turun: ${p4.shortPct}%. Hindari posisi beli baru.`;
                   } else if (p4.verdict === 'BULL') {
-                    plain = `Predicta V4 menunjukkan kecenderungan NAIK (${p4.longPct}% probabilitas) dengan ${p4.confluenceLong}/8 indikator mendukung. ${p4.deltaBullish ? 'Volume beli lebih besar dari jual — sinyal positif.' : 'Volume delta belum sepenuhnya mendukung — perlu hati-hati.'} ${p4.adxStrong ? 'Tren cukup kuat.' : 'Tren masih lemah.'} Simpulan: setup cukup menarik tapi belum sempurna, tunggu 1-2 konfirmasi lagi.`;
+                    plain = `Candle Power menunjukkan kecenderungan NAIK (${p4.longPct}% probabilitas) dengan ${p4.confluenceLong}/8 indikator mendukung. ${p4.deltaBullish ? 'Volume beli lebih besar dari jual — sinyal positif.' : 'Volume delta belum sepenuhnya mendukung — perlu hati-hati.'} ${p4.adxStrong ? 'Tren cukup kuat.' : 'Tren masih lemah.'} Simpulan: setup cukup menarik tapi belum sempurna, tunggu 1-2 konfirmasi lagi.`;
                   } else if (p4.verdict === 'BEAR') {
-                    plain = `Predicta V4 menunjukkan kecenderungan TURUN (${p4.shortPct}% probabilitas) dengan ${p4.confluenceShort}/8 indikator menekan. ${!p4.deltaBullish ? 'Volume jual dominan — tanda pelemahan serius.' : ''} Lebih aman wait & see atau kurangi posisi.`;
+                    plain = `Candle Power menunjukkan kecenderungan TURUN (${p4.shortPct}% probabilitas) dengan ${p4.confluenceShort}/8 indikator menekan. ${!p4.deltaBullish ? 'Volume jual dominan — tanda pelemahan serius.' : ''} Lebih aman wait & see atau kurangi posisi.`;
                   } else {
-                    plain = `Predicta V4 menunjukkan kondisi NETRAL — tidak ada bias yang cukup kuat. ${p4.longPct}% cenderung naik, ${p4.shortPct}% cenderung turun. ${p4.deltaBullish ? 'Volume beli masih sedikit lebih besar, tapi belum meyakinkan.' : 'Volume jual sedikit dominan.'} ${p4.adxStrong ? 'ADX masih kuat, tren sedang berlangsung.' : 'ADX lemah — pasar sedang konsolidasi.'} Sebaiknya tunggu hingga salah satu arah lebih jelas.`;
+                    plain = `Candle Power menunjukkan kondisi NETRAL — tidak ada bias yang cukup kuat. ${p4.longPct}% cenderung naik, ${p4.shortPct}% cenderung turun. ${p4.deltaBullish ? 'Volume beli masih sedikit lebih besar, tapi belum meyakinkan.' : 'Volume jual sedikit dominan.'} ${p4.adxStrong ? 'ADX masih kuat, tren sedang berlangsung.' : 'ADX lemah — pasar sedang konsolidasi.'} Sebaiknya tunggu hingga salah satu arah lebih jelas.`;
                   }
                   return [tech, plain];
                 };
 
                 const p4TechShort = p4
                   ? p4.longPerfect
-                    ? `Predicta V4 ⚡ PERFECT LONG: ${p4.longPct}%L, ${p4.confluenceLong}/8 confluence, Supertrend+MACD+Delta+RSI+Stoch+ADX aligned.`
+                    ? `Candle Power ⚡ PERFECT BUY: ${p4.longPct}% beli, ${p4.confluenceLong}/8 confluence, Supertrend+MACD+Delta+RSI+Stoch+ADX aligned.`
                     : p4.shortPerfect
-                    ? `Predicta V4 ⚡ PERFECT SHORT: ${p4.shortPct}%S, ${p4.confluenceShort}/8 confluence.`
+                    ? `Candle Power ⚡ PERFECT SELL: ${p4.shortPct}% jual, ${p4.confluenceShort}/8 confluence.`
                     : p4.verdict === 'BULL'
-                    ? `Predicta V4: BULL ${p4.longPct}% (${p4.confluenceLong}/8 confluence, Delta ${p4.deltaBullish ? 'buy+' : 'sell-'}, RSI ${p4.rsiValue}, ADX ${p4.adxValue}).`
+                    ? `Candle Power: BUY BIAS ${p4.longPct}% (${p4.confluenceLong}/8 confluence, Delta ${p4.deltaBullish ? 'buy+' : 'sell-'}, RSI ${p4.rsiValue}, ADX ${p4.adxValue}).`
                     : p4.verdict === 'BEAR'
-                    ? `Predicta V4: BEAR ${p4.shortPct}% (${p4.confluenceShort}/8 confluence, Delta ${p4.deltaBullish ? 'buy' : 'sell-'}).`
-                    : `Predicta V4: NEUTRAL (${p4.longPct}%L/${p4.shortPct}%S, ${p4.confluenceLong}/8 confluence, RSI ${p4.rsiValue}, ADX ${p4.adxValue}, Delta ${p4.deltaBullish ? '+buy' : '-sell'}).`
+                    ? `Candle Power: SELL BIAS ${p4.shortPct}% (${p4.confluenceShort}/8 confluence, Delta ${p4.deltaBullish ? 'buy' : 'sell-'}).`
+                    : `Candle Power: NEUTRAL (${p4.longPct}% beli/${p4.shortPct}% jual, ${p4.confluenceLong}/8 confluence, RSI ${p4.rsiValue}, ADX ${p4.adxValue}, Delta ${p4.deltaBullish ? '+buy' : '-sell'}).`
                   : '';
 
                 const p4PlainText = p4 ? p4Plain(p4)[1] : '';
@@ -1409,7 +1409,7 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                 // Fake breakout — strongest warning
                 if (isBVDFakeBull && bearScore >= 2) {
                   icon = '🚨'; col = 'bg-red-900/40 border-red-500/50 text-red-200';
-                  text = `BVD Upthrust — bear vol ${bvd!.bearPct}% dominan, breakout palsu.${isVSABear ? ' VSA: distribusi aktif.' : ''}${p4?.shortPerfect ? ' Predicta V4 PERFECT SHORT konfirmasi distribusi.' : (p4 ? ` ${p4TechShort}` : '')} CPP ${cpp}.`
+                  text = `BVD Upthrust — bear vol ${bvd!.bearPct}% dominan, breakout palsu.${isVSABear ? ' VSA: distribusi aktif.' : ''}${p4?.shortPerfect ? ' Candle Power PERFECT SELL — konfirmasi distribusi.' : (p4 ? ` ${p4TechShort}` : '')} CPP ${cpp}.`
                     + ` Artinya: harga naik menembus resistance tapi yang JUAL lebih banyak dari yang BELI — ini jebakan klasik (Wyckoff Upthrust). Bandar memanfaatkan euforia ritel untuk buang saham di harga tinggi. JANGAN entry, dan jika sudah punya posisi sebaiknya kurangi dulu.${p4PlainText ? ' ' + p4PlainText : ''}`;
                 // Spring
                 } else if (isBVDFakeBear && bullScore >= 2) {
@@ -1426,12 +1426,12 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                   icon = '🔴'; col = 'bg-red-900/30 border-red-600/30 text-red-200';
                   text = `BVD Real Breakdown — bear vol ${bvd!.bearPct}% dominan.${isWyBear ? ' Wyckoff markdown aktif.' : ''}${p4 ? ` ${p4TechShort}` : ''} CPP ${cpp}.`
                     + ` Artinya: jebolnya support ini NYATA — penjual sangat dominan dan institusi tidak menahan harga. Tekanan jual serius, potensi turun lebih lanjut. Hindari beli, pertimbangkan cut loss.${p4PlainText ? ' ' + p4PlainText : ''}`;
-                // Predicta V4 Perfect Long
+                // Candle Power Perfect Buy
                 } else if (p4?.longPerfect && bullScore >= 3) {
                   icon = '⚡'; col = 'bg-emerald-900/40 border-emerald-500/50 text-emerald-200';
                   text = `${p4TechShort}${isHAKA ? ' HAKA Cooldown.' : ''}${isVCPReady ? ' VCP pivot.' : ''}${isVSABull ? ' VSA bullish.' : ''} CPP ${cpp > 0 ? '+' : ''}${cpp}.`
                     + ` Artinya: ini adalah kondisi TERBAIK untuk masuk posisi beli. Semua 8 sistem indikator (tren, momentum, volume delta, RSI, Stochastic, ADX, volume, dan arah EMA) menunjukkan sinyal bullish sekaligus. Yang terpenting: volume delta (selisih beli vs jual di setiap candle) positif dan terkonfirmasi — ini leading indicator paling awal sebelum harga bergerak. Probabilitas naik ${p4.longPct}%.${bvdCtx}`;
-                // Predicta V4 Perfect Short
+                // Candle Power Perfect Sell
                 } else if (p4?.shortPerfect && bearScore >= 3) {
                   icon = '⚡'; col = 'bg-red-900/40 border-red-500/50 text-red-200';
                   text = `${p4TechShort}${isVSABear ? ' VSA distribusi.' : ''} CPP ${cpp}.`
