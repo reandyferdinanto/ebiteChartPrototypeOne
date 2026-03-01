@@ -13,6 +13,7 @@ import {
   calculateAllIndicators,
   ChartData,
 } from './indicators';
+import { sendChartPhoto } from './chart-image';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8605664472:AAGUfoi3Toe89UaJMFAfEL9afE7lp6H6e6s';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -470,6 +471,26 @@ ${finalPlain}
 <i>⚠️ Analisis teknikal, bukan rekomendasi investasi. Selalu gunakan stop loss.</i>`;
 
   await sendTelegramMessage(chatId, msg);
+
+  // Send chart image with MA + S/R + SL/TP (if RF data available)
+  try {
+    const srZones = indicators.supportResistance?.zones?.slice(0, 4) ?? [];
+    await sendChartPhoto(
+      chatId,
+      {
+        title: `${display} — Analisis Lengkap`,
+        data,
+        slLevel: rf?.stopLoss,
+        tpLevel: rf?.targetPrice,
+        entryLevel: rf?.pivotEntry,
+        sr: srZones.map(z => ({ level: z.level, type: z.type as 'support' | 'resistance' })),
+      },
+      `🧠 <b>${display}</b> | ${finalEmoji} ${finalAction}${rf ? ` | Entry: Rp ${Math.round(rf.pivotEntry).toLocaleString('id-ID')} | SL: Rp ${Math.round(rf.stopLoss).toLocaleString('id-ID')} | TP: Rp ${Math.round(rf.targetPrice).toLocaleString('id-ID')}` : ''} | CP: ${powerNum}/100`,
+      BOT_TOKEN,
+    );
+  } catch (e: any) {
+    console.error('Analisa chart image error:', e.message);
+  }
 }
 
 // ── /rf [ticker] — Ryan Filbert Analysis ──────────────────────────────────
