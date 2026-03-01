@@ -1,42 +1,41 @@
 // ============================================================================
 // EBITE CHART — Chart Image Generator for Telegram
-// Uses QuickChart.io with float-bar candlestick approach (reliable)
-// - Main price panel: candlestick bodies + wicks + MA lines + S/R annotations
-// - Separate volume panel: dual y-axis (y1) so volume NEVER overlaps price
-// POST strategy: send JSON body to QuickChart, upload buffer to Telegram
-// URL fallback: direct URL for Telegram to fetch itself
+// Approach: Multi-segment line chart (green if close > prev, red if lower)
+//   + MA20 grey dashed line + MA50 grey line
+//   + S/R as shaded area boxes (annotation plugin)
+//   + SL / TP / Entry horizontal dashed lines
+//   + Volume thin bars on separate y1 axis (bottom 20%)
+// 100% reliable on QuickChart.io — no financial plugin needed.
 // ============================================================================
 
 import { ChartData } from './indicators';
 
 export interface ChartImageOptions {
-  title: string;
-  data: ChartData[];
-  slLevel?: number;
-  tpLevel?: number;
-  entryLevel?: number;
-  sr?: { level: number; type: 'support' | 'resistance' }[];
+  title:        string;
+  data:         ChartData[];
+  slLevel?:     number;
+  tpLevel?:     number;
+  entryLevel?:  number;
+  sr?:          { level: number; type: 'support' | 'resistance' }[];
 }
 
-// ── Format date label ────────────────────────────────────────────────────────
-function formatDate(timestamp: number): string {
-  const d = new Date(timestamp * 1000);
-  const day   = d.getUTCDate().toString().padStart(2, '0');
-  const month = (d.getUTCMonth() + 1).toString().padStart(2, '0');
-  return `${day}/${month}`;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function formatDate(ts: number): string {
+  const d = new Date(ts * 1000);
+  const dd = d.getUTCDate().toString().padStart(2, '0');
+  const mm = (d.getUTCMonth() + 1).toString().padStart(2, '0');
+  return `${dd}/${mm}`;
 }
 
-// ── Calculate MA ─────────────────────────────────────────────────────────────
 function calcMA(closes: number[], period: number): (number | null)[] {
   return closes.map((_, i) => {
     if (i < period - 1) return null;
-    let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) sum += closes[j];
-    return parseFloat((sum / period).toFixed(2));
+    let s = 0;
+    for (let j = i - period + 1; j <= i; j++) s += closes[j];
+    return parseFloat((s / period).toFixed(2));
   });
 }
 
-// ── Format volume label ───────────────────────────────────────────────────────
 function fmtVol(v: number): string {
   if (v >= 1e9) return (v / 1e9).toFixed(1) + 'B';
   if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
@@ -44,224 +43,236 @@ function fmtVol(v: number): string {
   return String(v);
 }
 
-// ── Build chart config: candlestick (float bar) + separate volume axis ────────
-// maxCandles: number of candles to show (60 default for good history view)
-export function buildChartConfig(opts: ChartImageOptions, maxCandles: number = 60): object {
+// ── Build config ──────────────────────────────────────────────────────────────
+export function buildChartConfig(opts: ChartImageOptions, maxCandles = 90): object {
   const { title, data, slLevel, tpLevel, entryLevel, sr = [] } = opts;
 
-  // Use up to maxCandles most recent candles
   const candles = data.slice(-maxCandles);
-  const N = candles.length;
+  const N       = candles.length;
+  if (N === 0) return {};
 
   const labels = candles.map(c => formatDate(c.time));
-  const closes = candles.map(d => d.close);
-  const vols   = candles.map(d => d.volume ?? 0);
+  const closes = candles.map(c => c.close);
+  const vols   = candles.map(c => c.volume ?? 0);
 
-  // ── MA lines ──────────────────────────────────────────────────────────────
-  const ma20Arr = calcMA(closes, Math.min(20, N));
-  const ma50Arr = calcMA(closes, Math.min(50, N));
-
-  // ── Candle float bar data ─────────────────────────────────────────────────
-  const bullColor = 'rgba(0,210,105,1)';
-  const bearColor = 'rgba(235,60,60,1)';
-  const bullWick  = 'rgba(0,210,105,0.9)';
-  const bearWick  = 'rgba(235,60,60,0.9)';
-
-  const bodyData = candles.map(c => [
-    parseFloat(Math.min(c.open, c.close).toFixed(2)),
-    parseFloat(Math.max(c.open, c.close).toFixed(2)),
-  ]);
-  const wickData = candles.map(c => [
-    parseFloat(c.low.toFixed(2)),
-    parseFloat(c.high.toFixed(2)),
-  ]);
-  const candleColors = candles.map(c => c.close >= c.open ? bullColor : bearColor);
-  const wickColors   = candles.map(c => c.close >= c.open ? bullWick : bearWick);
-
-  // ── Price axis range (y) — tight fit with padding ─────────────────────────
+  // ── Price axis range ──────────────────────────────────────────────────────
   const allPx = candles.flatMap(c => [c.high, c.low]);
   if (slLevel)    allPx.push(slLevel);
   if (tpLevel)    allPx.push(tpLevel);
   if (entryLevel) allPx.push(entryLevel);
-  const pxMin = Math.min(...allPx) * 0.993;
-  const pxMax = Math.max(...allPx) * 1.007;
+  sr.forEach(z => allPx.push(z.level));
+  const pxMin = Math.min(...allPx) * 0.990;
+  const pxMax = Math.max(...allPx) * 1.010;
 
-  // ── Volume axis (y1) — completely separate, scale from 0 to 3× maxVol ────
-  // This guarantees volume bars never overlap with candles.
-  // We set y1.max = maxVol * 4 so bars only use bottom ~25% visually.
-  const maxVol = Math.max(...vols, 1);
-  const volAxisMax = maxVol * 4; // bars take bottom 25% of y1 axis
+  // ── MA lines ─────────────────────────────────────────────────────────────
+  const ma20 = calcMA(closes, Math.min(20, N));
+  const ma50 = calcMA(closes, Math.min(50, N));
 
-  // ── Annotation lines (SL, TP, Entry, S/R) ────────────────────────────────
-  const annotations: Record<string, any> = {};
+  // ── Multi-segment price line: each point is a dataset of 2 points ─────────
+  // Green segment  = close[i] >= close[i-1]
+  // Red segment    = close[i] <  close[i-1]
+  // We build ONE dataset per adjacent pair; QuickChart handles up to ~200 datasets fine.
+  // Simpler alternative (works great): single line dataset with pointBackgroundColor trick
+  // BEST approach for QuickChart: single line + per-point segment color via
+  // the "segment" option (Chart.js 3.x feature supported by QuickChart).
+  // We'll use that — much lighter payload than N datasets.
+
+  // Per-point border color array (N points, green/red based on prev close)
+  const pointColors: string[] = closes.map((c, i) => {
+    if (i === 0) return 'rgba(100,180,255,1)'; // first point neutral blue
+    return c >= closes[i - 1] ? '#00d069' : '#eb3c3c';
+  });
+
+  // For line segments we need a workaround: Chart.js 3 supports
+  // `segment.borderColor` callback but QuickChart may serialize it differently.
+  // Safest: build multiple 2-point line datasets (one per gap). Max 90 datasets — fine.
+  const segmentDatasets: object[] = [];
+  for (let i = 1; i < N; i++) {
+    const isUp   = closes[i] >= closes[i - 1];
+    const color  = isUp ? '#00d069' : '#eb3c3c';
+    // Each segment is just 2 data points with nulls elsewhere
+    const segData: (number | null)[] = new Array(N).fill(null);
+    segData[i - 1] = closes[i - 1];
+    segData[i]     = closes[i];
+    segmentDatasets.push({
+      type:            'line',
+      label:           `_seg${i}`,
+      data:            segData,
+      borderColor:     color,
+      backgroundColor: 'transparent',
+      borderWidth:     2.2,
+      pointRadius:     0,
+      tension:         0,
+      spanGaps:        false,
+      yAxisID:         'y',
+      order:           2,
+    });
+  }
+
+  // ── Volume bars on y1 ─────────────────────────────────────────────────────
+  const maxVol    = Math.max(...vols, 1);
+  const volAxisMax = maxVol * 4; // bars occupy bottom ~25% of y1 range
+
+  // ── Annotations: SL, TP, Entry, S/R boxes ────────────────────────────────
+  const annotations: Record<string, object> = {};
+
+  // S/R zones as shaded boxes (±0.8% ATR around level)
+  const atrApprox = (pxMax - pxMin) * 0.008; // simple approximation
+  sr.slice(0, 5).forEach((zone, i) => {
+    const isSup  = zone.type === 'support';
+    const half   = Math.max(atrApprox, zone.level * 0.004);
+    annotations[`srBox${i}`] = {
+      type:            'box',
+      yMin:            zone.level - half,
+      yMax:            zone.level + half,
+      xMin:            0,
+      xMax:            N - 1,
+      backgroundColor: isSup ? 'rgba(0,208,105,0.12)' : 'rgba(235,60,60,0.12)',
+      borderColor:     isSup ? 'rgba(0,208,105,0.50)' : 'rgba(235,60,60,0.50)',
+      borderWidth:     1,
+      label: {
+        enabled:         true,
+        content:         `${isSup ? 'SUP' : 'RES'} ${Math.round(zone.level).toLocaleString('id-ID')}`,
+        position:        { x: 'start', y: 'center' },
+        backgroundColor: 'transparent',
+        color:           isSup ? 'rgba(0,208,105,0.85)' : 'rgba(235,100,100,0.85)',
+        font:            { size: 8, weight: 'bold' },
+        padding:         { x: 3, y: 0 },
+      },
+    };
+  });
 
   if (entryLevel) {
-    annotations.entryLine = {
-      type: 'line',
+    annotations.entry = {
+      type:        'line',
       yMin: entryLevel, yMax: entryLevel,
-      borderColor: 'rgba(0,230,118,0.95)', borderWidth: 2,
-      borderDash: [6, 3],
+      borderColor: 'rgba(0,230,118,0.95)', borderWidth: 2, borderDash: [6, 3],
       label: {
         enabled: true,
         content: `Entry ${Math.round(entryLevel).toLocaleString('id-ID')}`,
         position: 'end',
         backgroundColor: 'rgba(0,200,100,0.9)',
-        color: '#000', font: { size: 9, weight: 'bold' },
-        padding: { x: 4, y: 2 },
+        color: '#000', font: { size: 9, weight: 'bold' }, padding: { x: 4, y: 2 },
       },
     };
   }
-
   if (slLevel) {
-    annotations.slLine = {
-      type: 'line',
+    annotations.sl = {
+      type:        'line',
       yMin: slLevel, yMax: slLevel,
-      borderColor: 'rgba(255,82,82,0.95)', borderWidth: 2,
-      borderDash: [5, 4],
+      borderColor: 'rgba(255,82,82,0.95)', borderWidth: 2, borderDash: [5, 4],
       label: {
         enabled: true,
         content: `SL ${Math.round(slLevel).toLocaleString('id-ID')}`,
         position: 'end',
         backgroundColor: 'rgba(255,60,60,0.95)',
-        color: '#fff', font: { size: 9, weight: 'bold' },
-        padding: { x: 4, y: 2 },
+        color: '#fff', font: { size: 9, weight: 'bold' }, padding: { x: 4, y: 2 },
       },
     };
   }
-
   if (tpLevel) {
-    annotations.tpLine = {
-      type: 'line',
+    annotations.tp = {
+      type:        'line',
       yMin: tpLevel, yMax: tpLevel,
-      borderColor: 'rgba(64,196,255,0.95)', borderWidth: 2,
-      borderDash: [5, 4],
+      borderColor: 'rgba(64,196,255,0.95)', borderWidth: 2, borderDash: [5, 4],
       label: {
         enabled: true,
         content: `TP ${Math.round(tpLevel).toLocaleString('id-ID')}`,
         position: 'end',
         backgroundColor: 'rgba(30,150,230,0.95)',
-        color: '#fff', font: { size: 9, weight: 'bold' },
-        padding: { x: 4, y: 2 },
+        color: '#fff', font: { size: 9, weight: 'bold' }, padding: { x: 4, y: 2 },
       },
     };
   }
 
-  const usedLevels = new Set<number>();
-  [slLevel, tpLevel, entryLevel].forEach(l => { if (l) usedLevels.add(Math.round(l)); });
-
-  sr.slice(0, 3).forEach((zone, i) => {
-    const rounded = Math.round(zone.level);
-    if (usedLevels.has(rounded)) return;
-    usedLevels.add(rounded);
-    const isSup = zone.type === 'support';
-    annotations[`sr${i}`] = {
-      type: 'line',
-      yMin: zone.level, yMax: zone.level,
-      borderColor: isSup ? 'rgba(0,200,100,0.6)' : 'rgba(255,60,60,0.6)',
-      borderWidth: 1, borderDash: [4, 4],
-      label: {
-        enabled: true,
-        content: `${isSup ? 'SUP' : 'RES'} ${rounded.toLocaleString('id-ID')}`,
-        position: 'start',
-        backgroundColor: isSup ? 'rgba(0,200,100,0.5)' : 'rgba(255,60,60,0.5)',
-        color: '#fff', font: { size: 8 },
-        padding: { x: 3, y: 1 },
-      },
-    };
-  });
+  // Latest price dot annotation
+  const lastClose = closes[N - 1];
+  const lastColor = N > 1 && lastClose >= closes[N - 2] ? '#00d069' : '#eb3c3c';
+  annotations.lastPrice = {
+    type:            'point',
+    xValue:          N - 1,
+    yValue:          lastClose,
+    backgroundColor: lastColor,
+    borderColor:     '#fff',
+    borderWidth:     2,
+    radius:          5,
+  };
 
   return {
-    type: 'bar',
+    type: 'bar', // mixed chart base type
     data: {
       labels,
       datasets: [
-        // ── 1. Candle wicks (thin floating bars, yAxisID: y) ──
+        // ── Volume bars (y1 axis, rendered behind) ──
         {
-          label: 'Wick',
-          data: wickData,
-          backgroundColor: wickColors,
-          borderWidth: 0,
-          barPercentage: 0.15,
-          categoryPercentage: 1.0,
-          yAxisID: 'y',
-          order: 4,
-        },
-        // ── 2. Candle bodies (wider floating bars, yAxisID: y) ──
-        {
-          label: title,
-          data: bodyData,
-          backgroundColor: candleColors,
-          borderWidth: 0,
-          barPercentage: 0.7,
-          categoryPercentage: 1.0,
-          yAxisID: 'y',
-          order: 3,
-        },
-        // ── 3. Volume bars (yAxisID: y1 — completely separate axis) ──
-        {
-          type: 'bar',
-          label: 'Vol',
-          data: vols,
+          type:            'bar',
+          label:           'Vol',
+          data:            vols,
           backgroundColor: candles.map(c =>
-            c.close >= c.open ? 'rgba(0,184,148,0.35)' : 'rgba(214,48,49,0.35)'
+            c.close >= c.open ? 'rgba(0,184,148,0.25)' : 'rgba(214,48,49,0.25)'
           ),
-          borderWidth: 0,
-          barPercentage: 0.8,
+          borderWidth:        0,
+          barPercentage:      0.85,
           categoryPercentage: 1.0,
-          yAxisID: 'y1',
-          order: 10,
+          yAxisID:            'y1',
+          order:              20,
         },
-        // ── 4. MA20 (yAxisID: y) ──
+        // ── MA50 (grey, thicker) ──
         {
-          type: 'line',
-          label: 'MA20',
-          data: ma20Arr,
-          borderColor: '#ffd600',
+          type:            'line',
+          label:           'MA50',
+          data:            ma50,
+          borderColor:     'rgba(160,160,160,0.7)',
           backgroundColor: 'transparent',
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.2,
-          spanGaps: true,
-          yAxisID: 'y',
-          order: 1,
+          borderWidth:     2,
+          pointRadius:     0,
+          tension:         0.3,
+          spanGaps:        true,
+          yAxisID:         'y',
+          order:           4,
+          borderDash:      [],
         },
-        // ── 5. MA50 (yAxisID: y) ──
+        // ── MA20 (grey dashed) ──
         {
-          type: 'line',
-          label: 'MA50',
-          data: ma50Arr,
-          borderColor: '#e040fb',
+          type:            'line',
+          label:           'MA20',
+          data:            ma20,
+          borderColor:     'rgba(200,200,200,0.55)',
           backgroundColor: 'transparent',
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.2,
-          spanGaps: true,
-          yAxisID: 'y',
-          order: 1,
+          borderWidth:     1.5,
+          pointRadius:     0,
+          tension:         0.3,
+          spanGaps:        true,
+          yAxisID:         'y',
+          order:           3,
+          borderDash:      [4, 3],
         },
+        // ── Colored price line segments ──
+        ...segmentDatasets,
       ],
     },
     options: {
       responsive: false,
-      animation: false,
+      animation:  false,
       plugins: {
         title: {
           display: true,
-          text: title,
-          color: '#e8e8e8',
-          font: { size: 14, weight: 'bold' },
-          padding: { bottom: 6 },
+          text:    title,
+          color:   '#e8e8e8',
+          font:    { size: 14, weight: 'bold' },
+          padding: { bottom: 4 },
         },
         legend: {
-          display: true,
+          display:  true,
           position: 'top',
           labels: {
-            color: '#bbb',
-            font: { size: 10 },
+            color:    '#aaa',
+            font:     { size: 10 },
             boxWidth: 14,
-            padding: 10,
-            // Only show MA20, MA50, and the ticker name; hide Wick and Vol
-            filter: (item: any) => item.text !== 'Wick' && item.text !== 'Vol',
+            padding:  8,
+            // Show only MA20, MA50 — hide Vol + all segment lines
+            filter: (item: any) =>
+              item.text === 'MA20' || item.text === 'MA50',
           },
         },
         annotation: { annotations },
@@ -269,58 +280,55 @@ export function buildChartConfig(opts: ChartImageOptions, maxCandles: number = 6
       scales: {
         x: {
           ticks: {
-            color: '#666',
+            color:        '#666',
             maxTicksLimit: 12,
-            maxRotation: 0,
-            font: { size: 8 },
-            autoSkip: true,
+            maxRotation:  0,
+            font:         { size: 8 },
+            autoSkip:     true,
           },
           grid: { color: 'rgba(255,255,255,0.04)' },
         },
-        // ── y: price axis (right side) ──
+        // Price axis — right side
         y: {
-          min: pxMin,
-          max: pxMax,
+          min:      pxMin,
+          max:      pxMax,
           position: 'right',
           ticks: {
-            color: '#999',
-            font: { size: 9 },
+            color:         '#999',
+            font:          { size: 9 },
             maxTicksLimit: 7,
-            callback: (val: number) => Math.round(val).toLocaleString('id-ID'),
+            callback:      (val: number) => Math.round(val).toLocaleString('id-ID'),
           },
           grid: { color: 'rgba(255,255,255,0.06)' },
         },
-        // ── y1: volume axis (left side, hidden ticks) ──
-        // min=0, max=volAxisMax ensures bars only appear at the bottom
+        // Volume axis — left side, no grid overlap
         y1: {
-          min: 0,
-          max: volAxisMax,
+          min:      0,
+          max:      volAxisMax,
           position: 'left',
-          display: true,
+          display:  true,
           ticks: {
-            color: '#555',
-            font: { size: 8 },
+            color:         '#444',
+            font:          { size: 7 },
             maxTicksLimit: 3,
-            callback: (val: number) => fmtVol(val),
+            callback:      (val: number) => fmtVol(val),
           },
-          grid: { drawOnChartArea: false }, // don't draw gridlines for volume axis
+          grid: { drawOnChartArea: false },
         },
       },
       layout: {
-        padding: { left: 4, right: 70, top: 4, bottom: 4 },
+        padding: { left: 2, right: 65, top: 4, bottom: 4 },
       },
     },
     backgroundColor: '#131722',
   };
 }
 
-// ── Build chart URL (GET) — tries 60 candles, reduces if URL too long ────────
-export function buildChartImageUrl(opts: ChartImageOptions, maxCandles: number = 60): string {
+// ── Build chart URL (GET fallback) ────────────────────────────────────────────
+export function buildChartImageUrl(opts: ChartImageOptions, maxCandles = 60): string {
   const config  = buildChartConfig(opts, maxCandles);
   const encoded = encodeURIComponent(JSON.stringify(config));
-  const url = `https://quickchart.io/chart?c=${encoded}&w=900&h=520&bkg=%23131722&f=png`;
-
-  // Reduce candles if URL too long (Telegram limit ~8KB URL)
+  const url     = `https://quickchart.io/chart?c=${encoded}&w=900&h=520&bkg=%23131722&f=png`;
   if (url.length > 7500 && maxCandles > 15) {
     return buildChartImageUrl(opts, Math.floor(maxCandles * 0.75));
   }
@@ -328,10 +336,11 @@ export function buildChartImageUrl(opts: ChartImageOptions, maxCandles: number =
 }
 
 // ── Fetch chart image as Buffer via QuickChart POST ───────────────────────────
-export async function fetchChartImageBuffer(opts: ChartImageOptions, timeoutMs: number = 20000): Promise<Buffer | null> {
-  // POST supports larger payloads — use 75 candles for rich history
-  const config = buildChartConfig(opts, 75);
-
+export async function fetchChartImageBuffer(
+  opts: ChartImageOptions,
+  timeoutMs = 22000,
+): Promise<Buffer | null> {
+  const config = buildChartConfig(opts, 90);
   try {
     const body = JSON.stringify({
       width:           900,
@@ -340,130 +349,94 @@ export async function fetchChartImageBuffer(opts: ChartImageOptions, timeoutMs: 
       format:          'png',
       chart:           config,
     });
-
-    console.log('[Chart] POST to QuickChart, body size:', body.length, 'bytes, candles: 75');
+    console.log('[Chart] POST QuickChart, body:', body.length, 'bytes');
 
     const res = await fetch('https://quickchart.io/chart', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal:  AbortSignal.timeout(timeoutMs),
     });
 
     if (!res.ok) {
-      const errText = await res.text();
-      console.error('[Chart] QuickChart error:', res.status, errText.slice(0, 400));
+      console.error('[Chart] QuickChart error:', res.status, (await res.text()).slice(0, 300));
       return null;
     }
-
     const ct = res.headers.get('content-type') ?? '';
     if (!ct.includes('image')) {
-      const errText = await res.text();
-      console.error('[Chart] QuickChart returned non-image:', ct, errText.slice(0, 400));
+      console.error('[Chart] Non-image response:', ct, (await res.text()).slice(0, 300));
       return null;
     }
-
-    const arrayBuf = await res.arrayBuffer();
-    const buf = Buffer.from(arrayBuf);
-    console.log('[Chart] QuickChart OK, image size:', buf.length, 'bytes');
+    const buf = Buffer.from(await res.arrayBuffer());
+    console.log('[Chart] OK, size:', buf.length, 'bytes');
     return buf;
   } catch (e: any) {
-    console.error('[Chart] fetchChartImageBuffer error:', e.message);
+    console.error('[Chart] fetchChartImageBuffer:', e.message);
     return null;
   }
 }
 
 // ── Send chart photo to Telegram ─────────────────────────────────────────────
-// Strategy 1: POST buffer to QuickChart → send as multipart to Telegram
-// Strategy 2: Fallback to URL (Telegram fetches image itself)
 export async function sendChartPhoto(
-  chatId: number | string,
-  opts: ChartImageOptions,
-  caption: string = '',
+  chatId:   number | string,
+  opts:     ChartImageOptions,
+  caption:  string,
   botToken: string,
 ): Promise<void> {
-  const TELEGRAM_API = `https://api.telegram.org/bot${botToken}`;
+  const API          = `https://api.telegram.org/bot${botToken}`;
   const safeCaption  = caption.replace(/<[^>]+>/g, '').slice(0, 1024);
 
-  // ── Strategy 1: POST buffer ───────────────────────────────────────────────
+  // Strategy 1: POST buffer
   try {
-    const imgBuffer = await fetchChartImageBuffer(opts, 20000);
-
+    const imgBuffer = await fetchChartImageBuffer(opts, 22000);
     if (imgBuffer && imgBuffer.length > 5000) {
-      const boundary = `EbiteBoundary${Date.now().toString(16)}`;
-      const CRLF     = '\r\n';
+      const boundary  = `EbiteBdy${Date.now().toString(16)}`;
+      const CRLF      = '\r\n';
+      const mkPart    = (n: string, v: string) =>
+        `--${boundary}${CRLF}Content-Disposition: form-data; name="${n}"${CRLF}${CRLF}${v}${CRLF}`;
 
-      const buildPart = (name: string, value: string): string =>
-        `--${boundary}${CRLF}Content-Disposition: form-data; name="${name}"${CRLF}${CRLF}${value}${CRLF}`;
-
-      const textParts = [
-        buildPart('chat_id',    String(chatId)),
-        buildPart('caption',    safeCaption),
-        buildPart('parse_mode', 'HTML'),
-      ].join('');
-
-      const fileHeader =
-        `--${boundary}${CRLF}` +
-        `Content-Disposition: form-data; name="photo"; filename="chart.png"${CRLF}` +
-        `Content-Type: image/png${CRLF}${CRLF}`;
-
-      const footer = `${CRLF}--${boundary}--${CRLF}`;
-
-      const textBuf   = Buffer.from(textParts, 'utf8');
-      const headerBuf = Buffer.from(fileHeader, 'utf8');
-      const footerBuf = Buffer.from(footer, 'utf8');
+      const textBuf   = Buffer.from(
+        [mkPart('chat_id', String(chatId)), mkPart('caption', safeCaption), mkPart('parse_mode', 'HTML')].join(''),
+        'utf8',
+      );
+      const headerBuf = Buffer.from(
+        `--${boundary}${CRLF}Content-Disposition: form-data; name="photo"; filename="chart.png"${CRLF}Content-Type: image/png${CRLF}${CRLF}`,
+        'utf8',
+      );
+      const footerBuf = Buffer.from(`${CRLF}--${boundary}--${CRLF}`, 'utf8');
       const multipart = Buffer.concat([textBuf, headerBuf, imgBuffer, footerBuf]);
 
-      const teleRes = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+      const r = await fetch(`${API}/sendPhoto`, {
         method:  'POST',
         headers: {
           'Content-Type':   `multipart/form-data; boundary=${boundary}`,
           'Content-Length': String(multipart.length),
         },
-        // @ts-ignore — fetch body accepts Buffer in Node.js runtime
+        // @ts-ignore
         body:   multipart,
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(28000),
       });
-
-      if (teleRes.ok) {
-        console.log('[Chart] sendPhoto multipart OK for chat', chatId);
-        return;
-      }
-
-      const errText = await teleRes.text();
-      console.warn('[Chart] Telegram multipart error:', teleRes.status, errText.slice(0, 300));
+      if (r.ok) { console.log('[Chart] multipart OK'); return; }
+      console.warn('[Chart] multipart fail:', r.status, (await r.text()).slice(0, 200));
     }
   } catch (e: any) {
-    console.warn('[Chart] POST strategy exception:', e.message);
+    console.warn('[Chart] POST strategy error:', e.message);
   }
 
-  // ── Strategy 2: URL-only ─────────────────────────────────────────────────
+  // Strategy 2: URL fallback
   try {
-    const imageUrl = buildChartImageUrl(opts, 60);
-    console.log('[Chart] Trying URL sendPhoto, URL length:', imageUrl.length);
-
-    const res = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+    const url = buildChartImageUrl(opts, 60);
+    const r   = await fetch(`${API}/sendPhoto`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        chat_id:    chatId,
-        photo:      imageUrl,
-        caption:    safeCaption,
-        parse_mode: 'HTML',
-      }),
-      signal: AbortSignal.timeout(15000),
+      body:    JSON.stringify({ chat_id: chatId, photo: url, caption: safeCaption, parse_mode: 'HTML' }),
+      signal:  AbortSignal.timeout(15000),
     });
-
-    if (res.ok) {
-      console.log('[Chart] sendPhoto URL OK for chat', chatId);
-      return;
-    }
-
-    const errText = await res.text();
-    console.warn('[Chart] URL sendPhoto failed:', res.status, errText.slice(0, 200));
+    if (r.ok) { console.log('[Chart] URL sendPhoto OK'); return; }
+    console.warn('[Chart] URL fail:', r.status, (await r.text()).slice(0, 200));
   } catch (e: any) {
-    console.warn('[Chart] URL sendPhoto exception:', e.message);
+    console.warn('[Chart] URL strategy error:', e.message);
   }
 
-  console.error('[Chart] All chart strategies failed for chat', chatId);
+  console.error('[Chart] All strategies failed for chat', chatId);
 }
