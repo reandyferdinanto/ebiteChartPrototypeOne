@@ -919,32 +919,94 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
               )}
 
               {/* ── Row 2: Candle Power + Next Candle ────────────────────── */}
-              {showIndicators.candlePower && indicators.signals.cppScore !== undefined && (
-                <div className="flex flex-wrap gap-2 items-center">
-                  <span className="text-xs text-gray-400">
-                    Power: <span className="text-white font-mono font-bold">
-                      {indicators.candlePowerAnalysis.match(/Power: (\d+)/)?.[1] ?? '—'}
-                    </span>
-                  </span>
-                  <span className={`text-xs font-mono ${indicators.signals.cppScore > 0 ? 'text-green-400' : indicators.signals.cppScore < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                    CPP {indicators.signals.cppScore > 0 ? '+' : ''}{indicators.signals.cppScore}
-                  </span>
-                  {indicators.signals.evrScore !== 0 && (
-                    <span className={`text-xs font-mono ${indicators.signals.evrScore > 0 ? 'text-cyan-400' : 'text-orange-400'}`}>
-                      EVR {indicators.signals.evrScore > 0 ? '+' : ''}{indicators.signals.evrScore}
-                    </span>
-                  )}
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                    indicators.signals.cppBias === 'BULLISH' ? 'bg-green-500/20 text-green-300 border-green-500/40'
-                    : indicators.signals.cppBias === 'BEARISH' ? 'bg-red-500/20 text-red-300 border-red-500/40'
-                    : 'bg-gray-600/30 text-gray-300 border-gray-500/40'
-                  }`}>
-                    {indicators.signals.cppBias === 'BULLISH' ? '📈 Next: BULLISH'
-                     : indicators.signals.cppBias === 'BEARISH' ? '📉 Next: BEARISH'
-                     : '➡️ Next: NEUTRAL'}
-                  </span>
-                </div>
-              )}
+              {showIndicators.candlePower && indicators.signals.cppScore !== undefined && (() => {
+                const cp = indicators.candlePower;
+                const powerNum = parseInt(indicators.candlePowerAnalysis.match(/Power: (\d+)/)?.[1] ?? '50');
+                // Candle shape helper derived from nextCandleQuality
+                const qualityShapeMap: Record<string, { icon: string; shapeDesc: string; shapeColor: string }> = {
+                  'STRONG_SUSTAINED':    { icon: '🟩', shapeDesc: 'Candle Besar & Bertahan',      shapeColor: 'text-green-300' },
+                  'MODERATE_SUSTAINED':  { icon: '🟢', shapeDesc: 'Candle Sedang & Bertahan',     shapeColor: 'text-green-400' },
+                  'WEAK_FLASH':          { icon: '⬆️', shapeDesc: 'Ekor Panjang / Body Kecil',    shapeColor: 'text-yellow-300' },
+                  'REVERSAL_UP':         { icon: '🔨', shapeDesc: 'Reversal (Hammer/Spring)',      shapeColor: 'text-cyan-300' },
+                  'BEARISH_SUSTAINED':   { icon: '🟥', shapeDesc: 'Candle Merah Besar & Berlanjut', shapeColor: 'text-red-300' },
+                  'BEARISH_FLASH':       { icon: '⬇️', shapeDesc: 'Turun Sesaat / Body Kecil',    shapeColor: 'text-orange-300' },
+                  'DISTRIBUTION_TRAP':   { icon: '⚠️', shapeDesc: 'Candle Jebakan (Wick Panjang Atas)', shapeColor: 'text-red-400' },
+                  'NEUTRAL':             { icon: '➡️', shapeDesc: 'Flat / Konsolidasi',            shapeColor: 'text-gray-400' },
+                };
+                const qKey = cp?.nextCandleQuality ?? 'NEUTRAL';
+                const qMap = qualityShapeMap[qKey] ?? qualityShapeMap['NEUTRAL'];
+                return (
+                  <div className="flex flex-col gap-1">
+                    {/* Line 1: Power + CPP + bias badge */}
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <span className="text-xs text-gray-400">
+                        Power: <span className={`font-mono font-bold ${powerNum >= 70 ? 'text-green-300' : powerNum >= 50 ? 'text-yellow-300' : 'text-red-400'}`}>
+                          {powerNum}
+                        </span>
+                      </span>
+                      <span className={`text-xs font-mono ${indicators.signals.cppScore > 0 ? 'text-green-400' : indicators.signals.cppScore < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                        CPP {indicators.signals.cppScore > 0 ? '+' : ''}{indicators.signals.cppScore}
+                      </span>
+                      {indicators.signals.evrScore !== 0 && (
+                        <span className={`text-xs font-mono ${indicators.signals.evrScore > 0 ? 'text-cyan-400' : 'text-orange-400'}`}>
+                          EVR {indicators.signals.evrScore > 0 ? '+' : ''}{indicators.signals.evrScore}
+                        </span>
+                      )}
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                        indicators.signals.cppBias === 'BULLISH' ? 'bg-green-500/20 text-green-300 border-green-500/40'
+                        : indicators.signals.cppBias === 'BEARISH' ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                        : 'bg-gray-600/30 text-gray-300 border-gray-500/40'
+                      }`}>
+                        {indicators.signals.cppBias === 'BULLISH' ? '📈 Next: BULLISH'
+                         : indicators.signals.cppBias === 'BEARISH' ? '📉 Next: BEARISH'
+                         : '➡️ Next: NEUTRAL'}
+                      </span>
+                    </div>
+                    {/* Line 2: Candle shape prediction */}
+                    {cp && (
+                      <div className="flex flex-wrap gap-2 items-start">
+                        <span className={`text-xs font-semibold ${qMap.shapeColor}`}>
+                          {qMap.icon} {cp.nextCandleLabel}
+                        </span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded border text-gray-300 border-gray-600/50 bg-gray-800/50 ${
+                          cp.trendStrength === 'STRONG' ? 'border-green-600/40 text-green-200' :
+                          cp.trendStrength === 'MODERATE' ? 'border-yellow-600/40 text-yellow-200' :
+                          'border-gray-600/40 text-gray-400'
+                        }`}>
+                          {cp.trendStrength === 'STRONG' ? '🔥 Kuat' : cp.trendStrength === 'MODERATE' ? '⚡ Sedang' : '😴 Lemah'}
+                        </span>
+                        {/* Shape indicator: Big body vs Wick */}
+                        {(qKey === 'STRONG_SUSTAINED' || qKey === 'MODERATE_SUSTAINED' || qKey === 'BEARISH_SUSTAINED') && (
+                          <span className="text-xs px-1.5 py-0.5 rounded border border-blue-600/40 bg-blue-900/20 text-blue-300">
+                            📊 Body Besar
+                          </span>
+                        )}
+                        {(qKey === 'WEAK_FLASH' || qKey === 'BEARISH_FLASH') && (
+                          <span className="text-xs px-1.5 py-0.5 rounded border border-yellow-600/40 bg-yellow-900/20 text-yellow-300">
+                            🕯️ Body Kecil / Wick
+                          </span>
+                        )}
+                        {qKey === 'REVERSAL_UP' && (
+                          <span className="text-xs px-1.5 py-0.5 rounded border border-cyan-600/40 bg-cyan-900/20 text-cyan-300">
+                            🔨 Hammer / Ekor Bawah
+                          </span>
+                        )}
+                        {qKey === 'DISTRIBUTION_TRAP' && (
+                          <span className="text-xs px-1.5 py-0.5 rounded border border-red-600/40 bg-red-900/20 text-red-300">
+                            ⭐ Shooting Star / Wick Atas
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {/* Line 3: Detail explanation */}
+                    {cp && cp.nextCandleDetail && cp.nextCandleDetail !== '—' && (
+                      <p className="text-xs text-gray-400 leading-relaxed border-l-2 border-gray-600 pl-2">
+                        {cp.nextCandleDetail}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* ── Row 3: Legend ─────────────────────────────────────────── */}
               <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5 border-t border-white/5">
