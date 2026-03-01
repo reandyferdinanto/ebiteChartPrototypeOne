@@ -1101,7 +1101,7 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
 
                 // Volume dry-up progress data
                 const volPct  = rf.vol5avgPct ?? 100;
-                const volTarget = rf.volDryUpTarget ?? 70;
+                const volTarget = rf.volDryUpTarget ?? 65;
                 const volDried  = rf.baseVolumeDryUp;
                 // Clamp bar width: 100% = current; fill left-to-right, marker at 70%
                 const volBarPct  = Math.min(volPct, 200); // cap display at 200%
@@ -1189,7 +1189,7 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
                         {!volDried && (
                           <p className="text-xs text-gray-500 mt-0.5">
                             Volume 5 hari rata-rata = <span className="text-yellow-300 font-semibold">{volPct}%</span> dari normalnya.
-                            {' '}Harus turun ke <span className="text-emerald-300 font-semibold">&lt;70%</span> agar dianggap "kering"
+                            {' '}Harus turun ke <span className="text-emerald-300 font-semibold">&lt;65%</span> agar dianggap "kering"
                             {' '}— artinya penjual sudah habis dan saham siap breakout.
                           </p>
                         )}

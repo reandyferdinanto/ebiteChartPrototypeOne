@@ -43,6 +43,9 @@ interface SwingResult {
   baseLabel: string;
   relativeStrength: number;
   vol5avgPct: number;
+  baseAvgPct: number;        // cooldown period avg as % of 50-day avg (Ryan Filbert primary)
+  volDryPrimary: boolean;    // base avg < 50% of 50-day avg (ideal)
+  volDrySecondary: boolean;  // base avg < 65% of 50-day avg (acceptable)
 }
 interface ScalpResult {
   symbol: string; price: number; changePercent: number;
@@ -240,7 +243,6 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
 
   // MA slopes
   const ma50Prev   = calcSMA(C, 50,  Math.max(49, i - 5));
-  const ma150Prev  = n >= 155 ? calcSMA(C, 150, Math.max(149, i - 5)) : 0;
   const ma200Prev  = n >= 210 ? calcSMA(C, 200, Math.max(199, i - 10)) : 0;
   const ma50Rising  = ma50 > ma50Prev * 1.0003;
   const ma200Rising = ma200 > 0 && ma200 >= ma200Prev;
@@ -259,9 +261,15 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
   const rfPhaseLabel = rfPhase2Strong ? 'UPTREND KUAT' : 'UPTREND';
 
   // ── Volume & Spread Baselines ─────────────────────────────────────────────
-  let volSum = 0, spreadSum = 0;
-  for (let k = i - 19; k <= i; k++) { volSum += V[k]; spreadSum += H[k] - L[k]; }
-  const volAvg20    = volSum / 20;
+  // Ryan Filbert uses 50-day (10 minggu) as "normal" baseline — NOT 20-day
+  let volSum50 = 0, spreadSum = 0;
+  for (let k = Math.max(0, i - 49); k <= i; k++) volSum50 += V[k];
+  const volAvg50 = volSum50 / Math.min(50, i + 1);
+
+  // Compute spread baseline for VSA (20-day spread avg)
+  let volSum20 = 0;
+  for (let k = i - 19; k <= i; k++) { volSum20 += V[k]; spreadSum += H[k] - L[k]; }
+  void volSum20; // 20-day vol not used directly; 50-day is Ryan Filbert standard
   const spreadAvg20 = spreadSum / 20;
 
   let buyVol = 0, sellVol = 0;
@@ -269,7 +277,7 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
     if (C[k] > O[k]) buyVol += V[k]; else if (C[k] < O[k]) sellVol += V[k];
   }
   const accRatio = buyVol / (sellVol || 1);
-  const volRatio  = V[i] / (volAvg20 || 1);
+  const volRatio  = V[i] / (volAvg50 || 1);  // Use 50-day avg (Ryan Filbert standard)
   const mom10     = n > 11 ? ((C[i] - C[i-10]) / C[i-10]) * 100 : 0;
 
   if (mom10 <= -10) return null;
@@ -289,7 +297,7 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
     const spread_j = H[j] - L[j];
     const body_j   = C[j] - O[j];
     const closePos = spread_j > 0 ? (C[j] - L[j]) / spread_j : 0;
-    const vr_j     = V[j] / (volAvg20 || 1);
+    const vr_j     = V[j] / (volAvg50 || 1);  // Use 50-day avg for BO check
     const isBO = body_j > 0 && vr_j >= 1.5 && closePos >= 0.60 && body_j >= spread_j * 0.35 && spread_j >= spreadAvg20 * 0.7;
     if (!isBO) continue;
     const g = ((C[i] - C[j]) / C[j]) * 100;
@@ -298,7 +306,7 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
     boIdx = j; boGain = g; break;
   }
   if (boIdx < 0) return null;
-  const breakoutVolumeConfirmed = V[boIdx] / (volAvg20 || 1) >= 1.5;
+  const breakoutVolumeConfirmed = V[boIdx] / (volAvg50 || 1) >= 1.5;  // vs 50-day avg
 
   // ── STEP 2: Base/Cooldown Phase ───────────────────────────────────────────
   const cooldownBars = i - boIdx;
@@ -316,12 +324,24 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
     coolSpreads += H[k] - L[k];
   }
   const sellVolRatio   = coolTotalVol > 0 ? coolSellVol / coolTotalVol : 0;
-  const coolAvgVol     = coolVolArr.length > 0 ? coolVolArr.reduce((a,b)=>a+b,0)/coolVolArr.length : volAvg20;
+  const coolAvgVol     = coolVolArr.length > 0 ? coolVolArr.reduce((a,b)=>a+b,0)/coolVolArr.length : volAvg50;
   const coolAvgSpread  = cooldownBars > 0 ? coolSpreads / cooldownBars : H[i] - L[i];
   const spreadContracted = coolAvgSpread < (H[boIdx] - L[boIdx]) * 0.75;
 
-  // KEY: Volume Dry-Up (supply habis) — Ryan Filbert utamakan ini
-  const baseVolumeDryUp = coolAvgVol <= volAvg20 * 0.65;
+  // KEY: Volume Dry-Up — Ryan Filbert method using 50-day avg as baseline
+  // PRIMARY: base avg < 50% of 50-day avg ("sangat sepi" — ideal)
+  // SECONDARY: base avg < 65% of 50-day avg (acceptable)
+  // Also check last-5-bar contraction as tertiary signal
+  const volDryPrimary   = coolAvgVol <= volAvg50 * 0.50;  // Ryan's ideal
+  const volDrySecondary = coolAvgVol <= volAvg50 * 0.65;  // Acceptable
+  const last5avg = coolVolArr.slice(-5).reduce((a,b)=>a+b,0) / Math.min(5, coolVolArr.length || 1);
+  const volDryLast5 = last5avg <= volAvg50 * 0.65;
+  const baseVolumeDryUp = volDryPrimary || volDrySecondary || (volDryLast5 && sellVolRatio < 0.3);
+
+  // For display: base avg as % of 50-day avg (primary Ryan Filbert metric)
+  const baseAvgPct = volAvg50 > 0 ? Math.round(coolAvgVol / volAvg50 * 100) : 100;
+  const vol5avgPct = volAvg50 > 0 ? Math.round(last5avg   / volAvg50 * 100) : 100;
+
   if (sellVolRatio > 0.55) return null;
 
   // ── STEP 3: VSA Signal ────────────────────────────────────────────────────
@@ -330,9 +350,11 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
   const isGreen = C[i] >= O[i];
   const lWick = Math.min(O[i], C[i]) - L[i];
   const uWick = H[i] - Math.max(O[i], C[i]);
-  const isDryUp    = (!isGreen || body < sp * 0.3) && volRatio <= 0.70 && accRatio > 0.8;
-  const isNoSupply = !isGreen && sp < atr14 && volRatio < 0.80 && accRatio > 0.9;
-  const isIceberg  = volRatio > 1.1 && (sp / (spreadAvg20 || 1)) < 0.80 && accRatio > 1.1;
+  // Use volAvg50 as baseline for VSA (consistent with Ryan Filbert)
+  const volRatioVSA = V[i] / (volAvg50 || 1);
+  const isDryUp    = (!isGreen || body < sp * 0.3) && volRatioVSA <= 0.65 && accRatio > 0.8;
+  const isNoSupply = !isGreen && sp < atr14 && volRatioVSA < 0.65 && accRatio > 0.9;
+  const isIceberg  = volRatioVSA > 1.1 && (sp / (spreadAvg20 || 1)) < 0.80 && accRatio > 1.1;
   const isHammer   = lWick > body * 1.2 && uWick < body * 0.7 && (lWick / (sp || 1)) > 0.4;
   const isNarrowBody = body < sp * 0.25 && Math.abs(C[i] - ma20) / C[i] < 0.02;
   let cooldownVSA = 'NEUTRAL';
@@ -375,16 +397,20 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
   const relativeStrength = Math.max(0, Math.min(100, Math.round(50 + mom20 * 2)));
 
   // ── STEP 5: Grade & Entry ─────────────────────────────────────────────────
-  // PERFECT = all key criteria met (vol dry + VSA + full phase 2) → matches 'PERFECT' in analysis
-  // GOOD    = most criteria met (vol dry OR strong VSA, all mandatory MA)  → matches 'GOOD' in analysis
+  // PERFECT = all mandatory criteria (vol dry + full phase 2 + BO vol + VSA)
+  //           → matches 'PERFECT' + 'BUY' in analysis page (fully consistent)
+  // GOOD    = most criteria (vol dry OR VSA, all mandatory MA)
+  //           → matches 'GOOD' in analysis page
   let grade: 'PERFECT' | 'GOOD';
   let entryType: 'SNIPER' | 'BREAKOUT' | 'WATCH';
-  if      (rfScore >= 6 && p1 && p6 && hasVSASignal)  { grade = 'PERFECT'; entryType = 'SNIPER'; }
-  else if (rfScore >= 6 && p6 && p1)                   { grade = 'PERFECT'; entryType = 'SNIPER'; }
-  else if (rfScore >= 5 && p6 && hasVSASignal)         { grade = 'GOOD';    entryType = 'SNIPER'; }
-  else if (rfScore >= 6 && hasVSASignal)               { grade = 'GOOD';    entryType = 'SNIPER'; }
-  else if (rfScore >= 5 && p6)                         { grade = 'GOOD';    entryType = 'BREAKOUT'; }
-  else                                                  { grade = 'GOOD';    entryType = 'BREAKOUT'; } // rfScore≥5 + hasVSASignal (already gated)
+  // PERFECT: needs rfScore≥6, full phase 2 (p1), vol dry (p6), BO vol (p7), VSA signal
+  if      (rfScore >= 7 && p1 && p6 && p7 && hasVSASignal) { grade = 'PERFECT'; entryType = 'SNIPER'; }
+  else if (rfScore >= 6 && p1 && p6 && p7)                  { grade = 'PERFECT'; entryType = 'SNIPER'; }
+  else if (rfScore >= 6 && p1 && p6 && hasVSASignal)        { grade = 'GOOD';    entryType = 'SNIPER'; }
+  else if (rfScore >= 5 && p6 && hasVSASignal)              { grade = 'GOOD';    entryType = 'SNIPER'; }
+  else if (rfScore >= 6 && hasVSASignal)                    { grade = 'GOOD';    entryType = 'SNIPER'; }
+  else if (rfScore >= 5 && p6)                              { grade = 'GOOD';    entryType = 'BREAKOUT'; }
+  else                                                       { grade = 'GOOD';    entryType = 'BREAKOUT'; }
 
   // ── STEP 6: SL ────────────────────────────────────────────────────────────
   const supports: number[] = [];
@@ -422,8 +448,9 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
   if (rfPhase2Strong) pts.push('F2★'); else pts.push('F2');
   if (cppBias === 'BULLISH') pts.push(`CPP +${cppScore}`);
 
-  // Calculate vol5avgPct (5-bar cooldown avg vs 20-bar avg)
-  const vol5avgPct = volAvg20 > 0 ? Math.round((coolAvgVol / volAvg20) * 100) : 100;
+  // Ryan Filbert volume metrics: base period avg vs 50-day avg
+  // vol5avgPct = last-5-bar avg vs 50-day avg (secondary check) — computed above at line ~344
+  // baseAvgPct = entire cooldown period avg vs 50-day avg (primary Ryan Filbert metric) — computed above
 
   return {
     price: C[i], gainFromBase: boGain, cooldownBars, sellVolRatio, accRatio,
@@ -433,7 +460,11 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
     rfPhase: 2, rfPhaseLabel, rfScore,
     aboveMA150, aboveMA200, ma150AboveMA200, ma50Rising, ma200Rising,
     baseVolumeDryUp, breakoutVolumeConfirmed,
-    baseLabel, relativeStrength, vol5avgPct,
+    baseLabel, relativeStrength,
+    vol5avgPct,        // last 5 bars % of 50-day avg
+    baseAvgPct,        // cooldown period % of 50-day avg (PRIMARY Ryan Filbert)
+    volDryPrimary,     // base < 50% of 50-day (ideal)
+    volDrySecondary,   // base < 65% of 50-day (acceptable)
   };
 }
 
@@ -464,8 +495,8 @@ function screenScalp(data: any[], tf: '5m'|'15m'): Omit<ScalpResult,'symbol'|'ch
   const cst=sp>=0?sp:ss2+1; let csv=0,ctv=0;
   for (let k=cst;k<=i;k++){ctv+=V[k];if(C[k]<O[k])csv+=V[k];}
   const svr=ctv>0?csv/ctv:0; if (svr>=0.55) return null;
-  const hp1=cppBias==='BULLISH',hp2=acc>=1.2,hp3=rmvVal<=50,hp4=abma20,hp5=vr>0.8;
-  const pcc=[hp1,hp2,hp3,hp4,hp5].filter(Boolean).length; if (pcc<2) return null;
+  const hp1=cppBias==='BULLISH',hp2=acc>=1.2,hp3=rmvVal<=50,hp5=vr>0.8;
+  const pcc=[hp1,hp2,hp3,abma20,hp5].filter(Boolean).length; if (pcc<2) return null;
   const cur=H[i]-L[i],cbb=Math.abs(C[i]-O[i]),lw=Math.min(O[i],C[i])-L[i];
   const du2=cbb<cur*0.3&&vr<=0.70&&acc>0.8;
   const ns2=C[i]<O[i]&&cur<atr14&&vr<0.80&&acc>0.9;
@@ -479,7 +510,7 @@ function screenScalp(data: any[], tf: '5m'|'15m'): Omit<ScalpResult,'symbol'|'ch
   const pts2=[`Spike +${rg.toFixed(1)}% (${rb}b)`,`Calm ${cb}b`,`Sell ${Math.round(svr*100)}%`,`Pb ${pb2.toFixed(1)}%`];
   if(hbv2)pts2.push(vsa2);if(cppBias==='BULLISH')pts2.push(`CPP +${cppScore}`);pts2.push(`Acc ${acc.toFixed(1)}x`);
   const tm2=grade==='PERFECT'?2.5:grade==='GOOD'?2.0:1.5;
-  return {price:C[i],timeframe:tf,runGainPct:rg,runBars:rb,calmBars:cb,pullbackPct:pb2,sellVolRatio:svr,accRatio:acc,volRatio:vr,cppScore,cppBias,powerScore,rmv:rmvVal,aboveMA20:abma20,aboveMA50:C[i]>calcSMA(C,50,i),vsaSignal:vsa2,grade,entryType:et,reason:pts2.join(' · '),stopLoss:parseFloat((C[i]-atr14*1.0).toFixed(0)),target:parseFloat((C[i]+atr14*tm2).toFixed(0))};
+  return {price:C[i],timeframe:tf,runGainPct:rg,runBars:rb,calmBars:cb,pullbackPct:pb2,sellVolRatio:svr,accRatio:acc,volRatio:vr,cppScore,cppBias,powerScore,rmv:rmvVal,aboveMA20:abma20,aboveMA50:C[i]>calcSMA(C,50,i),vsaSignal:vsa2,grade,entryType:et,reason:pts2.join(' · '),stopLoss:parseFloat((C[i]-atr14).toFixed(0)),target:parseFloat((C[i]+atr14*tm2).toFixed(0))};
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -733,23 +764,6 @@ function buildSpringChartURL(r: SpringResult): string {
   return `/?${p.toString()}`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GRADE CONFIG & VSA COLORS — used in render
-// ─────────────────────────────────────────────────────────────────────────────
-const gc: Record<string, { border: string; bg: string; badge: string }> = {
-  PERFECT: { border: 'border-emerald-500/50', bg: 'bg-emerald-500/10', badge: 'bg-emerald-600' },
-  GOOD:    { border: 'border-blue-500/40',    bg: 'bg-blue-500/8',     badge: 'bg-blue-600' },
-  FAIR:    { border: 'border-yellow-500/30',  bg: 'bg-yellow-500/5',   badge: 'bg-yellow-600' },
-};
-const vc: Record<string, string> = {
-  'DRY UP':       'text-blue-400',
-  'NO SUPPLY':    'text-cyan-400',
-  'ICEBERG':      'text-cyan-300',
-  'HAMMER':       'text-emerald-400',
-  'RESTING MA20': 'text-yellow-400',
-  'NEUTRAL':      'text-gray-400',
-  'SPRING':       'text-green-400',
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INNER CONTENT
@@ -808,7 +822,8 @@ function ScreenerContent() {
     setVcpLoading(true); setVcpError('');
     try {
       const r = await fetch(`/api/stock/vcp-screener?filter=${vcpFilter}&limit=${vcpLimit}`);
-      if (!r.ok) throw new Error('VCP screener failed'); setVcpResults(await r.json());
+      if (!r.ok) { setVcpError('VCP screener failed'); return; }
+      setVcpResults(await r.json());
     } catch(e:any){setVcpError(e.message);} finally{setVcpLoading(false);}
   };
 
@@ -1071,34 +1086,49 @@ function ScreenerContent() {
                     </div>
                   </div>
 
-                  {/* Volume Dry-Up Meter */}
+                  {/* Volume Dry-Up Meter — Ryan Filbert method */}
                   <div className="mt-2 pt-2 border-t border-white/5">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-gray-400">📊 Volume Dry-Up</span>
-                      <span className={`text-xs font-bold ${r.baseVolumeDryUp ? 'text-emerald-400' : r.vol5avgPct <= 90 ? 'text-yellow-400' : 'text-red-400'}`}>
-                        {r.baseVolumeDryUp ? '✅ Sudah Kering' : `${r.vol5avgPct}% → target <65%`}
+                      <span className="text-xs text-gray-400">📊 Volume Dry-Up <span className="text-gray-600">(base/50d avg)</span></span>
+                      <span className={`text-xs font-bold ${r.volDryPrimary ? 'text-emerald-400' : r.baseVolumeDryUp ? 'text-yellow-400' : r.baseAvgPct <= 90 ? 'text-orange-400' : 'text-red-400'}`}>
+                        {r.volDryPrimary
+                          ? `✅ Ideal ${r.baseAvgPct}% (<50%)`
+                          : r.baseVolumeDryUp
+                          ? `🟡 OK ${r.baseAvgPct}% (<65%)`
+                          : `${r.baseAvgPct}% → target <50%`}
                       </span>
                     </div>
                     <div className="relative h-2 bg-gray-700 rounded-full overflow-hidden">
-                      {/* Fill */}
+                      {/* Fill — normalized to 150% max */}
                       <div
                         className="h-full rounded-full transition-all"
                         style={{
-                          width: `${Math.min((r.vol5avgPct / 150) * 100, 100)}%`,
-                          backgroundColor: r.baseVolumeDryUp ? '#10b981' : r.vol5avgPct <= 90 ? '#f59e0b' : '#ef4444'
+                          width: `${Math.min(((r.baseAvgPct ?? r.vol5avgPct) / 150) * 100, 100)}%`,
+                          backgroundColor: r.volDryPrimary ? '#10b981' : r.baseVolumeDryUp ? '#f59e0b' : '#ef4444'
                         }}
                       />
-                      {/* Target marker at 65/150 = 43.3% */}
-                      <div className="absolute top-0 bottom-0 w-0.5 bg-white/50" style={{ left: '43.3%' }} />
+                      {/* Ideal target marker at 50/150 = 33.3% */}
+                      <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-400/70" style={{ left: '33.3%' }} title="Ideal: 50%" />
+                      {/* Acceptable target marker at 65/150 = 43.3% */}
+                      <div className="absolute top-0 bottom-0 w-0.5 bg-yellow-400/50" style={{ left: '43.3%' }} title="Acceptable: 65%" />
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-600 mt-0.5">
+                      <span>0%</span>
+                      <span className="text-emerald-500/70">50% (ideal)</span>
+                      <span className="text-yellow-500/60">65% (ok)</span>
+                      <span>150%</span>
                     </div>
                     {!r.baseVolumeDryUp && (
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Volume cooldown rata-rata <span className="text-yellow-300">{r.vol5avgPct}%</span> dari normalnya.
-                        {' '}Saham "kering" saat turun ke <span className="text-emerald-300">&lt;65%</span> — artinya penjual sudah sepi dan saham siap breakout lagi.
+                        Rata-rata volume selama cooldown: <span className="text-yellow-300">{r.baseAvgPct ?? r.vol5avgPct}%</span> dari rata-rata 50 hari.
+                        {' '}Ryan Filbert: volume di base harus <span className="text-emerald-300">sangat sepi (&lt;50%)</span> — artinya penjual sudah habis. Saat ini 5 hari terakhir: {r.vol5avgPct}%.
                       </p>
                     )}
-                    {r.baseVolumeDryUp && (
-                      <p className="text-xs text-emerald-400/70 mt-0.5">Penjual sudah habis — siap breakout!</p>
+                    {r.volDryPrimary && (
+                      <p className="text-xs text-emerald-400/70 mt-0.5">✅ Ideal — penjual sudah sangat sepi, siap breakout! (Base avg {r.baseAvgPct}% &lt; 50%)</p>
+                    )}
+                    {!r.volDryPrimary && r.baseVolumeDryUp && (
+                      <p className="text-xs text-yellow-400/70 mt-0.5">🟡 Cukup kering ({r.baseAvgPct}%) — mendekati ideal, pantau terus.</p>
                     )}
                   </div>
                 </div>
@@ -1226,7 +1256,7 @@ function ScreenerContent() {
   const spFilt = spRes.filter(r => {
     if (spGrade !== 'ALL' && r.grade !== spGrade) return false;
     if (spType === 'STRONG' && r.springType !== 'STRONG') return false;
-    if (spType === 'MODERATE' && r.springType === 'WEAK') return false;
+    if (spType === 'MODERATE') return r.springType !== 'WEAK';
     return true;
   });
   const renderSpring = () => (

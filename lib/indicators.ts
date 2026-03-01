@@ -73,11 +73,16 @@ export interface RyanFilbertResult {
   signalReason: string;
   score: number;
   setupQuality: 'PERFECT' | 'GOOD' | 'FAIR' | 'POOR';
-  // Volume dry-up progress data
-  vol5avgPct: number;       // current 5-bar avg volume as % of 50-bar avg (e.g. 113 = 113%)
-  volDryUpTarget: number;   // target threshold = 70 (i.e. must reach <70%)
-  vol50avg: number;         // 50-bar average volume for reference
-  vol5avg: number;          // current 5-bar average volume
+  // Volume dry-up progress data (Ryan Filbert method)
+  vol5avgPct: number;       // last 5-bar avg volume as % of 50-bar avg (e.g. 113 = 113%)
+  baseAvgPct: number;       // BASE PERIOD avg as % of 50-bar avg (Ryan's primary measure)
+  displayVolPct: number;    // primary display metric = baseAvgPct
+  volDryUpTarget: number;   // primary target = 50 (Ryan: base avg < 50% of 50-day avg)
+  vol50avg: number;         // 50-bar average volume (Ryan's "normal" baseline)
+  vol5avg: number;          // last 5-bar average volume
+  baseAvgVol: number;       // average volume during base period
+  baseBars: number;         // number of bars in current base
+  volDryPrimary: boolean;   // base avg < 50% of 50-day avg (Ryan's strict criterion)
 }
 
 export interface IndicatorResult {
@@ -1286,7 +1291,6 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
 
   // Calculate 52-week high for Phase 3 detection
   const hi52 = Math.max(...highs.slice(Math.max(0, i - 252), i + 1));
-  const lo52 = Math.min(...lows.slice(Math.max(0, i - 252), i + 1));
   const pctFrom52Hi = (hi52 - closes[i]) / hi52 * 100;
 
   if (aboveAll && ma150AboveMA200 && ma50AboveMA150 && ma50Rising) {
@@ -1364,27 +1368,63 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
   const target2x   = parseFloat((pivotEntry + riskPct * pivotEntry * 2).toFixed(2));
   const rr         = riskPct > 0 ? parseFloat(((target2x - pivotEntry) / (pivotEntry - stopLoss)).toFixed(1)) : 2.0;
 
-  // ── Volume Analysis ────────────────────────────────────────────────────────
+  // ── Volume Analysis (Ryan Filbert Method) ─────────────────────────────────
+  // Ryan Filbert uses 50-day (10 minggu) average as the "normal" baseline.
+  // Volume kering = volume selama BASE harus jauh di bawah normal.
+  // Reference: "volume di base harus sepi sekali, idealnya di bawah 50% rata-rata"
+
+  // 1. Baseline: 50-day average (Ryan's standard reference)
   let vol50sum = 0;
   for (let k = Math.max(0, i - 49); k <= i; k++) vol50sum += vols[k];
   const vol50avg = vol50sum / Math.min(50, i + 1);
 
-  let vol5sum = 0;
-  for (let k = i - 4; k <= i; k++) vol5sum += vols[k];
-  const vol5avg = vol5sum / 5;
+  // 2. Also compute 10-day avg (2 minggu) for short-term context
+  const vol10avg = vol50avg; // use 50-day avg as uniform baseline (Ryan Filbert)
 
-  const breakoutVolumeConfirmed = vols[i] >= vol50avg * 1.5;
-  // baseVolumeDryUp: volume kering — cek last 5 bars vs 50-bar avg (standard method)
-  const volDryByAvg = vol5avg < vol50avg * 0.70;
-  // Also detect cooldown vol pattern: last 3 bars each below 85% of 20-bar moving avg
+  // 3. Identify the BASE period: look back up to 20 bars for the most recent
+  //    swing high (start of consolidation after a run-up)
+  let volBaseStartIdx = Math.max(0, i - 20);
+  let peakIdx = volBaseStartIdx;
+  for (let k = volBaseStartIdx; k <= i; k++) {
+    if (highs[k] > highs[peakIdx]) peakIdx = k;
+  }
+  // Base starts just after the peak (or at i-10 minimum for enough data)
+  const volBaseStart = Math.min(peakIdx + 1, Math.max(0, i - 4));
+  const baseBars     = i - volBaseStart + 1;
+
+  // 4. Average volume during the BASE period
+  let baseVolSum = 0;
+  for (let k = volBaseStart; k <= i; k++) baseVolSum += vols[k];
+  const baseAvgVol = baseBars > 0 ? baseVolSum / baseBars : vol10avg;
+
+  // 5. Last 5 bars avg (for short-term dry-up check)
+  let vol5sum = 0;
+  for (let k = Math.max(0, i - 4); k <= i; k++) vol5sum += vols[k];
+  const vol5avg = vol5sum / Math.min(5, i + 1);
+
+  // 6. Ryan Filbert dry-up criteria:
+  //    PRIMARY: base period avg < 50% of 50-day avg ("sangat sepi")
+  //    SECONDARY: last 5 bars avg < 65% of 50-day avg (approaching dry-up)
+  //    TERTIARY: contracting volume — each of last 3 bars below 80% of 20-day avg
   let vol20sum = 0;
   for (let k = Math.max(0, i - 19); k <= i; k++) vol20sum += vols[k];
   const vol20avg = vol20sum / Math.min(20, i + 1);
-  const cooldownPattern = i >= 2
-    && vols[i]     < vol20avg * 0.85
-    && vols[i - 1] < vol20avg * 0.85
-    && vols[i - 2] < vol20avg * 0.90;
-  const baseVolumeDryUp = volDryByAvg || cooldownPattern;
+
+  const volDryPrimary    = baseAvgVol < vol50avg * 0.50;  // Ryan's ideal: base avg < 50% normal
+  const volDrySecondary  = vol5avg    < vol50avg * 0.65;  // Acceptable: last 5 bars < 65% normal
+  const volContracting   = i >= 2
+    && vols[i]     < vol20avg * 0.80
+    && vols[i - 1] < vol20avg * 0.80
+    && vols[i - 2] < vol20avg * 0.85;
+
+  // Volume is "kering" if primary OR (secondary + contracting)
+  const baseVolumeDryUp = volDryPrimary || (volDrySecondary && volContracting);
+
+  // 7. Breakout volume: Ryan prefers ≥1.5× (minimum) to 2× (ideal) 50-day avg
+  const breakoutVolumeConfirmed = vols[i] >= vol50avg * 1.5;
+
+  // 8. vol5avg kept for backward compat (used in vol5avgPct calculation)
+  // vol5avg is now computed above as last-5-bar avg
 
   // ── Relative Strength Score ────────────────────────────────────────────────
   // Measures stock's own momentum: price change vs MA trend quality
@@ -1427,11 +1467,24 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
   const bN = `B${baseCount}`;
 
   // Volume dry-up percentage for UI progress meter
-  const vol5avgPct = vol50avg > 0 ? Math.round(vol5avg / vol50avg * 100) : 100;
+  // Ryan Filbert: compare BASE PERIOD avg to 50-day avg (primary measure)
+  // Also show last-5-bar avg for recent trend context
+  const baseAvgPct = vol50avg > 0 ? Math.round(baseAvgVol / vol50avg * 100) : 100;
+  const vol5avgPct = vol50avg > 0 ? Math.round(vol5avg    / vol50avg * 100) : 100;
+  // Use base period avg as the primary display metric (more accurate to Ryan Filbert theory)
+  const displayVolPct = baseAvgPct;
 
   // Collect specific missing criteria for actionable feedback
   const missing: string[] = [];
-  if (!baseVolumeDryUp)      missing.push(`volume belum kering — rata-rata 5 hari terakhir masih ${vol5avgPct}% dari normal. Butuh turun ke bawah 70% (artinya: sepi pembeli & penjual, saham sedang "diam" dan siap breakout)`);
+  if (!baseVolumeDryUp) {
+    const target = volDryPrimary ? '' : volDrySecondary ? '(vol 5 hari sudah cukup kering, tapi butuh pola kontraksi)' : '';
+    missing.push(
+      `volume base belum kering — rata-rata selama base ${baseAvgPct}% dari normal (butuh <50%). ` +
+      `5 hari terakhir: ${vol5avgPct}% (butuh <65%). ` +
+      `Ryan Filbert: "volume di base harus sangat sepi, idealnya di bawah 50% rata-rata 50 hari, ` +
+      `artinya penjual sudah habis dan tidak ada yang mau jual di harga ini." ${target}`
+    );
+  }
   if (baseRange >= 20)       missing.push(`base terlalu lebar (${Math.round(baseRange)}% — idealnya <20%, tunggu VCP kontraksi lebih lanjut)`);
   if (!ma150AboveMA200)      missing.push('MA150 belum di atas MA200 (alignment belum sempurna)');
   if (!ma50AboveMA150)       missing.push('MA50 belum di atas MA150');
@@ -1501,7 +1554,8 @@ export function calculateRyanFilbert(data: ChartData[]): RyanFilbertResult | nul
     breakoutVolumeConfirmed, baseVolumeDryUp,
     relativeStrength: rs, rsLabel,
     signal, signalReason, score, setupQuality,
-    vol5avgPct, volDryUpTarget: 70, vol50avg, vol5avg,
+    vol5avgPct, baseAvgPct, displayVolPct, volDryUpTarget: 50,
+    vol50avg, vol5avg, baseAvgVol, baseBars, volDryPrimary,
   };
 }
 
