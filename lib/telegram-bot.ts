@@ -11,35 +11,94 @@ import {
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8605664472:AAGUfoi3Toe89UaJMFAfEL9afE7lp6H6e6s';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
-// ── Fetch historical data from Yahoo Finance (server-side) ─────────────────
-async function fetchOHLCV(symbol: string, interval: string = '1d', days: number = 365): Promise<ChartData[]> {
+// ── Deduplication: prevent processing same update_id twice (Telegram retries) ──
+const processedUpdates = new Set<number>();
+export function isAlreadyProcessed(updateId: number): boolean {
+  if (processedUpdates.has(updateId)) return true;
+  processedUpdates.add(updateId);
+  if (processedUpdates.size > 500) {
+    const first = processedUpdates.values().next().value;
+    if (first !== undefined) processedUpdates.delete(first);
+  }
+  return false;
+}
+
+// ── Fetch OHLCV directly from Yahoo Finance v8 chart API ──────────────────
+// Using raw HTTP — no library dependency, no self-call (avoids Vercel circular issues)
+async function fetchOHLCV(symbol: string, interval: string = '1d', days: number = 400): Promise<ChartData[]> {
   try {
-    const YahooFinanceModule = (await import('yahoo-finance2')).default;
-    const yf = new YahooFinanceModule();
+    // Map interval to Yahoo Finance range
+    let range = '2y';
+    if (interval === '5m')  range = '5d';
+    else if (interval === '15m') range = '10d';
+    else if (interval === '1h')  range = '60d';
+    else if (interval === '1d')  {
+      // Use period1/period2 for more control
+      range = '2y';
+    }
 
-    const period1 = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    const period2 = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+    const period2 = Math.floor((Date.now() + 24 * 60 * 60 * 1000) / 1000);
 
-    const result: any = await yf.chart(symbol, {
-      period1,
-      period2,
-      interval: interval as any,
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&period1=${period1}&period2=${period2}&includePrePost=false&events=div%2Csplits`;
+
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      },
+      signal: AbortSignal.timeout(20000),
     });
 
-    if (!result?.quotes?.length) return [];
+    if (!res.ok) {
+      // Retry with query1
+      const url2 = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&period1=${period1}&period2=${period2}&includePrePost=false`;
+      const res2 = await fetch(url2, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res2.ok) {
+        console.error('Yahoo Finance HTTP error:', res.status, symbol);
+        return [];
+      }
+      return parseYahooResponse(await res2.json());
+    }
 
-    return result.quotes
-      .filter((q: any) => q.date && q.close != null)
-      .map((q: any) => ({
-        time: Math.floor(new Date(q.date).getTime() / 1000),
-        open: q.open ?? q.close,
-        high: q.high ?? q.close,
-        low: q.low ?? q.close,
-        close: q.close,
-        volume: q.volume ?? 0,
-      }));
+    return parseYahooResponse(await res.json());
   } catch (err: any) {
-    console.error('Telegram fetchOHLCV error:', err.message);
+    console.error('Telegram fetchOHLCV error:', symbol, err.message);
+    return [];
+  }
+}
+
+function parseYahooResponse(json: any): ChartData[] {
+  try {
+    if (!json?.chart?.result?.[0]) return [];
+    const result = json.chart.result[0];
+    const timestamps: number[] = result.timestamp ?? [];
+    const quote = result.indicators?.quote?.[0];
+    if (!quote || !timestamps.length) return [];
+
+    const data: ChartData[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const close = quote.close?.[i];
+      const open  = quote.open?.[i];
+      const high  = quote.high?.[i];
+      const low   = quote.low?.[i];
+      const vol   = quote.volume?.[i];
+      if (close == null || close === 0) continue;
+      // Add WIB offset (+7h) to match app chart
+      data.push({
+        time: timestamps[i] + 7 * 3600,
+        open:   open  ?? close,
+        high:   high  ?? close,
+        low:    low   ?? close,
+        close,
+        volume: vol   ?? 0,
+      });
+    }
+    return data;
+  } catch {
     return [];
   }
 }
@@ -69,22 +128,34 @@ function asciiBar(score: number, max: number = 100, len: number = 8): string {
 
 // ── Send message helper ────────────────────────────────────────────────────
 export async function sendTelegramMessage(chatId: number | string, text: string, parseMode: 'HTML' | 'Markdown' = 'HTML'): Promise<void> {
+  // Telegram max message length is 4096 characters
+  const MAX_LEN = 4000;
+  const msgToSend = text.length > MAX_LEN ? text.slice(0, MAX_LEN) + '\n\n<i>[Pesan dipotong]</i>' : text;
+
   try {
-    const url = `${TELEGRAM_API}/sendMessage`;
-    const body = {
-      chat_id: chatId,
-      text,
-      parse_mode: parseMode,
-      disable_web_page_preview: true,
-    };
-    const res = await fetch(url, {
+    const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: msgToSend,
+        parse_mode: parseMode,
+        disable_web_page_preview: true,
+      }),
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) {
-      const err = await res.text();
-      console.error('Telegram sendMessage error:', err);
+      const errText = await res.text();
+      console.error('Telegram sendMessage error:', res.status, errText);
+      // If HTML parse error, retry as plain text
+      if (res.status === 400 && errText.includes('parse')) {
+        await fetch(`${TELEGRAM_API}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: msgToSend.replace(/<[^>]+>/g, ''), disable_web_page_preview: true }),
+          signal: AbortSignal.timeout(10000),
+        });
+      }
     }
   } catch (e: any) {
     console.error('Telegram sendMessage exception:', e.message);

@@ -5,7 +5,13 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { handleTelegramUpdate } from '../../../lib/telegram-bot';
+import { handleTelegramUpdate, isAlreadyProcessed } from '../../../lib/telegram-bot';
+
+// Tell Vercel: allow up to 60s execution (needed for Yahoo Finance fetch + calculations)
+export const maxDuration = 60;
+
+// Force Node.js runtime (not Edge) so we have full Node APIs
+export const runtime = 'nodejs';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8605664472:AAGUfoi3Toe89UaJMFAfEL9afE7lp6H6e6s';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -14,14 +20,25 @@ const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
-    // Handle asynchronously so we return 200 immediately to Telegram
-    handleTelegramUpdate(body).catch((err: any) =>
-      console.error('Async Telegram update error:', err.message)
-    );
+
+    // Deduplicate — Telegram retries if it doesn't get 200 within 5s,
+    // so the same update_id can arrive multiple times.
+    const updateId: number = body?.update_id;
+    if (updateId && isAlreadyProcessed(updateId)) {
+      // Already handled — ack immediately, do nothing
+      return NextResponse.json({ ok: true, skipped: true });
+    }
+
+    // Process SYNCHRONOUSLY within the request — do NOT fire-and-forget.
+    // On Vercel, the function is killed immediately after returning,
+    // so fire-and-forget would silently discard the work.
+    await handleTelegramUpdate(body);
+
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     console.error('Telegram POST error:', err.message);
-    return NextResponse.json({ ok: false, error: err.message }, { status: 200 }); // always 200 for Telegram
+    // Always return 200 to Telegram — 4xx/5xx causes it to retry endlessly
+    return NextResponse.json({ ok: false, error: err.message }, { status: 200 });
   }
 }
 
