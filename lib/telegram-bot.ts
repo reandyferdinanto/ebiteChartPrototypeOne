@@ -1,6 +1,12 @@
 // ============================================================================
 // EBITE CHART — TELEGRAM BOT SERVICE
-// Commands: /rf, /cp, /vcp, /start, /help
+// Commands (Bahasa Indonesia):
+//   /analisa [saham] — Analisis lengkap 3-in-1 (RF + Candle Power + VSA)
+//   /besok   [saham] — Prediksi candle besok (Candle Power)
+//   /cek     [saham] — Analisis mendalam VCP + Wyckoff + VSA
+//   /rf      [saham] — Analisis gaya Ryan Filbert (swing trade)
+//   /mulai          — Panduan & daftar perintah
+//   /bantuan        — Sama dengan /mulai
 // ============================================================================
 
 import {
@@ -166,30 +172,187 @@ export async function sendTelegramMessage(chatId: number | string, text: string,
 export function buildStartMessage(): string {
   return `<b>🤖 Ebite Chart — Asisten Analisa Saham Indonesia</b>
 
-Halo! Saya membantu kamu menganalisis saham IDX secara otomatis.
-Cukup ketik perintah + kode saham, dan saya akan memberikan analisis lengkap beserta saran yang mudah dimengerti.
+Halo! Saya membantu menganalisis saham IDX secara otomatis menggunakan metode Wyckoff, VSA, VCP, dan Ryan Filbert.
 
 <b>📋 Daftar Perintah:</b>
 
-/rf BBCA
-→ <i>Analisis gaya Ryan Filbert — cocok untuk swing trade 1–4 minggu</i>
-→ <i>Cek apakah saham di Fase 2 (uptrend), volume kering, dan siap breakout</i>
+/analisa BBCA
+→ <i>✨ Analisis <b>LENGKAP</b> — cocok untuk pemula maupun trader berpengalaman</i>
+→ <i>Gabungan Ryan Filbert + Prediksi Candle + VSA dalam satu ringkasan</i>
 
-/cp TLKM
-→ <i>Candle Power — prediksi arah candle BESOK</i>
-→ <i>Cocok untuk tahu apakah besok saham cenderung naik atau turun</i>
+/besok TLKM
+→ <i>🕯️ Prediksi candle <b>BESOK</b> — naik, turun, atau sideways?</i>
+→ <i>Menggunakan Candle Power + Predicta V4</i>
 
-/vcp ASII
-→ <i>Analisis VCP + Wyckoff + VSA — analisis mendalam</i>
-→ <i>Cek pola kontraksi volatilitas, tekanan jual/beli, dan momentum</i>
+/cek ASII
+→ <i>🔬 Analisis <b>MENDALAM</b> — Wyckoff, VCP, VSA, support &amp; resistance</i>
+→ <i>Cocok untuk swing trader yang ingin tahu detail pergerakan</i>
 
-/help — Tampilkan panduan ini lagi
+/rf BMRI
+→ <i>📊 Analisis <b>Ryan Filbert</b> — cocok untuk swing trade 1–4 minggu</i>
+→ <i>Cek Fase Weinstein, volume kering, dan setup breakout</i>
+
+/bantuan — Tampilkan panduan ini lagi
 
 <b>💡 Cara pakai:</b>
-• Ketik kode saham tanpa ".JK" — contoh: <code>BBCA</code>, <code>BMRI</code>, <code>TLKM</code>
-• Untuk IHSG: ketik <code>/rf IHSG</code>
+• Ketik kode saham <b>tanpa</b> ".JK" — contoh: <code>BBCA</code>, <code>BMRI</code>, <code>TLKM</code>
+• Untuk IHSG: ketik <code>/analisa IHSG</code>
+
+<b>🔑 Pilih perintah yang tepat:</b>
+• Mau tahu <i>besok naik atau turun?</i> → <code>/besok</code>
+• Mau tahu <i>saham layak dibeli atau tidak?</i> → <code>/rf</code>
+• Mau tahu <i>semua sekaligus?</i> → <code>/analisa</code>
+• Mau analisis <i>detail teknikal?</i> → <code>/cek</code>
 
 <i>⚠️ Semua analisis bersifat teknikal, bukan rekomendasi investasi. Selalu gunakan stop loss.</i>`;
+}
+
+// ── /analisa [ticker] — Analisis Lengkap 3-in-1 ───────────────────────────
+export async function handleAnalisaCommand(ticker: string, chatId: number | string): Promise<void> {
+  const symbol = normalizeSymbol(ticker);
+  const display = displaySymbol(symbol);
+
+  await sendTelegramMessage(chatId, `⏳ Sedang menganalisis <b>${display}</b> secara lengkap... Mohon tunggu sebentar.`);
+
+  const data = await fetchOHLCV(symbol, '1d', 500);
+  if (data.length < 50) {
+    await sendTelegramMessage(chatId, `❌ Kode saham <b>${display}</b> tidak ditemukan atau data tidak cukup.\nPastikan kode benar, contoh: <code>/analisa BBCA</code>`);
+    return;
+  }
+
+  const indicators = calculateAllIndicators(data);
+  const rf  = indicators.ryanFilbert;
+  const cp  = indicators.candlePower;
+  const p4  = indicators.predictaV4;
+  const { cppScore, cppBias, wyckoffPhase, vsaMarkers: vsaMrk, bandar: vsaSignal } = indicators.signals;
+
+  const price  = data[data.length - 1].close;
+  const prev   = data[data.length - 2]?.close ?? price;
+  const chgPct = ((price - prev) / prev * 100);
+  const chgStr = (chgPct >= 0 ? '+' : '') + chgPct.toFixed(2) + '%';
+  const chgEmoji = chgPct >= 1 ? '🟢' : chgPct <= -1 ? '🔴' : '🟡';
+
+  // ── Bagian 1: Ryan Filbert ringkas ──────────────────────────────────────
+  const chk = (v: boolean) => v ? '✅' : '❌';
+  let rfStr = '❓ Data Ryan Filbert tidak tersedia';
+  let rfSignalEmoji = '⬜';
+  let rfConclusion = '';
+  if (rf) {
+    const phEmoji = rf.phase === 2 ? '🚀' : rf.phase === 1 ? '🏗️' : rf.phase === 3 ? '⚠️' : '📉';
+    const qEmoji  = rf.setupQuality === 'PERFECT' ? '✨' : rf.setupQuality === 'GOOD' ? '👍' : rf.setupQuality === 'FAIR' ? '⚡' : '⛔';
+    rfSignalEmoji = rf.signal === 'BUY' ? '🟢' : rf.signal === 'WAIT' ? '🟡' : '🔴';
+
+    rfStr = `${phEmoji} Fase ${rf.phase} — ${rf.phaseLabel} | ${qEmoji} Setup: <b>${rf.setupQuality}</b> (${rf.score}/100)
+${chk(rf.aboveMA150)} MA150  ${chk(rf.aboveMA200)} MA200  ${chk(rf.ma50Rising)} MA50↑  ${chk(rf.baseVolumeDryUp)} Vol Kering
+Entry: <b>${fmtRp(rf.pivotEntry)}</b> | SL: ${fmtRp(rf.stopLoss)} | TP: ${fmtRp(rf.targetPrice)} | R:R <b>${rf.riskReward}x</b>`;
+
+    if (rf.signal === 'BUY' && rf.setupQuality === 'PERFECT') {
+      rfConclusion = `✅ <b>Layak beli!</b> Semua kriteria Ryan Filbert terpenuhi.`;
+    } else if (rf.signal === 'BUY' && rf.setupQuality === 'GOOD') {
+      rfConclusion = `👍 <b>Hampir siap.</b> Setup bagus, tunggu konfirmasi breakout di ${fmtRp(rf.pivotEntry)}.`;
+    } else if (rf.signal === 'WAIT') {
+      rfConclusion = `⏳ <b>Belum saatnya.</b> Pantau di watchlist, ${rf.baseVolumeDryUp ? 'tunggu breakout' : 'volume belum kering'}.`;
+    } else {
+      rfConclusion = `🚫 <b>Hindari dulu.</b> ${rf.phaseDesc}`;
+    }
+  }
+
+  // ── Bagian 2: Candle Power ringkas ──────────────────────────────────────
+  const powerNum = parseInt(indicators.candlePowerAnalysis.match(/Power: (\d+)/)?.[1] ?? '50');
+  const powerEmoji = powerNum >= 80 ? '🟢' : powerNum >= 60 ? '🟡' : powerNum >= 40 ? '🟠' : '🔴';
+  const biasEmoji  = cppBias === 'BULLISH' ? '📈' : cppBias === 'BEARISH' ? '📉' : '➡️';
+  const qKey = cp?.nextCandleQuality ?? 'NEUTRAL';
+  const qLabels: Record<string, string> = {
+    'STRONG_SUSTAINED':  'Candle besar, naik kuat & bertahan',
+    'MODERATE_SUSTAINED':'Candle sedang, naik bertahan',
+    'WEAK_FLASH':        'Naik sesaat, body kecil / wick panjang',
+    'REVERSAL_UP':       'Hammer / reversal — potensi balik naik',
+    'BEARISH_SUSTAINED': 'Candle merah besar, turun berlanjut',
+    'BEARISH_FLASH':     'Turun sesaat, body kecil',
+    'DISTRIBUTION_TRAP': 'Jebakan naik (wick atas panjang)',
+    'NEUTRAL':           'Flat / konsolidasi',
+  };
+  const nextCandleLabel = cp ? qLabels[qKey] ?? '—' : '—';
+  const nextCandleDetail = cp?.nextCandleDetail ?? '—';
+
+  // ── Bagian 3: Kesimpulan akhir ───────────────────────────────────────────
+  // Gabungkan sinyal RF + CP + Wyckoff untuk keputusan akhir
+  const rfBull = rf && (rf.signal === 'BUY' || rf.setupQuality === 'PERFECT' || rf.setupQuality === 'GOOD');
+  const rfBear = rf && rf.signal === 'SELL';
+  const cpBull = cppBias === 'BULLISH' && powerNum >= 60;
+  const cpBear = cppBias === 'BEARISH' && powerNum <= 40;
+  const wyBull = wyckoffPhase.includes('MARKUP') || wyckoffPhase.includes('ACCUMULATION');
+  const wyBear = wyckoffPhase.includes('DISTRIBUTION') || wyckoffPhase.includes('MARKDOWN');
+
+  const bullCount = (rfBull ? 1 : 0) + (cpBull ? 1 : 0) + (wyBull ? 1 : 0);
+  const bearCount = (rfBear ? 1 : 0) + (cpBear ? 1 : 0) + (wyBear ? 1 : 0);
+
+  let finalEmoji = '⬜', finalAction = '', finalDetail = '';
+  if (bullCount >= 2 && bearCount === 0) {
+    finalEmoji  = '🟢';
+    finalAction = 'PERTIMBANGKAN BELI / HOLD';
+    finalDetail = `${bullCount}/3 sinyal bullish selaras. ${rfConclusion ? rfConclusion.replace(/<[^>]+>/g, '') : ''} Candle besok: ${nextCandleLabel}.`;
+  } else if (bullCount >= 2 && bearCount === 1) {
+    finalEmoji  = '🟡';
+    finalAction = 'HATI-HATI / SELEKTIF';
+    finalDetail = `Mayoritas sinyal bullish tapi ada satu yang bearish. Masuk hanya jika ada konfirmasi volume. Pasang stop loss ketat.`;
+  } else if (bearCount >= 2 && bullCount === 0) {
+    finalEmoji  = '🔴';
+    finalAction = 'HINDARI / KURANGI POSISI';
+    finalDetail = `${bearCount}/3 sinyal bearish selaras. Risiko turun lebih besar. Jika pegang saham ini, pastikan stop loss terpasang.`;
+  } else if (bearCount >= 1 && bullCount === 0) {
+    finalEmoji  = '🟠';
+    finalAction = 'TUNGGU DULU';
+    finalDetail = `Sinyal bearish lebih dominan. Lebih baik menunggu setup yang lebih jelas daripada masuk sekarang.`;
+  } else {
+    finalEmoji  = '⬜';
+    finalAction = 'NETRAL / PANTAU';
+    finalDetail = `Sinyal campuran. Pasar sedang konsolidasi atau transisi. Simpan di watchlist dan tunggu konfirmasi.`;
+  }
+
+  // ── Predicta V4 ringkas ──────────────────────────────────────────────────
+  let p4Str = '';
+  if (p4) {
+    const p4Status = p4.longPerfect  ? '⚡ PERFECT BELI' :
+                     p4.shortPerfect ? '⚡ PERFECT JUAL' :
+                     p4.verdict === 'STRONG_BULL' ? '🟢 Sangat Bullish' :
+                     p4.verdict === 'BULL'        ? '🟢 Bullish' :
+                     p4.verdict === 'BEAR'        ? '🔴 Bearish' :
+                     p4.verdict === 'STRONG_BEAR' ? '🔴 Sangat Bearish' : '⬜ Netral';
+    p4Str = `\n<b>🔮 Predicta V4:</b> ${p4Status} — Long ${p4.longPct}% | Short ${p4.shortPct}% | Confluence ${p4.confluenceLong}/8`;
+  }
+
+  const msg = `<b>🧠 ANALISIS LENGKAP — ${display}</b>
+${chgEmoji} Harga: <b>${fmtRp(price)}</b> <i>(${chgStr} hari ini)</i>
+
+━━━━━━━━━━━━━━━━━━━━
+<b>📊 1. RYAN FILBERT (Swing Trade)</b>
+━━━━━━━━━━━━━━━━━━━━
+${rfSignalEmoji} ${rfStr}
+${rfConclusion}
+
+━━━━━━━━━━━━━━━━━━━━
+<b>🕯️ 2. PREDIKSI CANDLE BESOK</b>
+━━━━━━━━━━━━━━━━━━━━
+${powerEmoji} Power: <b>${powerNum}/100</b> | ${biasEmoji} CPP: <b>${cppScore > 0 ? '+' : ''}${cppScore}</b>
+Jenis candle besok: <b>${nextCandleLabel}</b>
+<i>${nextCandleDetail !== '—' ? nextCandleDetail : ''}</i>${p4Str}
+
+━━━━━━━━━━━━━━━━━━━━
+<b>🌊 3. WYCKOFF / VSA</b>
+━━━━━━━━━━━━━━━━━━━━
+Fase Wyckoff: <b>${wyckoffPhase}</b>
+Sinyal VSA  : ${vsaSignal}
+
+━━━━━━━━━━━━━━━━━━━━
+<b>💬 KESIMPULAN AKHIR</b>
+━━━━━━━━━━━━━━━━━━━━
+${finalEmoji} <b>${finalAction}</b>
+${finalDetail}
+
+<i>⚠️ Analisis teknikal, bukan rekomendasi investasi. Selalu gunakan stop loss.</i>`;
+
+  await sendTelegramMessage(chatId, msg);
 }
 
 // ── /rf [ticker] — Ryan Filbert Analysis ──────────────────────────────────
@@ -597,10 +760,12 @@ export async function handleTelegramUpdate(update: any): Promise<void> {
   try {
     switch (cmd) {
       case 'start':
+      case 'mulai':
         await sendTelegramMessage(chatId, buildStartMessage());
         break;
 
       case 'help':
+      case 'bantuan':
         await sendTelegramMessage(chatId, buildStartMessage());
         break;
 
@@ -623,6 +788,30 @@ export async function handleTelegramUpdate(update: any): Promise<void> {
       case 'vcp':
         if (!arg) {
           await sendTelegramMessage(chatId, '❌ Masukkan kode saham.\nContoh: /vcp ASII');
+        } else {
+          await handleVCPCommand(arg, chatId);
+        }
+        break;
+
+      case 'analisa':
+        if (!arg) {
+          await sendTelegramMessage(chatId, '❌ Masukkan kode saham.\nContoh: /analisa BBCA');
+        } else {
+          await handleAnalisaCommand(arg, chatId);
+        }
+        break;
+
+      case 'besok':
+        if (!arg) {
+          await sendTelegramMessage(chatId, '❌ Masukkan kode saham.\nContoh: /besok TLKM');
+        } else {
+          await handleCPCommand(arg, chatId);
+        }
+        break;
+
+      case 'cek':
+        if (!arg) {
+          await sendTelegramMessage(chatId, '❌ Masukkan kode saham.\nContoh: /cek ASII');
         } else {
           await handleVCPCommand(arg, chatId);
         }
