@@ -401,6 +401,43 @@ export default function StockChart({ data, timeframe = '1d' }: StockChartProps) 
       });
     }
 
+    // ── RYAN FILBERT PIVOT LINES ──────────────────────────────────────────
+    // Show horizontal lines for pivot entry, stop loss, and target price
+    // These are always drawn (independent of indicator toggles) so traders always
+    // see "the waiting zone" described in the Ryan Filbert analysis panel.
+    if (calculatedIndicators.ryanFilbert && data.length >= 220) {
+      const rf = calculatedIndicators.ryanFilbert;
+      // Only draw lines for Phase 2 (tradeable) or Phase 1 (watching)
+      if (rf.phase === 2 || rf.phase === 1) {
+        const startTime = data[Math.max(0, data.length - 60)].time; // show last 60 bars only
+        const endTime   = data[data.length - 1].time;
+
+        // Helper: draw a horizontal line as a 2-point line series
+        const drawHLine = (price: number, color: string, lineStyle: number, label: string) => {
+          const s = chart.addLineSeries({
+            color,
+            lineWidth: 1,
+            lineStyle,          // 0=solid, 1=dotted, 2=dashed, 3=large-dashed
+            priceLineVisible: true,
+            lastValueVisible: true,
+            title: label,
+            crosshairMarkerVisible: false,
+          });
+          s.setData([
+            { time: startTime, value: price },
+            { time: endTime,   value: price },
+          ] as any);
+        };
+
+        // Pivot entry: dashed orange (the key breakout level to watch)
+        drawHLine(rf.pivotEntry, '#f59e0b', 2, `Pivot Rp${rf.pivotEntry.toLocaleString('id-ID')}`);
+        // Stop loss: dashed red
+        drawHLine(rf.stopLoss,   '#ef4444', 2, `SL Rp${rf.stopLoss.toLocaleString('id-ID')}`);
+        // Target: dashed green
+        drawHLine(rf.targetPrice, '#10b981', 2, `Target Rp${rf.targetPrice.toLocaleString('id-ID')}`);
+      }
+    }
+
     // ── VOLUME (overlay on main chart, bottom 25%) ────────────────────────
     if (data[0]?.volume) {
       const volumeSeries = chart.addHistogramSeries({

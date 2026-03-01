@@ -40,7 +40,7 @@ interface RFResult {
   baseLabel: string; baseCount: number;
   pivotEntry: number; stopLoss: number; targetPrice: number; riskReward: number;
   aboveMA150: boolean; aboveMA200: boolean; ma150AboveMA200: boolean; ma50Rising: boolean;
-  breakoutVolumeConfirmed: boolean; baseVolumeDryUp: boolean;
+  breakoutVolumeConfirmed: boolean; baseVolumeDryUp: boolean; vol5avgPct: number;
   relativeStrength: number; rsLabel: 'STRONG'|'NEUTRAL'|'WEAK';
   signal: 'BUY'|'WAIT'|'AVOID'; signalReason: string; score: number;
   setupQuality: 'PERFECT'|'GOOD'|'FAIR'|'POOR';
@@ -255,6 +255,7 @@ function calcRyanFilbert(C: number[], H: number[], L: number[], V: number[], i: 
   let vs5 = 0; for (let k = i - 4; k <= i; k++) vs5 += V[k] || 0;
   const breakoutVolumeConfirmed = (V[i] || 0) >= v50a * 1.5;
   const baseVolumeDryUp = (vs5 / 5) < v50a * 0.70;
+  const vol5avgPct = v50a > 0 ? Math.round((vs5 / 5 / v50a) * 100) : 100;
   const chg20 = i >= 20 ? (C[i] - C[i - 20]) / C[i - 20] * 100 : 0;
   const chg50 = i >= 50 ? (C[i] - C[i - 50]) / C[i - 50] * 100 : 0;
   const chg200 = i >= 200 ? (C[i] - C[i - 200]) / C[i - 200] * 100 : 0;
@@ -318,7 +319,7 @@ function calcRyanFilbert(C: number[], H: number[], L: number[], V: number[], i: 
     phase === 2 && score >= 65 ? 'GOOD' :
     phase === 2 && score >= 50 ? 'FAIR' :
     score >= 45 ? 'FAIR' : 'POOR';
-  return { phase, phaseLabel, baseLabel: `B${baseCount}`, baseCount, pivotEntry, stopLoss: sl, targetPrice: tp, riskReward: rr, aboveMA150, aboveMA200, ma150AboveMA200, ma50Rising, breakoutVolumeConfirmed, baseVolumeDryUp, relativeStrength: rs, rsLabel, signal, signalReason, score, setupQuality };
+  return { phase, phaseLabel, baseLabel: `B${baseCount}`, baseCount, pivotEntry, stopLoss: sl, targetPrice: tp, riskReward: rr, aboveMA150, aboveMA200, ma150AboveMA200, ma50Rising, breakoutVolumeConfirmed, baseVolumeDryUp, vol5avgPct, relativeStrength: rs, rsLabel, signal, signalReason, score, setupQuality };
 }
 
 // =============================================================================

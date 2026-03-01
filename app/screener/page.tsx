@@ -42,6 +42,7 @@ interface SwingResult {
   breakoutVolumeConfirmed: boolean;
   baseLabel: string;
   relativeStrength: number;
+  vol5avgPct: number;
 }
 interface ScalpResult {
   symbol: string; price: number; changePercent: number;
@@ -421,6 +422,9 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
   if (rfPhase2Strong) pts.push('F2★'); else pts.push('F2');
   if (cppBias === 'BULLISH') pts.push(`CPP +${cppScore}`);
 
+  // Calculate vol5avgPct (5-bar cooldown avg vs 20-bar avg)
+  const vol5avgPct = volAvg20 > 0 ? Math.round((coolAvgVol / volAvg20) * 100) : 100;
+
   return {
     price: C[i], gainFromBase: boGain, cooldownBars, sellVolRatio, accRatio,
     cppScore, cppBias, powerScore, rmv: rmvVal, volRatio, momentum10: mom10,
@@ -429,7 +433,7 @@ function screenSwing(data: any[], _todayChg: number): Omit<SwingResult,'symbol'|
     rfPhase: 2, rfPhaseLabel, rfScore,
     aboveMA150, aboveMA200, ma150AboveMA200, ma50Rising, ma200Rising,
     baseVolumeDryUp, breakoutVolumeConfirmed,
-    baseLabel, relativeStrength,
+    baseLabel, relativeStrength, vol5avgPct,
   };
 }
 
@@ -730,6 +734,24 @@ function buildSpringChartURL(r: SpringResult): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GRADE CONFIG & VSA COLORS — used in render
+// ─────────────────────────────────────────────────────────────────────────────
+const gc: Record<string, { border: string; bg: string; badge: string }> = {
+  PERFECT: { border: 'border-emerald-500/50', bg: 'bg-emerald-500/10', badge: 'bg-emerald-600' },
+  GOOD:    { border: 'border-blue-500/40',    bg: 'bg-blue-500/8',     badge: 'bg-blue-600' },
+  FAIR:    { border: 'border-yellow-500/30',  bg: 'bg-yellow-500/5',   badge: 'bg-yellow-600' },
+};
+const vc: Record<string, string> = {
+  'DRY UP':       'text-blue-400',
+  'NO SUPPLY':    'text-cyan-400',
+  'ICEBERG':      'text-cyan-300',
+  'HAMMER':       'text-emerald-400',
+  'RESTING MA20': 'text-yellow-400',
+  'NEUTRAL':      'text-gray-400',
+  'SPRING':       'text-green-400',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // INNER CONTENT
 // ─────────────────────────────────────────────────────────────────────────────
 function ScreenerContent() {
@@ -883,10 +905,13 @@ function ScreenerContent() {
   };
 
   // ── Shared UI ──────────────────────────────────────────────────────────────
-  const gc = {
+  const gc: Record<string,{bg:string;border:string;text:string;badge:string}> = {
     'PERFECT':{bg:'bg-emerald-500/15',border:'border-emerald-500/50',text:'text-emerald-300',badge:'bg-emerald-600'},
     'GOOD':   {bg:'bg-cyan-500/10',   border:'border-cyan-500/40',   text:'text-cyan-300',   badge:'bg-cyan-600'},
+    'FAIR':   {bg:'bg-yellow-500/8',  border:'border-yellow-500/30', text:'text-yellow-300', badge:'bg-yellow-600'},
+    'POOR':   {bg:'bg-gray-800/50',   border:'border-gray-700/50',   text:'text-gray-400',   badge:'bg-gray-600'},
   };
+  const gcDefault = {bg:'bg-gray-800/50',border:'border-gray-700/50',text:'text-gray-400',badge:'bg-gray-600'};
   const vc: Record<string,string> = {'DRY UP':'text-cyan-400','NO SUPPLY':'text-cyan-400','ICEBERG':'text-blue-400','HAMMER':'text-yellow-400','GAINER HOLD':'text-emerald-400','NEUTRAL':'text-gray-500'};
 
   // ── VCP tab ────────────────────────────────────────────────────────────────
@@ -976,7 +1001,7 @@ function ScreenerContent() {
       {swFilt.length>0&&(
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {swFilt.map(r=>{
-            const cfg=gc[r.grade]; const rr=r.price>r.stopLoss?Math.abs(r.target-r.price)/Math.abs(r.price-r.stopLoss):null;
+            const cfg=gc[r.grade]||gcDefault; const rr=r.price>r.stopLoss?Math.abs(r.target-r.price)/Math.abs(r.price-r.stopLoss):null;
             return (
               <div key={r.symbol} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4 space-y-3`}>
                 {/* Header */}
@@ -1152,7 +1177,7 @@ function ScreenerContent() {
       {scFilt.length>0&&(
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {scFilt.map((r,idx)=>{
-            const cfg=gc[r.grade]; const rr=r.price>r.stopLoss?Math.abs(r.target-r.price)/Math.abs(r.price-r.stopLoss):null;
+            const cfg=gc[r.grade]||gcDefault; const rr=r.price>r.stopLoss?Math.abs(r.target-r.price)/Math.abs(r.price-r.stopLoss):null;
             const cm=r.calmBars*(r.timeframe==='5m'?5:15);
             return (
               <div key={`${r.symbol}-${idx}`} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4 space-y-3`}>
