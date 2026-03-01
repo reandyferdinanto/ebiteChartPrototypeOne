@@ -1,6 +1,7 @@
 // ============================================================================
 // EBITE CHART — Chart Image Generator for Telegram
-// Uses QuickChart.io to render candlestick charts with MA, S/R, SL/TP
+// Uses QuickChart.io candlestick chart with MA, S/R, SL/TP
+// QuickChart v2 supports chartjs-chart-financial (candlestick/ohlc)
 // ============================================================================
 
 import { ChartData } from './indicators';
@@ -14,10 +15,9 @@ export interface ChartImageOptions {
   sr?: { level: number; type: 'support' | 'resistance' }[];
 }
 
-// ── Format date label ────────────────────────────────────────────────────────
+// ── Format date label (short DD/MM) ─────────────────────────────────────────
 function formatDate(timestamp: number): string {
-  // Subtract WIB offset (+7h) that was added when fetching
-  const d = new Date((timestamp - 7 * 3600) * 1000);
+  const d = new Date(timestamp * 1000);
   const day   = d.getUTCDate().toString().padStart(2, '0');
   const month = (d.getUTCMonth() + 1).toString().padStart(2, '0');
   return `${day}/${month}`;
@@ -33,17 +33,19 @@ function calcMA(closes: number[], period: number): (number | null)[] {
   });
 }
 
-// ── Build Chart.js config for QuickChart ─────────────────────────────────────
+// ── Build QuickChart config using floating bar candlestick simulation ─────────
+// QuickChart free tier uses Chart.js 4 without chartjs-chart-financial.
+// We simulate candlesticks with two stacked bar layers:
+//   1. Wick bars  [low, high]  — thin, semi-transparent candle color
+//   2. Body bars  [open, close] — solid candle color
 export function buildChartConfig(opts: ChartImageOptions): object {
   const { title, data, slLevel, tpLevel, entryLevel, sr = [] } = opts;
 
-  // Use last 60 candles for clarity
-  const candles = data.slice(-60);
-  const N = candles.length;
+  // Use last 50 candles for readability
+  const candles = data.slice(-50);
 
   const labels = candles.map(d => formatDate(d.time));
   const closes = candles.map(d => d.close);
-  const opens  = candles.map(d => d.open);
   const highs  = candles.map(d => d.high);
   const lows   = candles.map(d => d.low);
   const vols   = candles.map(d => d.volume ?? 0);
@@ -51,45 +53,55 @@ export function buildChartConfig(opts: ChartImageOptions): object {
   // Moving averages
   const ma20raw = calcMA(closes, 20);
   const ma50raw = calcMA(closes, 50);
-  const ma20 = ma20raw.map(v => v ?? null);
-  const ma50 = ma50raw.map(v => v ?? null);
 
-  // Calculate price range for y-axis
+  // Price range for y-axis padding
   const allPrices = [...highs, ...lows];
-  if (slLevel) allPrices.push(slLevel);
-  if (tpLevel) allPrices.push(tpLevel);
+  if (slLevel)    allPrices.push(slLevel);
+  if (tpLevel)    allPrices.push(tpLevel);
   if (entryLevel) allPrices.push(entryLevel);
-  const priceMin = Math.min(...allPrices) * 0.995;
-  const priceMax = Math.max(...allPrices) * 1.005;
+  const priceMin = Math.min(...allPrices) * 0.993;
+  const priceMax = Math.max(...allPrices) * 1.007;
 
-  // Build candlestick data as OHLC for financial chart
-  // QuickChart supports 'candlestick' chart type via chartjs-chart-financial plugin
-  const ohlcData = candles.map((c, i) => ({
-    x: i,
-    o: c.open,
-    h: c.high,
-    l: c.low,
-    c: c.close,
-  }));
+  // Candle colors
+  const bullColor = 'rgba(0,200,100,1)';
+  const bearColor = 'rgba(235,60,60,1)';
+  const bullFade  = 'rgba(0,200,100,0.5)';
+  const bearFade  = 'rgba(235,60,60,0.5)';
 
-  // Annotation lines for SL, TP, Entry, MA levels
-  const annotations: any = {};
+  const bodyColors = candles.map(c => c.close >= c.open ? bullColor : bearColor);
+  const wickColors = candles.map(c => c.close >= c.open ? bullFade  : bearFade);
+
+  // Floating bar data: [lo, hi] for wicks, [open, close] for bodies
+  const wickData = candles.map(c => [c.low, c.high]);
+  const bodyData = candles.map(c => [
+    Math.min(c.open, c.close),
+    Math.max(c.open, c.close),
+  ]);
+
+  // Volume: scale to bottom 15% of price axis for overlay
+  const maxVol  = Math.max(...vols, 1);
+  const volRange = (priceMax - priceMin) * 0.15;
+  const scaledVols = vols.map(v => priceMin + (v / maxVol) * volRange);
+  const volColors  = candles.map(c =>
+    c.close >= c.open ? 'rgba(0,184,148,0.3)' : 'rgba(214,48,49,0.3)'
+  );
+
+  // ── Annotation lines ──────────────────────────────────────────────────────
+  const annotations: Record<string, any> = {};
 
   if (entryLevel) {
     annotations.entryLine = {
       type: 'line',
-      yMin: entryLevel,
-      yMax: entryLevel,
-      borderColor: '#00b894',
-      borderWidth: 2,
-      borderDash: [6, 3],
+      yMin: entryLevel, yMax: entryLevel,
+      borderColor: '#00e676', borderWidth: 2, borderDash: [6, 3],
       label: {
-        display: true,
-        content: `Entry: ${Math.round(entryLevel).toLocaleString('id-ID')}`,
+        enabled: true,
+        content: `Entry ${Math.round(entryLevel).toLocaleString('id-ID')}`,
         position: 'end',
-        backgroundColor: 'rgba(0,184,148,0.8)',
-        color: '#fff',
-        font: { size: 11, weight: 'bold' },
+        backgroundColor: 'rgba(0,230,118,0.85)',
+        color: '#000',
+        font: { size: 10, weight: 'bold' },
+        padding: { x: 4, y: 2 },
       },
     };
   }
@@ -97,18 +109,16 @@ export function buildChartConfig(opts: ChartImageOptions): object {
   if (slLevel) {
     annotations.slLine = {
       type: 'line',
-      yMin: slLevel,
-      yMax: slLevel,
-      borderColor: '#d63031',
-      borderWidth: 2,
-      borderDash: [4, 4],
+      yMin: slLevel, yMax: slLevel,
+      borderColor: '#ff5252', borderWidth: 2, borderDash: [5, 4],
       label: {
-        display: true,
-        content: `SL: ${Math.round(slLevel).toLocaleString('id-ID')}`,
+        enabled: true,
+        content: `SL ${Math.round(slLevel).toLocaleString('id-ID')}`,
         position: 'end',
-        backgroundColor: 'rgba(214,48,49,0.85)',
+        backgroundColor: 'rgba(255,82,82,0.9)',
         color: '#fff',
-        font: { size: 11, weight: 'bold' },
+        font: { size: 10, weight: 'bold' },
+        padding: { x: 4, y: 2 },
       },
     };
   }
@@ -116,141 +126,111 @@ export function buildChartConfig(opts: ChartImageOptions): object {
   if (tpLevel) {
     annotations.tpLine = {
       type: 'line',
-      yMin: tpLevel,
-      yMax: tpLevel,
-      borderColor: '#0984e3',
-      borderWidth: 2,
-      borderDash: [4, 4],
+      yMin: tpLevel, yMax: tpLevel,
+      borderColor: '#40c4ff', borderWidth: 2, borderDash: [5, 4],
       label: {
-        display: true,
-        content: `TP: ${Math.round(tpLevel).toLocaleString('id-ID')}`,
+        enabled: true,
+        content: `TP ${Math.round(tpLevel).toLocaleString('id-ID')}`,
         position: 'end',
-        backgroundColor: 'rgba(9,132,227,0.85)',
-        color: '#fff',
-        font: { size: 11, weight: 'bold' },
+        backgroundColor: 'rgba(64,196,255,0.9)',
+        color: '#000',
+        font: { size: 10, weight: 'bold' },
+        padding: { x: 4, y: 2 },
       },
     };
   }
 
-  // Support / Resistance zones
+  // S/R zones (max 4)
+  const usedLevels = new Set<string>();
+  [slLevel, tpLevel, entryLevel].forEach(l => { if (l) usedLevels.add(Math.round(l).toString()); });
   sr.slice(0, 4).forEach((zone, i) => {
-    const isSupport = zone.type === 'support';
+    const key = Math.round(zone.level).toString();
+    if (usedLevels.has(key)) return;
+    usedLevels.add(key);
+    const isSup = zone.type === 'support';
     annotations[`sr_${i}`] = {
       type: 'line',
-      yMin: zone.level,
-      yMax: zone.level,
-      borderColor: isSupport ? 'rgba(0,184,148,0.7)' : 'rgba(214,48,49,0.7)',
-      borderWidth: 1,
-      borderDash: [3, 3],
+      yMin: zone.level, yMax: zone.level,
+      borderColor: isSup ? 'rgba(0,230,118,0.6)' : 'rgba(255,82,82,0.6)',
+      borderWidth: 1, borderDash: [3, 4],
       label: {
-        display: true,
-        content: `${isSupport ? 'SUP' : 'RES'}: ${Math.round(zone.level).toLocaleString('id-ID')}`,
+        enabled: true,
+        content: `${isSup ? 'SUP' : 'RES'} ${Math.round(zone.level).toLocaleString('id-ID')}`,
         position: 'start',
-        backgroundColor: isSupport ? 'rgba(0,184,148,0.6)' : 'rgba(214,48,49,0.6)',
-        color: '#fff',
-        font: { size: 9 },
+        backgroundColor: isSup ? 'rgba(0,230,118,0.5)' : 'rgba(255,82,82,0.5)',
+        color: '#fff', font: { size: 9 }, padding: { x: 3, y: 1 },
       },
     };
   });
-
-  // We use a line chart for price (OHLC approximate via close) since QuickChart
-  // financial charts need specific setup. Let's use a mixed line + bar approach
-  // for clear visualization on Telegram.
-
-  // Color each candle close bar
-  const candleColors = candles.map(c => c.close >= c.open ? 'rgba(0,184,148,0.85)' : 'rgba(214,48,49,0.85)');
-  const candleBorders = candles.map(c => c.close >= c.open ? '#00b894' : '#d63031');
-
-  // Volume colors
-  const volColors = candles.map(c => c.close >= c.open ? 'rgba(0,184,148,0.3)' : 'rgba(214,48,49,0.3)');
-
-  const maxVol = Math.max(...vols);
-  // Scale volume to fit on chart (10% of price range)
-  const priceRange = priceMax - priceMin;
-  const volScale = (priceRange * 0.15) / (maxVol || 1);
-  const scaledVols = vols.map(v => priceMin + v * volScale);
 
   return {
     type: 'bar',
     data: {
       labels,
       datasets: [
-        // High-Low wicks (line)
+        // 1. Wick bars — thin [low, high]
         {
-          type: 'line',
-          label: 'High',
-          data: highs,
-          borderColor: 'rgba(120,120,120,0.6)',
-          backgroundColor: 'transparent',
-          borderWidth: 1,
-          pointRadius: 0,
-          tension: 0,
-          yAxisID: 'y',
-          order: 5,
-        },
-        {
-          type: 'line',
-          label: 'Low',
-          data: lows,
-          borderColor: 'rgba(120,120,120,0.6)',
-          backgroundColor: 'transparent',
-          borderWidth: 1,
-          pointRadius: 0,
-          tension: 0,
-          yAxisID: 'y',
-          order: 5,
-        },
-        // Close price bars (simulate candle body)
-        {
-          type: 'bar',
-          label: 'Candle',
-          data: closes,
-          backgroundColor: candleColors,
-          borderColor: candleBorders,
-          borderWidth: 1,
-          barPercentage: 0.6,
+          label: 'Wick',
+          data: wickData,
+          backgroundColor: wickColors,
+          borderColor: wickColors,
+          borderWidth: 0,
+          barPercentage: 0.2,       // thin wick
+          categoryPercentage: 1.0,
           yAxisID: 'y',
           order: 3,
-          base: opens,
         },
-        // MA 20
+        // 2. Body bars — [open, close]
+        {
+          label: 'Body',
+          data: bodyData,
+          backgroundColor: bodyColors,
+          borderColor: bodyColors,
+          borderWidth: 0,
+          barPercentage: 0.65,      // wider body
+          categoryPercentage: 1.0,
+          yAxisID: 'y',
+          order: 2,
+        },
+        // 3. MA 20
         {
           type: 'line',
           label: 'MA20',
-          data: ma20,
-          borderColor: '#f39c12',
+          data: ma20raw,
+          borderColor: '#ffd600',
           backgroundColor: 'transparent',
-          borderWidth: 2,
+          borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.3,
           yAxisID: 'y',
-          order: 2,
+          order: 1,
           spanGaps: true,
         },
-        // MA 50
+        // 4. MA 50
         {
           type: 'line',
           label: 'MA50',
-          data: ma50,
-          borderColor: '#9b59b6',
+          data: ma50raw,
+          borderColor: '#e040fb',
           backgroundColor: 'transparent',
-          borderWidth: 2,
+          borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.3,
           yAxisID: 'y',
-          order: 2,
+          order: 1,
           spanGaps: true,
         },
-        // Volume (scaled to bottom 15% of chart)
+        // 5. Volume overlay (scaled to bottom 15%)
         {
           type: 'bar',
           label: 'Volume',
           data: scaledVols,
           backgroundColor: volColors,
           borderWidth: 0,
-          barPercentage: 0.8,
+          barPercentage: 0.9,
+          categoryPercentage: 1,
           yAxisID: 'y',
-          order: 10,
+          order: 5,
           base: priceMin,
         },
       ],
@@ -258,38 +238,36 @@ export function buildChartConfig(opts: ChartImageOptions): object {
     options: {
       responsive: false,
       animation: false,
-      interaction: { mode: 'index', intersect: false },
       plugins: {
         title: {
           display: true,
           text: title,
-          color: '#e0e0e0',
-          font: { size: 16, weight: 'bold' },
-          padding: { bottom: 8 },
+          color: '#e8e8e8',
+          font: { size: 14, weight: 'bold' },
+          padding: { bottom: 4 },
         },
         legend: {
           display: true,
           position: 'top',
           labels: {
-            color: '#a0a0a0',
-            font: { size: 11 },
+            color: '#aaa',
+            font: { size: 10 },
             filter: (item: any) => ['MA20', 'MA50'].includes(item.text),
-            boxWidth: 20,
+            boxWidth: 14, padding: 8,
           },
         },
-        annotation: {
-          annotations,
-        },
+        annotation: { annotations },
       },
       scales: {
         x: {
           ticks: {
-            color: '#888',
+            color: '#666',
             maxTicksLimit: 10,
             maxRotation: 0,
-            font: { size: 10 },
+            font: { size: 9 },
+            autoSkip: true,
           },
-          grid: { color: 'rgba(255,255,255,0.05)' },
+          grid: { color: 'rgba(255,255,255,0.04)' },
         },
         y: {
           min: priceMin,
@@ -297,28 +275,66 @@ export function buildChartConfig(opts: ChartImageOptions): object {
           position: 'right',
           ticks: {
             color: '#888',
-            font: { size: 10 },
+            font: { size: 9 },
+            maxTicksLimit: 8,
             callback: (val: number) => {
-              if (val >= 1000) return (val / 1000).toFixed(1) + 'K';
+              if (val >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M';
+              if (val >= 1_000)    return (val / 1_000).toFixed(1) + 'K';
               return val.toFixed(0);
             },
           },
-          grid: { color: 'rgba(255,255,255,0.07)' },
+          grid: { color: 'rgba(255,255,255,0.06)' },
         },
       },
-      layout: { padding: { left: 10, right: 80, top: 10, bottom: 10 } },
+      layout: {
+        padding: { left: 6, right: 90, top: 4, bottom: 6 },
+      },
     },
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#131722',
   };
 }
 
 // ── Generate chart image URL via QuickChart.io ────────────────────────────────
+// Using v2 endpoint which supports chartjs-chart-financial (candlestick)
 export function buildChartImageUrl(opts: ChartImageOptions): string {
   const config = buildChartConfig(opts);
   const configStr = JSON.stringify(config);
-  const encoded = encodeURIComponent(configStr);
-  // QuickChart.io free API — 800x400 px
-  return `https://quickchart.io/chart?c=${encoded}&w=800&h=450&bkg=%231a1a2e&f=png&v=4`;
+  const encoded   = encodeURIComponent(configStr);
+  // QuickChart v2 — supports candlestick, 800x450, dark background
+  return `https://quickchart.io/chart?c=${encoded}&w=800&h=450&bkg=%23131722&f=png`;
+}
+
+// ── Fetch chart image as buffer via QuickChart POST ───────────────────────────
+// POST avoids URL length limits and ensures candlestick plugin is loaded
+export async function fetchChartImageBuffer(opts: ChartImageOptions): Promise<Buffer | null> {
+  const config = buildChartConfig(opts);
+
+  try {
+    const res = await fetch('https://quickchart.io/chart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        width:           800,
+        height:          450,
+        backgroundColor: '#131722',
+        format:          'png',
+        chart:           config,
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('QuickChart POST error:', res.status, errText.slice(0, 200));
+      return null;
+    }
+
+    const arrayBuf = await res.arrayBuffer();
+    return Buffer.from(arrayBuf);
+  } catch (e: any) {
+    console.error('fetchChartImageBuffer error:', e.message);
+    return null;
+  }
 }
 
 // ── Send chart photo to Telegram ─────────────────────────────────────────────
@@ -331,39 +347,48 @@ export async function sendChartPhoto(
   const TELEGRAM_API = `https://api.telegram.org/bot${botToken}`;
 
   try {
-    const imageUrl = buildChartImageUrl(opts);
+    // 1. First try POST to QuickChart to get binary image buffer
+    const imgBuffer = await fetchChartImageBuffer(opts);
 
-    const res = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+    if (imgBuffer) {
+      // Send as multipart/form-data using native FormData (Node 18+ / Edge runtime)
+      const form = new FormData();
+      const blob = new Blob([new Uint8Array(imgBuffer)], { type: 'image/png' });
+      form.append('chat_id',    String(chatId));
+      form.append('photo',      blob, 'chart.png');
+      form.append('caption',    caption.slice(0, 1024));
+      form.append('parse_mode', 'HTML');
+
+      const res = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+        method: 'POST',
+        body:   form,
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (res.ok) return;
+      const errText = await res.text();
+      console.error('Telegram multipart sendPhoto error:', res.status, errText.slice(0, 200));
+    }
+
+    // 2. Fallback: send URL directly (GET-encoded)
+    const imageUrl = buildChartImageUrl(opts);
+    const res2 = await fetch(`${TELEGRAM_API}/sendPhoto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: chatId,
-        photo: imageUrl,
-        caption: caption.slice(0, 1024),
+        chat_id:    chatId,
+        photo:      imageUrl,
+        caption:    caption.slice(0, 1024),
         parse_mode: 'HTML',
       }),
       signal: AbortSignal.timeout(30000),
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error('Telegram sendPhoto error:', res.status, errText);
-
-      // Fallback: try sending as document (sometimes works for large images)
-      await fetch(`${TELEGRAM_API}/sendDocument`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          document: imageUrl,
-          caption: caption.slice(0, 1024),
-          parse_mode: 'HTML',
-        }),
-        signal: AbortSignal.timeout(20000),
-      });
+    if (!res2.ok) {
+      const errText = await res2.text();
+      console.error('Telegram sendPhoto URL fallback error:', res2.status, errText.slice(0, 200));
     }
   } catch (e: any) {
     console.error('sendChartPhoto exception:', e.message);
   }
 }
-
