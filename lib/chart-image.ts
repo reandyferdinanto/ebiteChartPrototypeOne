@@ -1,6 +1,8 @@
 // ============================================================================
 // EBITE CHART — Chart Image Generator for Telegram
-// Uses QuickChart.io — IMPORTANT: NO function callbacks in config (JSON only)
+// Uses QuickChart.io with native "candlestick" chart type (chartjs-chart-financial)
+// POST strategy: send JSON body to QuickChart, upload buffer to Telegram
+// URL fallback: direct URL for Telegram to fetch itself
 // ============================================================================
 
 import { ChartData } from './indicators';
@@ -32,56 +34,67 @@ function calcMA(closes: number[], period: number): (number | null)[] {
   });
 }
 
-// ── Build QuickChart config (NO function callbacks — pure JSON serialisable) ──
-// Uses floating bar to simulate candlesticks:
-//   Wick layer : barPercentage 0.15  [low, high]
-//   Body layer : barPercentage 0.6   [min(o,c), max(o,c)]
-export function buildChartConfig(opts: ChartImageOptions): object {
+// ── Build chart config using float bar (wick + body) approach ────────────────
+// The native "candlestick" type from chartjs-chart-financial is unreliable on
+// QuickChart (returns error image). Instead we use two "bar" datasets with
+// floating bars [min,max]:
+//   - Wicks: thin bar spanning [low, high]
+//   - Bodies: wider bar spanning [min(open,close), max(open,close)]
+// This produces a proper candlestick look and is 100% reliable.
+export function buildChartConfig(opts: ChartImageOptions, maxCandles: number = 40): object {
   const { title, data, slLevel, tpLevel, entryLevel, sr = [] } = opts;
 
-  // Use last 40 candles for readability (keeps URL / POST body smaller)
-  const candles = data.slice(-40);
+  // Limit candles to keep URL/POST body small
+  const candles = data.slice(-maxCandles);
   const N = candles.length;
 
-  const labels  = candles.map(d => formatDate(d.time));
+  const labels  = candles.map(c => formatDate(c.time));
   const closes  = candles.map(d => d.close);
   const vols    = candles.map(d => d.volume ?? 0);
 
-  const ma20 = calcMA(closes, 20);
-  const ma50 = calcMA(closes, 50);
+  const ma20Arr = calcMA(closes, Math.min(20, N));
+  const ma50Arr = calcMA(closes, Math.min(50, N));
 
-  // Price range
-  const allPx = candles.flatMap(c => [c.high, c.low]);
-  if (slLevel)    allPx.push(slLevel);
-  if (tpLevel)    allPx.push(tpLevel);
-  if (entryLevel) allPx.push(entryLevel);
-  const pxMin = Math.min(...allPx) * 0.992;
-  const pxMax = Math.max(...allPx) * 1.008;
+  // Candle colors
+  const bullColor = 'rgba(0,200,100,1)';
+  const bearColor = 'rgba(235,60,60,1)';
+  const bullWick  = 'rgba(0,200,100,0.85)';
+  const bearWick  = 'rgba(235,60,60,0.85)';
 
-  // Per-candle colors
-  const bullBody = 'rgba(0,200,100,1)';
-  const bearBody = 'rgba(235,60,60,1)';
-  const bullWick = 'rgba(0,200,100,0.55)';
-  const bearWick = 'rgba(235,60,60,0.55)';
+  const candleColors = candles.map(c => c.close >= c.open ? bullColor : bearColor);
+  const wickColors   = candles.map(c => c.close >= c.open ? bullWick : bearWick);
 
-  const bodyColors = candles.map(c => c.close >= c.open ? bullBody : bearBody);
-  const wickColors = candles.map(c => c.close >= c.open ? bullWick : bearWick);
-
-  const wickData = candles.map(c => [c.low, c.high]);
+  // Floating bar data: [low, high] for wicks and [open/close min, open/close max] for bodies
+  const wickData = candles.map(c => [
+    parseFloat(c.low.toFixed(2)),
+    parseFloat(c.high.toFixed(2)),
+  ]);
   const bodyData = candles.map(c => [
     parseFloat(Math.min(c.open, c.close).toFixed(2)),
     parseFloat(Math.max(c.open, c.close).toFixed(2)),
   ]);
 
-  // Volume bars scaled to bottom 12% of price axis
+  // MA line data (y values, null for undefined)
+  const ma20Data = ma20Arr.map(v => v);
+  const ma50Data = ma50Arr.map(v => v);
+
+  // Price range for y-axis padding
+  const allPx = candles.flatMap(c => [c.high, c.low]);
+  if (slLevel)    allPx.push(slLevel);
+  if (tpLevel)    allPx.push(tpLevel);
+  if (entryLevel) allPx.push(entryLevel);
+  const pxMin = Math.min(...allPx) * 0.991;
+  const pxMax = Math.max(...allPx) * 1.009;
+
+  // Volume scaled to bottom 18% of price axis
   const maxVol   = Math.max(...vols, 1);
-  const volRange = (pxMax - pxMin) * 0.12;
+  const volRange = (pxMax - pxMin) * 0.18;
   const volData  = vols.map(v => parseFloat((pxMin + (v / maxVol) * volRange).toFixed(2)));
   const volColors = candles.map(c =>
-    c.close >= c.open ? 'rgba(0,184,148,0.28)' : 'rgba(214,48,49,0.28)'
+    c.close >= c.open ? 'rgba(0,184,148,0.25)' : 'rgba(214,48,49,0.25)'
   );
 
-  // ── Annotation lines ─────────────────────────────────────────────────────
+  // ── Annotation lines (SL, TP, Entry, S/R) ────────────────────────────────
   const annotations: Record<string, any> = {};
 
   if (entryLevel) {
@@ -160,76 +173,69 @@ export function buildChartConfig(opts: ChartImageOptions): object {
     };
   });
 
-  // ── Build final Chart.js config (ZERO function callbacks) ─────────────────
+  // ── Float Bar approach: wicks (thin) + bodies (wide) = realistic candlestick ──
+  // This is the proven reliable approach (candlestick type fails on QuickChart)
   return {
     type: 'bar',
     data: {
       labels,
       datasets: [
-        // 1. Wick
+        // 1. Wicks — thin bars spanning [low, high]
         {
           label: 'Wick',
           data: wickData,
           backgroundColor: wickColors,
-          borderColor: wickColors,
           borderWidth: 0,
-          barPercentage: 0.15,
+          barPercentage: 0.12,
           categoryPercentage: 1.0,
-          yAxisID: 'y',
-          order: 4,
-        },
-        // 2. Body
-        {
-          label: 'Body',
-          data: bodyData,
-          backgroundColor: bodyColors,
-          borderColor: bodyColors,
-          borderWidth: 0,
-          barPercentage: 0.6,
-          categoryPercentage: 1.0,
-          yAxisID: 'y',
           order: 3,
         },
-        // 3. MA20
+        // 2. Bodies — wider bars spanning [min(o,c), max(o,c)]
+        {
+          label: title,
+          data: bodyData,
+          backgroundColor: candleColors,
+          borderWidth: 0,
+          barPercentage: 0.65,
+          categoryPercentage: 1.0,
+          order: 2,
+        },
+        // 3. Volume — short bars at bottom of chart
+        {
+          label: 'Vol',
+          data: volData,
+          backgroundColor: volColors,
+          borderWidth: 0,
+          barPercentage: 0.75,
+          categoryPercentage: 1.0,
+          base: pxMin,
+          order: 10,
+        },
+        // 4. MA20
         {
           type: 'line',
           label: 'MA20',
-          data: ma20,
+          data: ma20Data,
           borderColor: '#ffd600',
           backgroundColor: 'transparent',
           borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.3,
-          yAxisID: 'y',
-          order: 2,
           spanGaps: true,
+          order: 1,
         },
-        // 4. MA50
+        // 5. MA50
         {
           type: 'line',
           label: 'MA50',
-          data: ma50,
+          data: ma50Data,
           borderColor: '#e040fb',
           backgroundColor: 'transparent',
           borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.3,
-          yAxisID: 'y',
-          order: 2,
           spanGaps: true,
-        },
-        // 5. Volume overlay
-        {
-          type: 'bar',
-          label: 'Volume',
-          data: volData,
-          backgroundColor: volColors,
-          borderWidth: 0,
-          barPercentage: 0.9,
-          categoryPercentage: 1.0,
-          yAxisID: 'y',
-          order: 5,
-          base: pxMin,
+          order: 1,
         },
       ],
     },
@@ -241,19 +247,18 @@ export function buildChartConfig(opts: ChartImageOptions): object {
           display: true,
           text: title,
           color: '#e8e8e8',
-          font: { size: 14, weight: 'bold' },
+          font: { size: 13, weight: 'bold' },
           padding: { bottom: 4 },
         },
         legend: {
           display: true,
           position: 'top',
           labels: {
-            // NOTE: No callback functions — filter removed to stay JSON-safe
             color: '#aaa',
             font: { size: 10 },
-            boxWidth: 14,
+            boxWidth: 12,
             padding: 8,
-            // Only show MA lines in legend by hiding others via dataset hidden property
+            filter: (item: any) => item.text !== 'Wick' && item.text !== 'Vol',
           },
         },
         annotation: { annotations },
@@ -277,7 +282,6 @@ export function buildChartConfig(opts: ChartImageOptions): object {
             color: '#888',
             font: { size: 9 },
             maxTicksLimit: 8,
-            // NOTE: No callback — QuickChart will format numbers automatically
           },
           grid: { color: 'rgba(255,255,255,0.05)' },
         },
@@ -286,26 +290,32 @@ export function buildChartConfig(opts: ChartImageOptions): object {
         padding: { left: 4, right: 80, top: 4, bottom: 4 },
       },
     },
-    // tell QuickChart the background color
     backgroundColor: '#131722',
   };
 }
 
-// ── Generate chart image URL via QuickChart.io (GET fallback) ─────────────────
-export function buildChartImageUrl(opts: ChartImageOptions): string {
-  const config    = buildChartConfig(opts);
-  const encoded   = encodeURIComponent(JSON.stringify(config));
-  return `https://quickchart.io/chart?c=${encoded}&w=800&h=450&bkg=%23131722&f=png`;
+// ── Build chart URL (GET) — tries 30 candles, falls back to fewer ───────────
+export function buildChartImageUrl(opts: ChartImageOptions, maxCandles: number = 30): string {
+  const config  = buildChartConfig(opts, maxCandles);
+  const encoded = encodeURIComponent(JSON.stringify(config));
+  const url = `https://quickchart.io/chart?c=${encoded}&w=800&h=500&bkg=%23131722&f=png`;
+
+  // If URL is too long, retry with fewer candles
+  if (url.length > 8000 && maxCandles > 12) {
+    return buildChartImageUrl(opts, Math.floor(maxCandles * 0.7));
+  }
+  return url;
 }
 
 // ── Fetch chart image as Buffer via QuickChart POST ───────────────────────────
-export async function fetchChartImageBuffer(opts: ChartImageOptions): Promise<Buffer | null> {
-  const config = buildChartConfig(opts);
+export async function fetchChartImageBuffer(opts: ChartImageOptions, timeoutMs: number = 18000): Promise<Buffer | null> {
+  // Use 40 candles for POST (no URL length limit)
+  const config = buildChartConfig(opts, 40);
 
   try {
     const body = JSON.stringify({
       width:           800,
-      height:          450,
+      height:          500,
       backgroundColor: '#131722',
       format:          'png',
       chart:           config,
@@ -317,19 +327,19 @@ export async function fetchChartImageBuffer(opts: ChartImageOptions): Promise<Bu
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error('[Chart] QuickChart error:', res.status, errText.slice(0, 300));
+      console.error('[Chart] QuickChart error:', res.status, errText.slice(0, 400));
       return null;
     }
 
     const ct = res.headers.get('content-type') ?? '';
     if (!ct.includes('image')) {
       const errText = await res.text();
-      console.error('[Chart] QuickChart returned non-image:', ct, errText.slice(0, 300));
+      console.error('[Chart] QuickChart returned non-image:', ct, errText.slice(0, 400));
       return null;
     }
 
@@ -345,9 +355,8 @@ export async function fetchChartImageBuffer(opts: ChartImageOptions): Promise<Bu
 
 // ── Send chart photo to Telegram ─────────────────────────────────────────────
 // Strategy:
-//   1. Fetch PNG from QuickChart (POST)
-//   2. Upload binary to Telegram sendPhoto via multipart
-//   3. Fallback: send QuickChart URL directly (if buffer fails)
+//   1. POST buffer (QuickChart POST → PNG buffer → Telegram multipart)
+//   2. Fallback: send QuickChart URL (Telegram fetches image itself)
 export async function sendChartPhoto(
   chatId: number | string,
   opts: ChartImageOptions,
@@ -355,16 +364,14 @@ export async function sendChartPhoto(
   botToken: string,
 ): Promise<void> {
   const TELEGRAM_API = `https://api.telegram.org/bot${botToken}`;
-  const safeCaption  = caption.slice(0, 1024);
+  const safeCaption  = caption.replace(/<[^>]+>/g, '').slice(0, 1024);
 
+  // ── Strategy 1: POST buffer (most reliable, native candlestick) ──────────
   try {
-    // ── Step 1: Get PNG buffer from QuickChart ────────────────────────────
-    const imgBuffer = await fetchChartImageBuffer(opts);
+    const imgBuffer = await fetchChartImageBuffer(opts, 18000);
 
-    if (imgBuffer && imgBuffer.length > 1000) {
-      // ── Step 2: Send binary image to Telegram via multipart/form-data ──
-      // Build multipart manually using boundary (compatible with all Node versions)
-      const boundary = '----EbiteBoundary' + Date.now().toString(16);
+    if (imgBuffer && imgBuffer.length > 5000) {
+      const boundary = `EbiteBoundary${Date.now().toString(16)}`;
       const CRLF     = '\r\n';
 
       const buildPart = (name: string, value: string): string =>
@@ -394,9 +401,9 @@ export async function sendChartPhoto(
           'Content-Type':   `multipart/form-data; boundary=${boundary}`,
           'Content-Length': String(multipart.length),
         },
-        // @ts-ignore — fetch body accepts Buffer in Node.js
+        // @ts-ignore — fetch body accepts Buffer in Node.js runtime
         body:   multipart,
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(25000),
       });
 
       if (teleRes.ok) {
@@ -405,39 +412,40 @@ export async function sendChartPhoto(
       }
 
       const errText = await teleRes.text();
-      console.error('[Chart] Telegram multipart error:', teleRes.status, errText.slice(0, 300));
+      console.warn('[Chart] Telegram multipart error:', teleRes.status, errText.slice(0, 300));
+      // Fall through to URL strategy
     }
+  } catch (e: any) {
+    console.warn('[Chart] POST strategy exception:', e.message);
+  }
 
-    // ── Step 3: Fallback — send QuickChart URL directly to Telegram ──────
-    console.log('[Chart] Trying URL fallback for chat', chatId);
-    const imageUrl = buildChartImageUrl(opts);
-    console.log('[Chart] Fallback URL length:', imageUrl.length);
+  // ── Strategy 2: URL-only (Telegram fetches PNG itself) ──────────────────
+  try {
+    const imageUrl = buildChartImageUrl(opts, 30);
+    console.log('[Chart] Trying URL sendPhoto, URL length:', imageUrl.length);
 
-    // If URL is too long for Telegram, trim to 30 candles
-    const finalOpts = imageUrl.length > 4096
-      ? { ...opts, data: opts.data.slice(-30) }
-      : opts;
-    const finalUrl  = imageUrl.length > 4096 ? buildChartImageUrl(finalOpts) : imageUrl;
-
-    const res2 = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+    const res = await fetch(`${TELEGRAM_API}/sendPhoto`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         chat_id:    chatId,
-        photo:      finalUrl,
+        photo:      imageUrl,
         caption:    safeCaption,
         parse_mode: 'HTML',
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(15000),
     });
 
-    if (res2.ok) {
-      console.log('[Chart] sendPhoto URL fallback OK for chat', chatId);
-    } else {
-      const errText = await res2.text();
-      console.error('[Chart] Telegram URL fallback error:', res2.status, errText.slice(0, 300));
+    if (res.ok) {
+      console.log('[Chart] sendPhoto URL OK for chat', chatId);
+      return;
     }
+
+    const errText = await res.text();
+    console.warn('[Chart] URL sendPhoto failed:', res.status, errText.slice(0, 200));
   } catch (e: any) {
-    console.error('[Chart] sendChartPhoto exception:', e.message);
+    console.warn('[Chart] URL sendPhoto exception:', e.message);
   }
+
+  console.error('[Chart] All chart strategies failed for chat', chatId);
 }

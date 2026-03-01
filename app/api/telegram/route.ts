@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleTelegramUpdate, isAlreadyProcessed } from '../../../lib/telegram-bot';
 
-// Tell Vercel: allow up to 60s execution (needed for Yahoo Finance fetch + calculations)
+// Allow up to 60s execution on Vercel Pro plan
 export const maxDuration = 60;
 
 // Force Node.js runtime (not Edge) so we have full Node APIs
@@ -17,29 +17,46 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8605664472:AAGUfoi3Toe89UaJ
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 // ── POST: Receive updates from Telegram ───────────────────────────────────
+// Returns 200 immediately, processes the update in the background.
+// This prevents Telegram from retrying (it does so if no 200 within 5s)
+// and avoids Vercel serverless timeout for heavy commands.
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  let body: any;
   try {
-    const body = await request.json();
-
-    // Deduplicate — Telegram retries if it doesn't get 200 within 5s,
-    // so the same update_id can arrive multiple times.
-    const updateId: number = body?.update_id;
-    if (updateId && isAlreadyProcessed(updateId)) {
-      // Already handled — ack immediately, do nothing
-      return NextResponse.json({ ok: true, skipped: true });
-    }
-
-    // Process SYNCHRONOUSLY within the request — do NOT fire-and-forget.
-    // On Vercel, the function is killed immediately after returning,
-    // so fire-and-forget would silently discard the work.
-    await handleTelegramUpdate(body);
-
-    return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    console.error('Telegram POST error:', err.message);
-    // Always return 200 to Telegram — 4xx/5xx causes it to retry endlessly
-    return NextResponse.json({ ok: false, error: err.message }, { status: 200 });
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 200 });
   }
+
+  // Deduplicate — Telegram retries same update_id if no 200 quickly
+  const updateId: number = body?.update_id;
+  if (updateId && isAlreadyProcessed(updateId)) {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
+  // Fire-and-forget: process the update asynchronously.
+  // On Vercel, use the built-in waitUntil from the request context if available,
+  // otherwise just fire (the response is already sent, Vercel keeps the function
+  // alive for pending promises in Node.js runtime).
+  const processPromise = handleTelegramUpdate(body).catch((err: Error) => {
+    console.error('Telegram background handler error:', err.message);
+  });
+
+  // Next.js 15 supports after() for background work after response
+  try {
+    // Dynamic import to avoid build errors on older Next.js versions
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { after } = require('next/server');
+    if (typeof after === 'function') {
+      after(processPromise);
+    }
+  } catch {
+    // after() not available — the promise still runs in Node.js runtime
+    // as long as we don't explicitly kill it
+  }
+
+  // Always return 200 immediately to Telegram
+  return NextResponse.json({ ok: true });
 }
 
 // ── GET: Register webhook or get bot info ─────────────────────────────────

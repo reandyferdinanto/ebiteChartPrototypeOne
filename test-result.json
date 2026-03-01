@@ -1,0 +1,12 @@
+{
+  "candlestickType": {
+    "status": 400,
+    "success": false,
+    "error": "�PNG\r\n\u001a\n\u0000\u0000\u0000\rIHDR\u0000\u0000\u0002�\u0000\u0000\u0000J\b\u0006\u0000\u0000\u0000n HZ\u0000\u0000\u0000\u0006bKGD\u0000�\u0000�\u0000�����\u0000\u0000 \u0000IDATx��{\\M���?�r\u000b]h�J$wƥPD4�A\u0006?�j�1f\u0006��\u001d�|g�\u00063���k�k�2_31�##�1r�B%��Ѕ�H��R������o��>g���I��~���U{������ֳ���^ϒ\u0011\u0011��`0\u0018\f\u0006��`H�ѫ\u0016��`0\u0018\f\u0006������l\u0006��`0\u0018"
+  },
+  "floatBarType": {
+    "status": 200,
+    "success": true,
+    "bytes": 45366
+  }
+}
