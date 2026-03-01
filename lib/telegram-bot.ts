@@ -960,6 +960,23 @@ ${actionPlain}${waitAreaText}
 <i>⚠️ Analisis teknikal, bukan rekomendasi investasi. Selalu gunakan stop loss.</i>`;
 
   await sendTelegramMessage(chatId, msg);
+
+  // Send chart image for /vcp command
+  try {
+    const srZones = indicators.supportResistance?.zones?.slice(0, 4) ?? [];
+    await sendChartPhoto(
+      chatId,
+      {
+        title: `${display} — VCP & Wyckoff`,
+        data,
+        sr: srZones.map(z => ({ level: z.level, type: z.type as 'support' | 'resistance' })),
+      },
+      `📉 <b>${display}</b> | ${wyEmoji} ${wyckoffPhase} | ${evrEmoji} EVR ${evrScore > 0 ? '+' : ''}${evrScore.toFixed(2)} | ${cppBias === 'BULLISH' ? '📈' : cppBias === 'BEARISH' ? '📉' : '➡️'} CPP ${cppScore > 0 ? '+' : ''}${cppScore}`,
+      BOT_TOKEN,
+    );
+  } catch (e: any) {
+    console.error('[VCP] chart image error:', e.message);
+  }
 }
 
 // ── Main dispatcher ─────────────────────────────────────────────────────────

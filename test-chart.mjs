@@ -12,7 +12,7 @@ const config = {
   data: {
     labels,
     datasets: [
-      { label:'Wick', data: candles.map(c=>[c.l,c.h]), backgroundColor: wickColors, barPercentage: 0.2, categoryPercentage: 1.0 },
+      { label:'Wick', data: candles.map(c=>[c.l,c.h]), backgroundColor: wickColors, barPercentage: 0.2, cgit add ategoryPercentage: 1.0 },
       { label:'Body', data: candles.map(c=>[Math.min(c.o,c.c), Math.max(c.o,c.c)]), backgroundColor: bodyColors, barPercentage: 0.65, categoryPercentage: 1.0 }
     ]
   },
