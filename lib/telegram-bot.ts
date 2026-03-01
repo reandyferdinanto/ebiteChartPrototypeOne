@@ -224,7 +224,8 @@ export async function handleAnalisaCommand(ticker: string, chatId: number | stri
   const rf  = indicators.ryanFilbert;
   const cp  = indicators.candlePower;
   const p4  = indicators.predictaV4;
-  const { cppScore, cppBias, wyckoffPhase, vsaMarkers: vsaMrk, bandar: vsaSignal } = indicators.signals;
+  const { cppScore, cppBias, wyckoffPhase, bandar: vsaSignal } = indicators.signals;
+  const vsaMrk = indicators.vsaMarkers;
 
   const price  = data[data.length - 1].close;
   const prev   = data[data.length - 2]?.close ?? price;
@@ -278,7 +279,7 @@ Entry: <b>${fmtRp(rf.pivotEntry)}</b> | SL: ${fmtRp(rf.stopLoss)} | TP: ${fmtRp(
   // ── Bagian 3: Kesimpulan akhir ───────────────────────────────────────────
   // Gabungkan sinyal RF + CP + Wyckoff untuk keputusan akhir
   const rfBull = rf && (rf.signal === 'BUY' || rf.setupQuality === 'PERFECT' || rf.setupQuality === 'GOOD');
-  const rfBear = rf && rf.signal === 'SELL';
+  const rfBear = rf && rf.signal === 'AVOID';
   const cpBull = cppBias === 'BULLISH' && powerNum >= 60;
   const cpBear = cppBias === 'BEARISH' && powerNum <= 40;
   const wyBull = wyckoffPhase.includes('MARKUP') || wyckoffPhase.includes('ACCUMULATION');
